@@ -1,0 +1,20 @@
+[
+  {
+    "code": "01",
+    "name": "SEED",
+    "restaurantPassword": "",
+    "ownerPassword": ""
+  },
+  {
+    "code": "02",
+    "name": "BEECROFT",
+    "restaurantPassword": "",
+    "ownerPassword": ""
+  },
+  {
+    "code": "03",
+    "name": "EPPING",
+    "restaurantPassword": "",
+    "ownerPassword": ""
+  }
+]

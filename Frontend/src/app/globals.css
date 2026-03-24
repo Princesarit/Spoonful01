@@ -1,0 +1,30 @@
+@import "tailwindcss";
+
+:root {
+  --background: #FAF9F6;
+  --foreground: #2D392F;
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --font-sans: var(--font-geist-sans);
+  --font-mono: var(--font-geist-mono);
+
+  /* Brand fonts */
+  --font-brand: var(--font-cinzel);
+
+  /* Brand palette — The Heritage Sanctuary */
+  --color-brand-green: #2D392F;
+  --color-brand-gold: #775A19;
+  --color-brand-gold-dark: #5E4614;
+  --color-brand-gold-light: #F0EAD6;
+  --color-brand-parchment: #FAF9F6;
+  --color-brand-accent: #D9D7D2;
+}
+
+body {
+  background: var(--background);
+  color: var(--foreground);
+  font-family: Arial, Helvetica, sans-serif;
+}

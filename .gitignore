@@ -1,0 +1,23 @@
+# Dependencies
+node_modules/
+
+# Environment & secrets
+.env
+.env.local
+.env*.local
+service-account.json
+service-account.json.json
+
+# Build output
+.next/
+dist/
+
+# Claude Code
+.claude/
+
+# Other projects in this folder
+my-website/
+
+# OS
+.DS_Store
+Thumbs.db
