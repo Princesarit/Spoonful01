@@ -19,6 +19,16 @@ router.get('/', requireShopAuth, async (req: AuthRequest, res: Response) => {
   }
 })
 
+// POST /:shopCode/revenue/platforms — update platforms (owner only) — ต้องอยู่ก่อน /:id
+router.post('/platforms', requireOwner, async (req: AuthRequest, res: Response) => {
+  try {
+    await savePlatforms(req.params.shopCode, req.body as DeliveryPlatform[])
+    res.json({ ok: true })
+  } catch {
+    res.status(500).json({ error: 'Server error' })
+  }
+})
+
 // POST /:shopCode/revenue — upsert entry
 router.post('/', requireShopAuth, async (req: AuthRequest, res: Response) => {
   try {
@@ -39,16 +49,6 @@ router.delete('/:id', requireShopAuth, async (req: AuthRequest, res: Response) =
   try {
     const all = await listRevenue(req.params.shopCode)
     await saveRevenue(req.params.shopCode, all.filter((e) => e.id !== req.params.id))
-    res.json({ ok: true })
-  } catch {
-    res.status(500).json({ error: 'Server error' })
-  }
-})
-
-// POST /:shopCode/revenue/platforms — update platforms (owner only)
-router.post('/platforms', requireOwner, async (req: AuthRequest, res: Response) => {
-  try {
-    await savePlatforms(req.params.shopCode, req.body as DeliveryPlatform[])
     res.json({ ok: true })
   } catch {
     res.status(500).json({ error: 'Server error' })

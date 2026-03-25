@@ -1,27 +1,36 @@
 'use server'
 
-import { db } from '@/lib/data'
 import { getSession } from '@/lib/session'
 import type { Employee, WeekSchedule } from '@/lib/types'
+
+const BACKEND_URL = (process.env.BACKEND_URL ?? 'http://localhost:4000').replace(/\/$/, '')
+
+function authHeader(token: string) {
+  return { Authorization: `Bearer ${token}` }
+}
 
 export async function getScheduleData(shopCode: string) {
   const session = await getSession()
   if (!session || session.shopCode !== shopCode) throw new Error('Unauthorized')
-  return {
-    employees: db.employees.list(shopCode),
-    schedules: db.schedules.list(shopCode),
-  }
+
+  const res = await fetch(`${BACKEND_URL}/${shopCode}/schedules`, {
+    headers: authHeader(session.token),
+    cache: 'no-store',
+  })
+  if (!res.ok) throw new Error('Failed to fetch schedule')
+  return res.json() as Promise<{ employees: Employee[]; schedules: WeekSchedule[] }>
 }
 
 export async function saveWeekSchedule(shopCode: string, weekSchedule: WeekSchedule) {
   const session = await getSession()
   if (!session || session.shopCode !== shopCode) throw new Error('Unauthorized')
 
-  const all = db.schedules.list(shopCode)
-  const idx = all.findIndex((s) => s.weekStart === weekSchedule.weekStart)
-  if (idx >= 0) all[idx] = weekSchedule
-  else all.push(weekSchedule)
-  db.schedules.save(shopCode, all)
+  const res = await fetch(`${BACKEND_URL}/${shopCode}/schedules`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...authHeader(session.token) },
+    body: JSON.stringify(weekSchedule),
+  })
+  if (!res.ok) throw new Error('Failed to save schedule')
 }
 
 export async function saveEmployee(shopCode: string, employee: Employee) {
@@ -29,11 +38,12 @@ export async function saveEmployee(shopCode: string, employee: Employee) {
   if (!session || session.shopCode !== shopCode || session.role !== 'owner')
     throw new Error('Unauthorized')
 
-  const all = db.employees.list(shopCode)
-  const idx = all.findIndex((e) => e.id === employee.id)
-  if (idx >= 0) all[idx] = employee
-  else all.push(employee)
-  db.employees.save(shopCode, all)
+  const res = await fetch(`${BACKEND_URL}/${shopCode}/employees`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...authHeader(session.token) },
+    body: JSON.stringify(employee),
+  })
+  if (!res.ok) throw new Error('Failed to save employee')
 }
 
 export async function deleteEmployee(shopCode: string, employeeId: string) {
@@ -41,8 +51,9 @@ export async function deleteEmployee(shopCode: string, employeeId: string) {
   if (!session || session.shopCode !== shopCode || session.role !== 'owner')
     throw new Error('Unauthorized')
 
-  db.employees.save(
-    shopCode,
-    db.employees.list(shopCode).filter((e) => e.id !== employeeId),
-  )
+  const res = await fetch(`${BACKEND_URL}/${shopCode}/employees/${employeeId}`, {
+    method: 'DELETE',
+    headers: authHeader(session.token),
+  })
+  if (!res.ok) throw new Error('Failed to delete employee')
 }

@@ -3,7 +3,7 @@
 import type { StoredShop } from '@/lib/types'
 import type { ShopConfig } from '@/lib/config'
 
-const BACKEND_URL = process.env.BACKEND_URL ?? 'http://localhost:4001'
+const BACKEND_URL = (process.env.BACKEND_URL ?? 'http://localhost:4000').replace(/\/$/, '')
 const MASTER_PASSWORD = process.env.MASTER_OWNER_PASSWORD ?? ''
 
 export async function getShopsAction(): Promise<ShopConfig[]> {

@@ -4,7 +4,7 @@ import { redirect } from 'next/navigation'
 import { setSession, clearSession, getSession } from '@/lib/session'
 import type { ShopCode } from '@/lib/types'
 
-const BACKEND_URL = process.env.BACKEND_URL ?? 'http://localhost:4001'
+const BACKEND_URL = (process.env.BACKEND_URL ?? 'http://localhost:4000').replace(/\/$/, '')
 
 export async function loginAction(
   _prev: { error: string } | null,
@@ -22,9 +22,9 @@ export async function loginAction(
       body: JSON.stringify({ shopCode, password }),
     })
     const data = await res.json() as { token?: string; role?: string; error?: string }
-    if (!res.ok || !data.role) return { error: data.error ?? 'รหัสผ่านไม่ถูกต้อง' }
+    if (!res.ok || !data.role || !data.token) return { error: data.error ?? 'รหัสผ่านไม่ถูกต้อง' }
 
-    await setSession({ shopCode, role: data.role as 'staff' | 'owner' })
+    await setSession({ shopCode, role: data.role as 'staff' | 'owner', token: data.token })
   } catch {
     return { error: 'ไม่สามารถเชื่อมต่อ Backend ได้' }
   }
@@ -47,15 +47,15 @@ export async function elevateToOwnerAction(
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ shopCode: session.shopCode, password }),
     })
-    const data = await res.json() as { role?: string; error?: string }
+    const data = await res.json() as { token?: string; role?: string; error?: string }
     if (!res.ok || data.role !== 'owner') return { error: 'Owner Password ไม่ถูกต้อง' }
+    await setSession({ ...session, role: 'owner', token: data.token ?? session.token })
   } catch {
     return { error: 'ไม่สามารถเชื่อมต่อ Backend ได้' }
   }
-
-  await setSession({ ...session, role: 'owner' })
   redirect(`/${session.shopCode}`)
 }
+
 
 export async function logoutAction(): Promise<void> {
   await clearSession()

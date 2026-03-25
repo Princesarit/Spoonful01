@@ -56,7 +56,6 @@ export async function getSheetData(sheetName: string): Promise<Record<string, st
       range: sheetName,
     })
     const rows = res.data.values
-    console.log(`[sheets] ${sheetName} raw rows:`, JSON.stringify(rows))
     if (!rows || rows.length < 2) return []
     const headers = rows[0] as string[]
     return rows.slice(1).map((row) => {

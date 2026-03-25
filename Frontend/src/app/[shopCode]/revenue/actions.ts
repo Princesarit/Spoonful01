@@ -1,38 +1,58 @@
 'use server'
 
-import { db } from '@/lib/data'
 import { getSession } from '@/lib/session'
 import type { RevenueEntry, DeliveryPlatform } from '@/lib/types'
+
+const BACKEND_URL = (process.env.BACKEND_URL ?? 'http://localhost:4000').replace(/\/$/, '')
+
+function authHeader(token: string) {
+  return { Authorization: `Bearer ${token}` }
+}
 
 export async function getRevenueData(shopCode: string) {
   const session = await getSession()
   if (!session || session.shopCode !== shopCode) throw new Error('Unauthorized')
-  return {
-    entries: db.revenue.list(shopCode),
-    platforms: db.platforms.list(shopCode),
-  }
+
+  const res = await fetch(`${BACKEND_URL}/${shopCode}/revenue`, {
+    headers: authHeader(session.token),
+    cache: 'no-store',
+  })
+  if (!res.ok) throw new Error('Failed to fetch revenue')
+  return res.json() as Promise<{ entries: RevenueEntry[]; platforms: DeliveryPlatform[] }>
 }
 
 export async function saveRevenueEntry(shopCode: string, entry: RevenueEntry) {
   const session = await getSession()
   if (!session || session.shopCode !== shopCode) throw new Error('Unauthorized')
 
-  const all = db.revenue.list(shopCode)
-  const idx = all.findIndex((e) => e.id === entry.id)
-  if (idx >= 0) all[idx] = entry
-  else all.push(entry)
-  db.revenue.save(shopCode, all)
+  const res = await fetch(`${BACKEND_URL}/${shopCode}/revenue`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...authHeader(session.token) },
+    body: JSON.stringify(entry),
+  })
+  if (!res.ok) throw new Error('Failed to save revenue entry')
 }
 
 export async function deleteRevenueEntry(shopCode: string, id: string) {
   const session = await getSession()
   if (!session || session.shopCode !== shopCode) throw new Error('Unauthorized')
-  db.revenue.save(shopCode, db.revenue.list(shopCode).filter((e) => e.id !== id))
+
+  const res = await fetch(`${BACKEND_URL}/${shopCode}/revenue/${id}`, {
+    method: 'DELETE',
+    headers: authHeader(session.token),
+  })
+  if (!res.ok) throw new Error('Failed to delete revenue entry')
 }
 
 export async function savePlatforms(shopCode: string, platforms: DeliveryPlatform[]) {
   const session = await getSession()
   if (!session || session.shopCode !== shopCode || session.role !== 'owner')
     throw new Error('Unauthorized')
-  db.platforms.save(shopCode, platforms)
+
+  const res = await fetch(`${BACKEND_URL}/${shopCode}/revenue/platforms`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...authHeader(session.token) },
+    body: JSON.stringify(platforms),
+  })
+  if (!res.ok) throw new Error('Failed to save platforms')
 }

@@ -1,5 +1,5 @@
 export const config = {
-  port: parseInt(process.env.PORT ?? '4000', 10),
+  port: parseInt(process.env.PORT ?? '4001', 10),
   jwtSecret: process.env.JWT_SECRET ?? 'dev-secret-change-me',
   spreadsheetId: process.env.SPREADSHEET_ID ?? '',
   masterPassword: process.env.MASTER_PASSWORD ?? '',

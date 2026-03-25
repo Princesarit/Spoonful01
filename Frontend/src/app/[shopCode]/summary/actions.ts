@@ -1,35 +1,41 @@
 'use server'
 
-import { db } from '@/lib/data'
 import { getSession } from '@/lib/session'
+import type { Employee, TimeRecord, DeliveryTrip, RevenueEntry, ExpenseEntry, DailyNote } from '@/lib/types'
+
+const BACKEND_URL = (process.env.BACKEND_URL ?? 'http://localhost:4000').replace(/\/$/, '')
+
+function authHeader(token: string) {
+  return { Authorization: `Bearer ${token}` }
+}
 
 export async function getSummaryData(shopCode: string, month: string) {
-  // month: YYYY-MM
   const session = await getSession()
   if (!session || session.shopCode !== shopCode) throw new Error('Unauthorized')
 
-  return {
-    employees: db.employees.list(shopCode),
-    timeRecords: db.timeRecords.list(shopCode).filter((r) => r.date.startsWith(month)),
-    deliveryTrips: db.deliveryTrips.list(shopCode).filter((t) => t.date.startsWith(month)),
-    revenue: db.revenue.list(shopCode).filter((e) => e.date.startsWith(month)),
-    expenses: db.expenses.list(shopCode).filter((e) => e.date.startsWith(month)),
-    notes: db.notes.list(shopCode).filter((n) => n.date.startsWith(month)),
-  }
+  const res = await fetch(`${BACKEND_URL}/${shopCode}/summary?month=${month}`, {
+    headers: authHeader(session.token),
+    cache: 'no-store',
+  })
+  if (!res.ok) throw new Error('Failed to fetch summary')
+  return res.json() as Promise<{
+    employees: Employee[]
+    timeRecords: TimeRecord[]
+    deliveryTrips: DeliveryTrip[]
+    revenue: RevenueEntry[]
+    expenses: ExpenseEntry[]
+    notes: DailyNote[]
+  }>
 }
 
 export async function saveDailyNote(shopCode: string, date: string, note: string) {
   const session = await getSession()
   if (!session || session.shopCode !== shopCode) throw new Error('Unauthorized')
 
-  const all = db.notes.list(shopCode)
-  const idx = all.findIndex((n) => n.date === date)
-  if (note.trim() === '') {
-    db.notes.save(shopCode, all.filter((n) => n.date !== date))
-  } else if (idx >= 0) {
-    all[idx] = { date, note: note.trim() }
-    db.notes.save(shopCode, all)
-  } else {
-    db.notes.save(shopCode, [...all, { date, note: note.trim() }])
-  }
+  const res = await fetch(`${BACKEND_URL}/${shopCode}/notes`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...authHeader(session.token) },
+    body: JSON.stringify({ date, note }),
+  })
+  if (!res.ok) throw new Error('Failed to save note')
 }

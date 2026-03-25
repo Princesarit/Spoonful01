@@ -6,6 +6,7 @@ export type PaymentMethod = 'Cash' | 'Credit Card' | 'Online Banking'
 export interface Session {
   shopCode: ShopCode
   role: Role
+  token: string
 }
 
 export interface StoredShop {
