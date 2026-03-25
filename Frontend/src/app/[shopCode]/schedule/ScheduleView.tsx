@@ -78,16 +78,18 @@ export default function ScheduleView({
     return d
   })
 
+  // days array: 14 elements — index (dayIdx*2) = เช้า, (dayIdx*2+1) = เย็น
   function getEntry(empId: string): boolean[] {
     const sched = schedules.find((s) => s.weekStart === weekStr)
     if (sched) {
       const e = sched.entries.find((e) => e.employeeId === empId)
-      if (e) return e.days
+      if (e && e.days.length === 14) return e.days
     }
-    return employees.find((e) => e.id === empId)?.defaultDays.slice() ?? Array(7).fill(false)
+    const defaultDays = employees.find((e) => e.id === empId)?.defaultDays ?? Array(7).fill(false)
+    return defaultDays.flatMap((d) => [d, d])
   }
 
-  function toggleDay(empId: string, dayIdx: number) {
+  function toggleShift(empId: string, slotIdx: number) {
     if (isPast) return
     setSchedules((prev) => {
       const all = [...prev]
@@ -98,10 +100,9 @@ export default function ScheduleView({
           : employees.map((e) => ({ employeeId: e.id, days: getEntry(e.id) }))
       const newEntries = currentEntries.map((e) =>
         e.employeeId === empId
-          ? { ...e, days: e.days.map((d, i) => (i === dayIdx ? !d : d)) }
+          ? { ...e, days: e.days.map((d, i) => (i === slotIdx ? !d : d)) }
           : e,
       )
-      // ensure all employees have entries
       const merged = employees.map((emp) => {
         const found = newEntries.find((e) => e.employeeId === emp.id)
         return found ?? { employeeId: emp.id, days: getEntry(emp.id) }
@@ -141,7 +142,7 @@ export default function ScheduleView({
       setNewEmp({ name: '', position: 'Front', dailyWage: 350, defaultDays: [true, true, true, true, true, false, false] })
       setShowAdd(false)
     } catch {
-      alert('เพิ่มพนักงานไม่สำเร็จ (ต้องเป็น Owner)')
+      alert('เพิ่มพนักงานไม่สำเร็จ (ต้องเป็น Manager)')
     }
   }
 
@@ -208,55 +209,65 @@ export default function ScheduleView({
               <table className="w-full text-sm">
                 <thead>
                   <tr className="border-b border-gray-50">
-                    <th className="text-left px-3 py-2 text-xs text-gray-400 font-medium min-w-[100px]">
+                    <th className="text-left px-3 py-2 text-xs text-gray-400 font-medium min-w-22.5">
                       ชื่อ
                     </th>
                     {DAYS_SHORT.map((d, i) => (
-                      <th key={i} className="text-center px-1 py-2 text-xs text-gray-400 font-medium w-9">
+                      <th key={i} colSpan={2} className="text-center px-1 py-2 text-xs text-gray-400 font-medium">
                         <div>{d}</div>
-                        <div className="text-gray-300 text-[10px]">
-                          {weekDates[i].getDate()}
+                        <div className="text-gray-300 text-[10px]">{weekDates[i].getDate()}</div>
+                        <div className="flex gap-0.5 justify-center mt-0.5">
+                          <span className="text-[9px] text-blue-300 w-5 text-center">เช้า</span>
+                          <span className="text-[9px] text-orange-300 w-5 text-center">เย็น</span>
                         </div>
                       </th>
                     ))}
-                    {role === 'owner' && <th className="w-8" />}
+                    {role === 'owner' && <th className="w-6" />}
                   </tr>
                 </thead>
                 <tbody>
-                  {posEmps.map((emp) => (
-                    <tr key={emp.id} className="border-b border-gray-50 last:border-0">
-                      <td className="px-3 py-2 text-xs font-medium text-gray-700 whitespace-nowrap">
-                        {emp.name}
-                        <div className="text-gray-400 font-normal">{emp.dailyWage}฿/วัน</div>
-                      </td>
-                      {getEntry(emp.id).map((checked, i) => (
-                        <td key={i} className="text-center px-1 py-1.5">
-                          <button
-                            onClick={() => toggleDay(emp.id, i)}
-                            disabled={isPast}
-                            title={isPast ? undefined : DAYS_SHORT[i]}
-                            className={`w-7 h-7 rounded-md text-xs font-bold transition-colors cursor-pointer ${
-                              checked
-                                ? 'bg-green-100 text-green-700 hover:bg-green-200'
-                                : 'bg-brand-parchment text-gray-300 hover:bg-gray-100'
-                            } disabled:cursor-default`}
-                          >
-                            {checked ? '✓' : '✗'}
-                          </button>
+                  {posEmps.map((emp) => {
+                    const days = getEntry(emp.id)
+                    return (
+                      <tr key={emp.id} className="border-b border-gray-50 last:border-0">
+                        <td className="px-3 py-2 text-xs font-medium text-gray-700 whitespace-nowrap">
+                          {emp.name}
                         </td>
-                      ))}
-                      {role === 'owner' && (
-                        <td className="px-1">
-                          <button
-                            onClick={() => handleDelete(emp.id)}
-                            className="text-red-300 hover:text-red-500 text-base leading-none cursor-pointer"
-                          >
-                            ×
-                          </button>
-                        </td>
-                      )}
-                    </tr>
-                  ))}
+                        {Array.from({ length: 7 }, (_, dayIdx) => (
+                          <>
+                            {[0, 1].map((shift) => {
+                              const slotIdx = dayIdx * 2 + shift
+                              const checked = days[slotIdx] ?? false
+                              const color = shift === 0
+                                ? checked ? 'bg-blue-100 text-blue-600 hover:bg-blue-200' : 'bg-brand-parchment text-gray-300 hover:bg-gray-100'
+                                : checked ? 'bg-orange-100 text-orange-500 hover:bg-orange-200' : 'bg-brand-parchment text-gray-300 hover:bg-gray-100'
+                              return (
+                                <td key={slotIdx} className="text-center px-0.5 py-1.5">
+                                  <button
+                                    onClick={() => toggleShift(emp.id, slotIdx)}
+                                    disabled={isPast}
+                                    className={`w-5 h-6 rounded text-[10px] font-bold transition-colors cursor-pointer ${color} disabled:cursor-default`}
+                                  >
+                                    {checked ? '✓' : '·'}
+                                  </button>
+                                </td>
+                              )
+                            })}
+                          </>
+                        ))}
+                        {role === 'owner' && (
+                          <td className="px-1">
+                            <button
+                              onClick={() => handleDelete(emp.id)}
+                              className="text-red-300 hover:text-red-500 text-base leading-none cursor-pointer"
+                            >
+                              ×
+                            </button>
+                          </td>
+                        )}
+                      </tr>
+                    )
+                  })}
                 </tbody>
               </table>
             </div>
@@ -266,7 +277,7 @@ export default function ScheduleView({
 
       {employees.length === 0 && (
         <div className="text-center py-16 text-gray-400 text-sm">
-          {role === 'owner' ? 'กด "+ พนักงาน" เพื่อเพิ่มพนักงาน' : 'ยังไม่มีพนักงาน — ติดต่อ Owner'}
+          {role === 'owner' ? 'กด "+ พนักงาน" เพื่อเพิ่มพนักงาน' : 'ยังไม่มีพนักงาน — ติดต่อ Manager'}
         </div>
       )}
 
@@ -307,15 +318,6 @@ export default function ScheduleView({
                   {pos}
                 </button>
               ))}
-            </div>
-            <div>
-              <label className="text-xs text-gray-500 mb-1 block">ค่าแรงต่อวัน (฿)</label>
-              <input
-                type="number"
-                value={newEmp.dailyWage}
-                onChange={(e) => setNewEmp((p) => ({ ...p, dailyWage: Number(e.target.value) }))}
-                className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-gold"
-              />
             </div>
             <div>
               <label className="text-xs text-gray-500 mb-2 block">วันทำงานปกติ (default)</label>

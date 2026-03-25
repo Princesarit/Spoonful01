@@ -1,6 +1,6 @@
 import { redirect } from 'next/navigation'
 import { getSession } from '@/lib/session'
-import { db } from '@/lib/data'
+import { getScheduleData } from './actions'
 import ScheduleView from './ScheduleView'
 
 export default async function SchedulePage({
@@ -12,10 +12,19 @@ export default async function SchedulePage({
   const session = await getSession()
   if (!session || session.shopCode !== shopCode) redirect('/')
 
+  let employees = [], schedules = []
+  try {
+    const data = await getScheduleData(shopCode)
+    employees = data.employees
+    schedules = data.schedules
+  } catch {
+    // backend ไม่ตอบสนอง — แสดง UI ว่างเปล่า
+  }
+
   return (
     <ScheduleView
-      initialEmployees={db.employees.list(shopCode)}
-      initialSchedules={db.schedules.list(shopCode)}
+      initialEmployees={employees}
+      initialSchedules={schedules}
       role={session.role}
     />
   )

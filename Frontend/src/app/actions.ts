@@ -24,7 +24,7 @@ export async function loginAction(
     const data = await res.json() as { token?: string; role?: string; error?: string }
     if (!res.ok || !data.role || !data.token) return { error: data.error ?? 'รหัสผ่านไม่ถูกต้อง' }
 
-    await setSession({ shopCode, role: data.role as 'staff' | 'owner', token: data.token })
+    await setSession({ shopCode, role: data.role as 'staff' | 'owner', token: data.token, loginAt: Date.now() })
   } catch {
     return { error: 'ไม่สามารถเชื่อมต่อ Backend ได้' }
   }
@@ -48,7 +48,7 @@ export async function elevateToOwnerAction(
       body: JSON.stringify({ shopCode: session.shopCode, password }),
     })
     const data = await res.json() as { token?: string; role?: string; error?: string }
-    if (!res.ok || data.role !== 'owner') return { error: 'Owner Password ไม่ถูกต้อง' }
+    if (!res.ok || data.role !== 'owner') return { error: 'Manager Password ไม่ถูกต้อง' }
     await setSession({ ...session, role: 'owner', token: data.token ?? session.token })
   } catch {
     return { error: 'ไม่สามารถเชื่อมต่อ Backend ได้' }

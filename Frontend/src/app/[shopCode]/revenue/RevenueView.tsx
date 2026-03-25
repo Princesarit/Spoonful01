@@ -98,7 +98,7 @@ export default function RevenueView() {
       setPlatforms(updated)
       setNewPlatformName('')
     } catch {
-      alert('เพิ่ม Platform ไม่สำเร็จ (ต้องเป็น Owner)')
+      alert('เพิ่ม Platform ไม่สำเร็จ (ต้องเป็น Manager)')
     }
   }
 

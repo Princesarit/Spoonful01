@@ -92,7 +92,7 @@ function BranchManagerModal({
         {step === 'auth' && (
           <>
             <h3 className="font-bold text-brand-green">จัดการสาขา</h3>
-            <p className="text-xs text-gray-400">กรอก Master Owner Password เพื่อเข้าถึง</p>
+            <p className="text-xs text-gray-400">กรอก Master Manager Password เพื่อเข้าถึง</p>
             <form onSubmit={handleAuth} className="space-y-3">
               <input
                 type="password"
@@ -127,7 +127,7 @@ function BranchManagerModal({
                     <div className="border border-brand-gold/40 rounded-xl p-3 space-y-2 bg-brand-gold-light">
                       <input value={editing.name} onChange={(e) => setEditing({ ...editing, name: e.target.value })} placeholder="ชื่อสาขา" className={inputCls} />
                       <input type="password" value={editing.restaurantPassword} onChange={(e) => setEditing({ ...editing, restaurantPassword: e.target.value })} placeholder="Restaurant Password" className={inputCls} />
-                      <input type="password" value={editing.ownerPassword} onChange={(e) => setEditing({ ...editing, ownerPassword: e.target.value })} placeholder="Owner Password" className={inputCls} />
+                      <input type="password" value={editing.ownerPassword} onChange={(e) => setEditing({ ...editing, ownerPassword: e.target.value })} placeholder="Manager Password" className={inputCls} />
                       <div className="flex gap-2">
                         <button onClick={() => setEditing(null)} className="flex-1 py-1.5 border border-brand-accent rounded-lg text-xs text-brand-green cursor-pointer">ยกเลิก</button>
                         <button onClick={handleUpdate} disabled={isPending} className="flex-1 py-1.5 bg-brand-gold text-white rounded-lg text-xs font-semibold disabled:opacity-50 cursor-pointer">บันทึก</button>
@@ -154,7 +154,7 @@ function BranchManagerModal({
                 <p className="text-xs font-semibold text-brand-green">สาขาใหม่</p>
                 <input value={newForm.name} onChange={(e) => setNewForm({ ...newForm, name: e.target.value })} placeholder="ชื่อสาขา" className={inputCls} />
                 <input type="password" value={newForm.restaurantPassword} onChange={(e) => setNewForm({ ...newForm, restaurantPassword: e.target.value })} placeholder="Restaurant Password" className={inputCls} />
-                <input type="password" value={newForm.ownerPassword} onChange={(e) => setNewForm({ ...newForm, ownerPassword: e.target.value })} placeholder="Owner Password" className={inputCls} />
+                <input type="password" value={newForm.ownerPassword} onChange={(e) => setNewForm({ ...newForm, ownerPassword: e.target.value })} placeholder="Manager Password" className={inputCls} />
                 <div className="flex gap-2">
                   <button onClick={() => { setAdding(false); setNewForm(emptyForm()) }} className="flex-1 py-1.5 border border-brand-accent rounded-lg text-xs text-brand-green cursor-pointer">ยกเลิก</button>
                   <button onClick={handleAdd} disabled={isPending} className="flex-1 py-1.5 bg-brand-gold text-white rounded-lg text-xs font-semibold disabled:opacity-50 cursor-pointer">เพิ่มสาขา</button>

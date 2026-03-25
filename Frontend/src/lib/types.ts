@@ -7,6 +7,7 @@ export interface Session {
   shopCode: ShopCode
   role: Role
   token: string
+  loginAt: number // Unix timestamp ms
 }
 
 export interface StoredShop {
