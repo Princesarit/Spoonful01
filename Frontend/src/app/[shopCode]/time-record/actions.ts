@@ -53,6 +53,31 @@ export async function getWeekTimeRecords(shopCode: string, weekStart: string) {
   }
 }
 
+export async function saveEmployee(shopCode: string, employee: import('@/lib/types').Employee) {
+  const session = await getSession()
+  if (!session || session.shopCode !== shopCode || session.role !== 'owner')
+    throw new Error('Unauthorized')
+
+  const res = await fetch(`${BACKEND_URL}/${shopCode}/employees`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...authHeader(session.token) },
+    body: JSON.stringify(employee),
+  })
+  if (!res.ok) throw new Error('Failed to save employee')
+}
+
+export async function deleteEmployee(shopCode: string, employeeId: string) {
+  const session = await getSession()
+  if (!session || session.shopCode !== shopCode || session.role !== 'owner')
+    throw new Error('Unauthorized')
+
+  const res = await fetch(`${BACKEND_URL}/${shopCode}/employees/${employeeId}`, {
+    method: 'DELETE',
+    headers: authHeader(session.token),
+  })
+  if (!res.ok) throw new Error('Failed to delete employee')
+}
+
 export async function saveTimeRecords(
   shopCode: string,
   date: string,

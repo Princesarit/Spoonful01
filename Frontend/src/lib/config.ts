@@ -1,3 +1,5 @@
+import type { DeliveryRate } from './types'
+
 export interface ShopConfig {
   code: string
   name: string
@@ -20,14 +22,17 @@ export async function getShopConfig(code: string): Promise<ShopConfig | undefine
   return shops.find((s) => s.code === code)
 }
 
-export const DELIVERY_FEE_TABLE: { maxKm: number; fee: number }[] = [
-  { maxKm: 3, fee: 50 },
-  { maxKm: 5, fee: 70 },
-  { maxKm: 6, fee: 90 },
-  { maxKm: 8, fee: 110 },
-  { maxKm: 10, fee: 130 },
-  { maxKm: Infinity, fee: 150 },
+export const DEFAULT_DELIVERY_RATES: DeliveryRate[] = [
+  { maxKm: 3, fee: 3.50 },
+  { maxKm: 5, fee: 4.50 },
+  { maxKm: 6, fee: 5.00 },
+  { maxKm: 7, fee: 6.00 },
+  { maxKm: 8, fee: 7.00 },
+  { maxKm: 9999, fee: 8.00 },
 ]
+
+// legacy alias
+export const DELIVERY_FEE_TABLE = DEFAULT_DELIVERY_RATES
 
 export const EXPENSE_CATEGORIES = [
   'Material',
@@ -38,7 +43,16 @@ export const EXPENSE_CATEGORIES = [
   'Other',
 ]
 
-export function calcDeliveryFee(km: number): number {
-  const row = DELIVERY_FEE_TABLE.find((r) => km <= r.maxKm)
-  return row?.fee ?? DELIVERY_FEE_TABLE[DELIVERY_FEE_TABLE.length - 1].fee
+export function calcDeliveryFee(km: number, rates?: DeliveryRate[]): number {
+  const table = rates ?? DEFAULT_DELIVERY_RATES
+  const row = table.find((r) => km <= r.maxKm)
+  return row?.fee ?? table[table.length - 1].fee
+}
+
+export function rateLabel(rates: DeliveryRate[], index: number): string {
+  const prev = index === 0 ? 0 : rates[index - 1].maxKm
+  const curr = rates[index].maxKm
+  if (index === 0) return `≤${curr} km`
+  if (curr >= 9999) return `>${prev} km`
+  return `>${prev}–${curr} km`
 }

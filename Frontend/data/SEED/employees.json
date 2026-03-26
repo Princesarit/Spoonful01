@@ -1,0 +1,62 @@
+[
+  {
+    "id": "4519f674-c3b6-47dc-9f28-6f02f41a1be3",
+    "name": "MASTER M",
+    "position": "Home",
+    "dailyWage": 300000,
+    "defaultDays": [
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true
+    ]
+  },
+  {
+    "id": "f5bd96f0-fc56-4d5c-9293-433f982ead6e",
+    "name": "MASTER B",
+    "position": "Front",
+    "dailyWage": 0.3,
+    "defaultDays": [
+      true,
+      true,
+      true,
+      true,
+      true,
+      false,
+      true
+    ]
+  },
+  {
+    "id": "459370b1-c7c2-49b6-9c44-2178145980e8",
+    "name": "MASTER F",
+    "position": "Back",
+    "dailyWage": 5,
+    "defaultDays": [
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true
+    ]
+  },
+  {
+    "id": "41778882-ee42-4465-a79c-f9fc0ee4cbc4",
+    "name": "A",
+    "position": "Front",
+    "dailyWage": 0,
+    "defaultDays": [
+      true,
+      true,
+      true,
+      true,
+      true,
+      false,
+      true
+    ]
+  }
+]

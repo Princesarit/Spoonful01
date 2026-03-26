@@ -12,6 +12,8 @@ import type {
   DailyNote,
 } from '@/lib/types'
 import { getSummaryData, saveDailyNote } from './actions'
+import { useShop } from '@/components/ShopProvider'
+import { translations } from '@/lib/translations'
 
 function currentMonth(): string {
   return new Date().toISOString().slice(0, 7)
@@ -23,9 +25,9 @@ function addMonth(month: string, delta: number): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`
 }
 
-function monthLabel(month: string): string {
+function monthLabel(month: string, locale: string): string {
   const [y, m] = month.split('-')
-  return new Date(Number(y), Number(m) - 1, 1).toLocaleDateString('th-TH', {
+  return new Date(Number(y), Number(m) - 1, 1).toLocaleDateString(locale, {
     month: 'long',
     year: 'numeric',
   })
@@ -39,8 +41,8 @@ function daysInMonth(month: string): string[] {
   )
 }
 
-function thDate(date: string): string {
-  return new Date(date + 'T00:00:00').toLocaleDateString('th-TH', {
+function thDate(date: string, locale: string): string {
+  return new Date(date + 'T00:00:00').toLocaleDateString(locale, {
     weekday: 'short',
     day: 'numeric',
     month: 'short',
@@ -95,7 +97,7 @@ function calcDay(
 
   // Labor
   const staffLabor = employees
-    .filter((e) => e.position !== 'Home')
+    .filter((e) => !e.positions.includes('Home'))
     .reduce((sum, emp) => {
       const rec = dayRecords.find((r) => r.employeeId === emp.id)
       if (!rec?.attended) return sum
@@ -137,6 +139,8 @@ function NoteField({
   date: string
   initialNote: string
 }) {
+  const { lang } = useShop()
+  const tr = translations[lang]
   const [note, setNote] = useState(initialNote)
   const [editing, setEditing] = useState(false)
   const [saving, setSaving] = useState(false)
@@ -147,7 +151,7 @@ function NoteField({
       await saveDailyNote(shopCode, date, note)
       setEditing(false)
     } catch {
-      alert('บันทึก Note ไม่สำเร็จ')
+      alert(tr.note_fail)
     } finally {
       setSaving(false)
     }
@@ -166,20 +170,20 @@ function NoteField({
             if (e.key === 'Escape') { setNote(initialNote); setEditing(false) }
           }}
           className="flex-1 border border-gray-300 rounded px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-brand-gold"
-          placeholder="บันทึกเพิ่มเติม..."
+          placeholder={tr.note_placeholder}
         />
         <button
           onClick={handleSave}
           disabled={saving}
           className="text-xs bg-brand-gold text-white px-2 py-1 rounded cursor-pointer disabled:opacity-50"
         >
-          {saving ? '...' : 'บันทึก'}
+          {saving ? '...' : tr.save}
         </button>
         <button
           onClick={() => { setNote(initialNote); setEditing(false) }}
           className="text-xs text-gray-400 cursor-pointer"
         >
-          ยกเลิก
+          {tr.cancel}
         </button>
       </div>
     )
@@ -193,7 +197,7 @@ function NoteField({
       {note ? (
         <span className="text-xs text-gray-600 italic">📝 {note}</span>
       ) : (
-        <span className="text-xs text-gray-300 hover:text-gray-400">+ เพิ่ม Note</span>
+        <span className="text-xs text-gray-300 hover:text-gray-400">{tr.add_note}</span>
       )}
     </button>
   )
@@ -201,6 +205,10 @@ function NoteField({
 
 export default function SummaryView() {
   const { shopCode } = useParams() as { shopCode: string }
+  const { lang } = useShop()
+  const tr = translations[lang]
+  const locale = lang === 'en' ? 'en-US' : 'th-TH'
+
   const [month, setMonth] = useState(currentMonth)
   const [loading, setLoading] = useState(true)
   const [employees, setEmployees] = useState<Employee[]>([])
@@ -249,9 +257,9 @@ export default function SummaryView() {
       {/* Header */}
       <div className="flex items-center gap-2">
         <Link href={`/${shopCode}`} className="text-gray-400 hover:text-gray-600 text-sm">
-          ← กลับ
+          {tr.back}
         </Link>
-        <h2 className="text-lg font-bold text-gray-800 flex-1">สรุปยอด</h2>
+        <h2 className="text-lg font-bold text-gray-800 flex-1">{tr.summary_title}</h2>
       </div>
 
       {/* Month Nav */}
@@ -262,7 +270,7 @@ export default function SummaryView() {
         >
           ◀
         </button>
-        <span className="text-sm font-semibold text-gray-700">{monthLabel(month)}</span>
+        <span className="text-sm font-semibold text-gray-700">{monthLabel(month, locale)}</span>
         <button
           onClick={() => setMonth((m) => addMonth(m, 1))}
           className="text-gray-500 hover:text-gray-800 w-8 h-8 flex items-center justify-center rounded cursor-pointer"
@@ -272,13 +280,15 @@ export default function SummaryView() {
       </div>
 
       {loading ? (
-        <div className="text-center py-12 text-gray-400 text-sm">กำลังโหลด...</div>
+        <div className="text-center py-12 text-gray-400 text-sm">{tr.loading}</div>
       ) : (
         <>
           {/* Monthly totals */}
           <div className="bg-white rounded-xl border border-brand-accent overflow-hidden">
             <div className="px-4 py-2 border-b border-gray-100">
-              <span className="text-xs font-semibold text-gray-500">สรุปรวม {activeRows.length} วัน</span>
+              <span className="text-xs font-semibold text-gray-500">
+                {tr.summary_total_prefix} {activeRows.length} {tr.days_suffix}
+              </span>
             </div>
             <div className="grid grid-cols-2 gap-0 divide-x divide-y divide-gray-100">
               {[
@@ -299,14 +309,14 @@ export default function SummaryView() {
 
           {/* Daily cards */}
           {activeRows.length === 0 ? (
-            <div className="text-center py-12 text-gray-400 text-sm">ยังไม่มีข้อมูลในเดือนนี้</div>
+            <div className="text-center py-12 text-gray-400 text-sm">{tr.no_data_month}</div>
           ) : (
             <div className="space-y-3">
               {activeRows.map((d) => (
                 <div key={d.date} className="bg-white rounded-xl border border-brand-accent p-4">
                   {/* Day header */}
                   <div className="flex items-center justify-between mb-3">
-                    <span className="text-sm font-semibold text-gray-700">{thDate(d.date)}</span>
+                    <span className="text-sm font-semibold text-gray-700">{thDate(d.date, locale)}</span>
                     <div className="text-right">
                       <div className="text-sm font-bold text-brand-gold">{fmt(d.totalSale)} ฿</div>
                       <div className="text-xs text-gray-400">Total sale</div>
@@ -328,7 +338,7 @@ export default function SummaryView() {
                       <div className="font-semibold text-blue-600">{fmt(d.totalEftpos)} ฿</div>
                     </div>
                     <div>
-                      <span className="text-gray-400">ค่าแรง</span>
+                      <span className="text-gray-400">{tr.labor_label}</span>
                       <div className="font-semibold text-brand-gold">{fmt(d.labor)} ฿</div>
                     </div>
                     <div>
@@ -336,7 +346,7 @@ export default function SummaryView() {
                       <div className="font-semibold text-red-500">{fmt(d.cashExpense)} ฿</div>
                     </div>
                     <div>
-                      <span className="text-gray-400">Cash Leave in Day</span>
+                      <span className="text-gray-400">{tr.cash_leave_day}</span>
                       <div className={`font-semibold ${d.cashLeave >= 0 ? 'text-green-600' : 'text-red-500'}`}>
                         {fmt(d.cashLeave)} ฿
                       </div>

@@ -3,9 +3,12 @@
 import React, { useState, useEffect } from 'react'
 import Link from 'next/link'
 import { useParams } from 'next/navigation'
-import type { Employee, TimeRecord, DeliveryTrip } from '@/lib/types'
-import { DELIVERY_FEE_TABLE, calcDeliveryFee } from '@/lib/config'
-import { getWeekTimeRecords, getTimeRecordData, saveTimeRecords } from './actions'
+import type { Employee, TimeRecord, DeliveryTrip, DeliveryRate, Position } from '@/lib/types'
+import { DEFAULT_DELIVERY_RATES, calcDeliveryFee } from '@/lib/config'
+import { getWeekTimeRecords, getTimeRecordData, saveTimeRecords, deleteEmployee, saveEmployee } from './actions'
+import { getDeliveryRates } from '../config/actions'
+import { useShop } from '@/components/ShopProvider'
+import { translations } from '@/lib/translations'
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -31,26 +34,37 @@ function addWeeks(d: Date, n: number): Date {
   return r
 }
 
-function weekLabel(monday: Date): string {
+function weekLabel(monday: Date, locale: string): string {
   const sunday = new Date(monday)
   sunday.setDate(sunday.getDate() + 6)
   const opts: Intl.DateTimeFormatOptions = { month: 'short', day: 'numeric' }
-  return `${monday.toLocaleDateString('th-TH', opts)} – ${sunday.toLocaleDateString('th-TH', { ...opts, year: '2-digit' })}`
+  return `${monday.toLocaleDateString(locale, opts)} – ${sunday.toLocaleDateString(locale, { ...opts, year: '2-digit' })}`
 }
 
-const DAYS_SHORT = ['จ', 'อ', 'พ', 'พฤ', 'ศ', 'ส', 'อา']
+const DAYS_SHORT_TH = ['จ', 'อ', 'พ', 'พฤ', 'ศ', 'ส', 'อา']
+const DAYS_SHORT_EN = ['M', 'T', 'W', 'Th', 'F', 'Sa', 'Su']
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 type DayAttend = { morning: number; evening: number }
-// weekAttend[isoDate][empId]
 type WeekAttendMap = Record<string, Record<string, DayAttend>>
 type TripMap = Record<string, DeliveryTrip[]>
+type NewEmp = { name: string; positions: Position[]; defaultDays: boolean[] }
+
+const EMPTY_NEW_EMP: NewEmp = {
+  name: '',
+  positions: ['Front'],
+  defaultDays: [true, true, true, true, true, false, false],
+}
 
 // ─── Component ────────────────────────────────────────────────────────────────
 
 export default function TimeRecordView() {
   const { shopCode } = useParams() as { shopCode: string }
+  const { session, lang } = useShop()
+  const tr = translations[lang]
+  const DAYS_SHORT = lang === 'en' ? DAYS_SHORT_EN : DAYS_SHORT_TH
+  const locale = lang === 'en' ? 'en-US' : 'th-TH'
 
   // ── Weekly state (Front / Back) ──
   const [weekStart, setWeekStart] = useState(() => getMonday(new Date()))
@@ -60,6 +74,13 @@ export default function TimeRecordView() {
   const [weekLoading, setWeekLoading] = useState(true)
   const [weekSaving, setWeekSaving] = useState(false)
 
+  // ── Delivery rates ──
+  const [deliveryRates, setDeliveryRates] = useState<DeliveryRate[]>(DEFAULT_DELIVERY_RATES)
+
+  useEffect(() => {
+    getDeliveryRates(shopCode).then(setDeliveryRates).catch(() => {})
+  }, [shopCode])
+
   // ── Daily state (Home) ──
   const [date, setDate] = useState(today)
   const [homeEmps, setHomeEmps] = useState<Employee[]>([])
@@ -67,15 +88,19 @@ export default function TimeRecordView() {
   const [homeLoading, setHomeLoading] = useState(true)
   const [homeSaving, setHomeSaving] = useState(false)
 
+  // ── Add employee modal ──
+  const [showAdd, setShowAdd] = useState(false)
+  const [newEmp, setNewEmp] = useState<NewEmp>(EMPTY_NEW_EMP)
+  const [addSaving, setAddSaving] = useState(false)
+
   // ── Load weekly data ──
   useEffect(() => {
     setWeekLoading(true)
     getWeekTimeRecords(shopCode, isoDate(weekStart))
       .then(({ employees, timeRecords, weekDates: wd }) => {
-        const staff = employees.filter((e) => e.position !== 'Home')
+        const staff = employees.filter((e) => e.positions.includes('Front') || e.positions.includes('Back'))
         setStaffEmps(staff)
         setWeekDates(wd)
-        // build weekAttend map
         const map: WeekAttendMap = {}
         wd.forEach((d) => {
           map[d] = {}
@@ -99,7 +124,7 @@ export default function TimeRecordView() {
     setHomeLoading(true)
     getTimeRecordData(shopCode, date)
       .then(({ employees, deliveryTrips }) => {
-        const home = employees.filter((e) => e.position === 'Home')
+        const home = employees.filter((e) => e.positions.includes('Home'))
         setHomeEmps(home)
         const t: TripMap = {}
         home.forEach((e) => {
@@ -136,20 +161,70 @@ export default function TimeRecordView() {
           return saveTimeRecords(shopCode, d, records, [])
         }),
       )
-      alert('บันทึกสำเร็จ')
+      alert(tr.save)
     } catch {
-      alert('บันทึกไม่สำเร็จ')
+      alert(tr.save_fail)
     } finally {
       setWeekSaving(false)
     }
   }
 
+  // ── Add employee ──
+  async function handleAddEmployee() {
+    if (!newEmp.name.trim() || newEmp.positions.length === 0) return
+    setAddSaving(true)
+    const emp: Employee = {
+      id: Date.now().toString(),
+      name: newEmp.name.trim(),
+      positions: newEmp.positions,
+      defaultDays: newEmp.defaultDays,
+    }
+    try {
+      await saveEmployee(shopCode, emp)
+      // update both lists
+      if (emp.positions.includes('Front') || emp.positions.includes('Back')) {
+        setStaffEmps((p) => [...p, emp])
+        setWeekAttend((p) => {
+          const updated = { ...p }
+          weekDates.forEach((d) => {
+            updated[d] = { ...updated[d], [emp.id]: { morning: 0, evening: 0 } }
+          })
+          return updated
+        })
+      }
+      if (emp.positions.includes('Home')) {
+        setHomeEmps((p) => [...p, emp])
+        setTrips((p) => ({ ...p, [emp.id]: [] }))
+      }
+      setNewEmp(EMPTY_NEW_EMP)
+      setShowAdd(false)
+    } catch {
+      alert(tr.add_emp_fail)
+    } finally {
+      setAddSaving(false)
+    }
+  }
+
+  // ── Delete employee ──
+  async function handleDeleteEmployee(empId: string, name: string) {
+    if (!confirm(tr.confirm_delete_emp2(name))) return
+    try {
+      await deleteEmployee(shopCode, empId)
+      setStaffEmps((p) => p.filter((e) => e.id !== empId))
+      setHomeEmps((p) => p.filter((e) => e.id !== empId))
+    } catch {
+      alert(tr.save_fail)
+    }
+  }
+
   // ── Home/Delivery handlers ──
   function addTrip(empId: string) {
+    const empName = homeEmps.find((e) => e.id === empId)?.name ?? ''
     const trip: DeliveryTrip = {
       id: Date.now().toString() + Math.random(),
       date,
       employeeId: empId,
+      employeeName: empName,
       distance: 0,
       fee: 0,
     }
@@ -157,7 +232,7 @@ export default function TimeRecordView() {
   }
 
   function updateTrip(empId: string, tripId: string, km: number) {
-    const fee = calcDeliveryFee(km)
+    const fee = calcDeliveryFee(km, deliveryRates)
     setTrips((p) => ({
       ...p,
       [empId]: p[empId].map((t) => (t.id === tripId ? { ...t, distance: km, fee } : t)),
@@ -173,9 +248,9 @@ export default function TimeRecordView() {
     try {
       const allTrips = Object.values(trips).flat()
       await saveTimeRecords(shopCode, date, [], allTrips)
-      alert('บันทึกสำเร็จ')
+      alert(tr.save)
     } catch {
-      alert('บันทึกไม่สำเร็จ')
+      alert(tr.save_fail)
     } finally {
       setHomeSaving(false)
     }
@@ -189,15 +264,23 @@ export default function TimeRecordView() {
     <div className="space-y-6">
       <div className="flex items-center gap-2">
         <Link href={`/${shopCode}`} className="text-gray-400 hover:text-gray-600 text-sm">
-          ← กลับ
+          {tr.back}
         </Link>
-        <h2 className="text-lg font-bold text-gray-800 flex-1">กรอกเวลา</h2>
+        <h2 className="text-lg font-bold text-gray-800 flex-1">{tr.time_record_title}</h2>
+        {session.role === 'owner' && (
+          <button
+            onClick={() => setShowAdd(true)}
+            className="text-sm bg-brand-gold text-white px-3 py-1.5 rounded-lg hover:bg-brand-gold-dark cursor-pointer"
+          >
+            {tr.add_employee_btn}
+          </button>
+        )}
       </div>
 
       {/* ═══ WEEKLY — Front / Back ═══════════════════════════════════════════ */}
       <div className="space-y-3">
         <div className="flex items-center justify-between">
-          <h3 className="text-sm font-bold text-gray-700">Front / Back (รายสัปดาห์)</h3>
+          <h3 className="text-sm font-bold text-gray-700">{tr.front_back_weekly}</h3>
         </div>
 
         {/* Week Nav */}
@@ -209,8 +292,8 @@ export default function TimeRecordView() {
             ◀
           </button>
           <div className="text-center">
-            <div className="text-sm font-semibold text-gray-700">{weekLabel(weekStart)}</div>
-            {isPast && <div className="text-xs text-gray-400 mt-0.5">ดูได้อย่างเดียว</div>}
+            <div className="text-sm font-semibold text-gray-700">{weekLabel(weekStart, locale)}</div>
+            {isPast && <div className="text-xs text-gray-400 mt-0.5">{tr.read_only}</div>}
           </div>
           <button
             onClick={() => setWeekStart((p) => addWeeks(p, 1))}
@@ -221,12 +304,12 @@ export default function TimeRecordView() {
         </div>
 
         {weekLoading ? (
-          <div className="text-center py-8 text-gray-400 text-sm">กำลังโหลด...</div>
+          <div className="text-center py-8 text-gray-400 text-sm">{tr.loading}</div>
         ) : (
           <>
             {[
-              { label: 'Front', color: 'text-blue-600', emps: staffEmps.filter((e) => e.position === 'Front') },
-              { label: 'Back', color: 'text-brand-gold', emps: staffEmps.filter((e) => e.position === 'Back') },
+              { label: 'Front', color: 'text-blue-600', emps: staffEmps.filter((e) => e.positions.includes('Front')) },
+              { label: 'Back',  color: 'text-brand-gold', emps: staffEmps.filter((e) => e.positions.includes('Back')) },
             ].map(({ label, color, emps }) =>
               emps.length === 0 ? null : (
                 <div key={label} className="bg-white rounded-xl border border-brand-accent overflow-hidden">
@@ -237,18 +320,19 @@ export default function TimeRecordView() {
                     <table className="w-full text-sm">
                       <thead>
                         <tr className="border-b border-gray-50">
-                          <th className="text-left px-3 py-2 text-xs text-gray-400 font-medium min-w-20">ชื่อ</th>
+                          <th className="text-left px-3 py-2 text-xs text-gray-400 font-medium min-w-20">{tr.name_label}</th>
                           {weekDates.map((d, i) => (
                             <th key={d} colSpan={2} className="text-center px-1 py-2 text-xs text-gray-400 font-medium">
                               <div>{DAYS_SHORT[i]}</div>
                               <div className="text-gray-300 text-[10px]">{new Date(d + 'T00:00:00').getDate()}</div>
                               <div className="flex gap-0.5 justify-center mt-0.5">
-                                <span className="text-[9px] text-blue-300 w-8 text-center">เช้า</span>
-                                <span className="text-[9px] text-orange-300 w-8 text-center">เย็น</span>
+                                <span className="text-[9px] text-blue-300 w-8 text-center">{tr.morning}</span>
+                                <span className="text-[9px] text-orange-300 w-8 text-center">{tr.evening}</span>
                               </div>
                             </th>
                           ))}
-                          <th className="text-center px-2 py-2 text-xs text-gray-400 font-medium">รวม</th>
+                          <th className="text-center px-2 py-2 text-xs text-gray-400 font-medium">{tr.total_col}</th>
+                          {session.role === 'owner' && <th className="w-6" />}
                         </tr>
                       </thead>
                       <tbody>
@@ -292,6 +376,16 @@ export default function TimeRecordView() {
                                 })()}
                               </span>
                             </td>
+                            {session.role === 'owner' && (
+                              <td className="px-1">
+                                <button
+                                  onClick={() => handleDeleteEmployee(emp.id, emp.name)}
+                                  className="text-red-300 hover:text-red-500 text-base leading-none cursor-pointer"
+                                >
+                                  ×
+                                </button>
+                              </td>
+                            )}
                           </tr>
                         ))}
                       </tbody>
@@ -302,7 +396,7 @@ export default function TimeRecordView() {
             )}
 
             {staffEmps.length === 0 && (
-              <div className="text-center py-8 text-gray-400 text-sm">ยังไม่มีพนักงาน Front / Back</div>
+              <div className="text-center py-8 text-gray-400 text-sm">{tr.no_front_back}</div>
             )}
 
             {!isPast && staffEmps.length > 0 && (
@@ -311,7 +405,7 @@ export default function TimeRecordView() {
                 disabled={weekSaving}
                 className="w-full py-3 bg-brand-gold text-white rounded-xl font-semibold text-sm hover:bg-brand-gold-dark disabled:opacity-50 transition-colors cursor-pointer"
               >
-                {weekSaving ? 'กำลังบันทึก...' : 'บันทึกตารางสัปดาห์'}
+                {weekSaving ? tr.saving : tr.save_weekly}
               </button>
             )}
           </>
@@ -320,11 +414,10 @@ export default function TimeRecordView() {
 
       {/* ═══ DAILY — Home Delivery ════════════════════════════════════════════ */}
       <div className="space-y-3">
-        <h3 className="text-sm font-bold text-gray-700">Home Delivery (รายวัน)</h3>
+        <h3 className="text-sm font-bold text-gray-700">{tr.home_delivery_daily}</h3>
 
-        {/* Date picker */}
         <div className="bg-white rounded-xl border border-brand-accent p-4">
-          <label className="text-xs text-gray-500 block mb-1.5">วันที่</label>
+          <label className="text-xs text-gray-500 block mb-1.5">{tr.date_label}</label>
           <input
             type="date"
             value={date}
@@ -334,22 +427,26 @@ export default function TimeRecordView() {
         </div>
 
         {homeLoading ? (
-          <div className="text-center py-8 text-gray-400 text-sm">กำลังโหลด...</div>
+          <div className="text-center py-8 text-gray-400 text-sm">{tr.loading}</div>
         ) : (
           <>
             {homeEmps.length === 0 ? (
-              <div className="text-center py-8 text-gray-400 text-sm">ยังไม่มีพนักงาน Home</div>
+              <div className="text-center py-8 text-gray-400 text-sm">{tr.no_home}</div>
             ) : (
               <div className="bg-white rounded-xl border border-brand-accent overflow-hidden">
                 <div className="px-4 py-2 border-b border-gray-100 flex items-center justify-between">
                   <span className="text-xs font-semibold text-green-600">Home Delivery</span>
                 </div>
                 <div className="px-4 py-2 bg-brand-parchment border-b border-gray-100 flex flex-wrap gap-2">
-                  {DELIVERY_FEE_TABLE.filter((r) => r.maxKm !== Infinity).map((r) => (
-                    <span key={r.maxKm} className="text-xs text-gray-500">
-                      ≤{r.maxKm}km → {r.fee}฿
-                    </span>
-                  ))}
+                  {deliveryRates.map((r, i) => {
+                    const prev = i === 0 ? 0 : deliveryRates[i - 1].maxKm
+                    const label = i === 0 ? `≤${r.maxKm}km` : r.maxKm >= 9999 ? `>${prev}km` : `>${prev}–${r.maxKm}km`
+                    return (
+                      <span key={i} className="text-xs text-gray-500">
+                        {label} → ${r.fee.toFixed(2)}
+                      </span>
+                    )
+                  })}
                 </div>
                 {homeEmps.map((emp) => (
                   <div key={emp.id} className="border-b border-gray-50 last:border-0">
@@ -357,19 +454,30 @@ export default function TimeRecordView() {
                       <div>
                         <div className="text-xs font-semibold text-gray-700">{emp.name}</div>
                         <div className="text-xs text-gray-400">
-                          รวม: {(trips[emp.id] ?? []).reduce((s, t) => s + t.fee, 0).toLocaleString()}฿
+                          {tr.total_col}: ${(trips[emp.id] ?? []).reduce((s, t) => s + t.fee, 0).toFixed(2)}
                         </div>
                       </div>
-                      <button
-                        onClick={() => addTrip(emp.id)}
-                        className="text-xs bg-green-50 text-green-700 border border-green-200 px-2.5 py-1 rounded-lg hover:bg-green-100 cursor-pointer"
-                      >
-                        + เพิ่มรอบ
-                      </button>
+                      <div className="flex items-center gap-2">
+                        <button
+                          onClick={() => addTrip(emp.id)}
+                          className="text-xs bg-green-50 text-green-700 border border-green-200 px-2.5 py-1 rounded-lg hover:bg-green-100 cursor-pointer"
+                        >
+                          {tr.add_trip}
+                        </button>
+                        {session.role === 'owner' && (
+                          <button
+                            onClick={() => handleDeleteEmployee(emp.id, emp.name)}
+                            className="text-red-300 hover:text-red-500 text-base leading-none cursor-pointer"
+                            title={tr.delete}
+                          >
+                            ×
+                          </button>
+                        )}
+                      </div>
                     </div>
                     {(trips[emp.id] ?? []).map((trip, ti) => (
                       <div key={trip.id} className="px-4 pb-2 flex items-center gap-2">
-                        <span className="text-xs text-gray-400 w-10">รอบ {ti + 1}</span>
+                        <span className="text-xs text-gray-400 w-10">{ti + 1}</span>
                         <input
                           type="number"
                           min="0"
@@ -381,7 +489,7 @@ export default function TimeRecordView() {
                         />
                         <span className="text-xs text-gray-400">km</span>
                         <span className="text-xs font-semibold text-green-700 w-12 text-right">
-                          {trip.fee > 0 ? `${trip.fee}฿` : '—'}
+                          {trip.fee > 0 ? `$${trip.fee}` : '—'}
                         </span>
                         <button
                           onClick={() => removeTrip(emp.id, trip.id)}
@@ -402,12 +510,86 @@ export default function TimeRecordView() {
                 disabled={homeSaving}
                 className="w-full py-3 bg-brand-gold text-white rounded-xl font-semibold text-sm hover:bg-brand-gold-dark disabled:opacity-50 transition-colors cursor-pointer"
               >
-                {homeSaving ? 'กำลังบันทึก...' : 'บันทึก Home Delivery'}
+                {homeSaving ? tr.saving : tr.save_home}
               </button>
             )}
           </>
         )}
       </div>
+
+      {/* ═══ Add Employee Modal ══════════════════════════════════════════════ */}
+      {showAdd && (
+        <div className="fixed inset-0 bg-black/40 flex items-end justify-center z-50 p-4">
+          <div className="bg-white rounded-2xl w-full max-w-sm p-6 space-y-4">
+            <h3 className="font-bold text-gray-900">{tr.add_employee}</h3>
+
+            <input
+              type="text"
+              placeholder={tr.name_placeholder}
+              value={newEmp.name}
+              onChange={(e) => setNewEmp((p) => ({ ...p, name: e.target.value }))}
+              autoFocus
+              className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-gold"
+            />
+
+            <div className="flex gap-2">
+              {(['Front', 'Back', 'Home'] as const).map((pos) => (
+                <button
+                  key={pos}
+                  type="button"
+                  onClick={() => setNewEmp((p) => ({ ...p, positions: [pos] }))}
+                  className={`flex-1 py-2 rounded-lg text-xs font-semibold border cursor-pointer transition-colors ${
+                    newEmp.positions[0] === pos
+                      ? 'bg-brand-gold text-white border-brand-gold'
+                      : 'border-brand-accent text-gray-600 hover:border-brand-gold/50'
+                  }`}
+                >
+                  {pos}
+                </button>
+              ))}
+            </div>
+
+            <div>
+              <label className="text-xs text-gray-500 mb-1.5 block">{tr.default_days_label}</label>
+              <div className="flex gap-1">
+                {DAYS_SHORT.map((d, i) => (
+                  <button
+                    key={i}
+                    type="button"
+                    onClick={() =>
+                      setNewEmp((p) => ({
+                        ...p,
+                        defaultDays: p.defaultDays.map((v, j) => (j === i ? !v : v)),
+                      }))
+                    }
+                    className={`flex-1 py-1.5 rounded text-xs font-medium cursor-pointer transition-colors ${
+                      newEmp.defaultDays[i] ? 'bg-green-100 text-green-700' : 'bg-brand-parchment text-gray-400'
+                    }`}
+                  >
+                    {d}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div className="flex gap-2 pt-1">
+              <button
+                onClick={() => { setShowAdd(false); setNewEmp(EMPTY_NEW_EMP) }}
+                className="flex-1 py-2.5 border border-brand-accent rounded-xl text-sm text-gray-600 cursor-pointer"
+              >
+                {tr.cancel}
+              </button>
+              <button
+                onClick={handleAddEmployee}
+                disabled={addSaving || !newEmp.name.trim() || newEmp.positions.length === 0}
+                className="flex-1 py-2.5 bg-brand-gold text-white rounded-xl text-sm font-semibold disabled:opacity-50 cursor-pointer"
+              >
+                {addSaving ? '...' : tr.add}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

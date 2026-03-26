@@ -1,12 +1,15 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, Fragment } from 'react'
 import Link from 'next/link'
 import { useParams } from 'next/navigation'
-import type { Employee, WeekSchedule } from '@/lib/types'
+import type { Employee, WeekSchedule, Position } from '@/lib/types'
 import { saveWeekSchedule, saveEmployee, deleteEmployee } from './actions'
+import { useShop } from '@/components/ShopProvider'
+import { translations } from '@/lib/translations'
 
-const DAYS_SHORT = ['จ', 'อ', 'พ', 'พฤ', 'ศ', 'ส', 'อา']
+const DAYS_SHORT_TH = ['จ', 'อ', 'พ', 'พฤ', 'ศ', 'ส', 'อา']
+const DAYS_SHORT_EN = ['M', 'T', 'W', 'Th', 'F', 'Sa', 'Su']
 
 function getMonday(date: Date): Date {
   const d = new Date(date)
@@ -26,15 +29,16 @@ function addWeeks(d: Date, n: number): Date {
   return r
 }
 
-function weekLabel(monday: Date): string {
+function weekLabel(monday: Date, locale: string): string {
   const sunday = new Date(monday)
   sunday.setDate(sunday.getDate() + 6)
   const opts: Intl.DateTimeFormatOptions = { month: 'short', day: 'numeric' }
-  return `${monday.toLocaleDateString('th-TH', opts)} – ${sunday.toLocaleDateString('th-TH', { ...opts, year: '2-digit' })}`
+  return `${monday.toLocaleDateString(locale, opts)} – ${sunday.toLocaleDateString(locale, { ...opts, year: '2-digit' })}`
 }
 
-const POSITIONS: Employee['position'][] = ['Front', 'Back', 'Home']
+const POSITIONS: Position[] = ['Front', 'Back', 'Home']
 const POS_COLORS: Record<string, string> = {
+  Manager: 'text-red-600 bg-red-50',
   Front: 'text-blue-600 bg-blue-50',
   Back: 'text-brand-gold bg-brand-gold-light',
   Home: 'text-green-600 bg-green-50',
@@ -42,8 +46,7 @@ const POS_COLORS: Record<string, string> = {
 
 type NewEmp = {
   name: string
-  position: Employee['position']
-  dailyWage: number
+  positions: Position[]
   defaultDays: boolean[]
 }
 
@@ -57,6 +60,11 @@ export default function ScheduleView({
   role: string
 }) {
   const { shopCode } = useParams() as { shopCode: string }
+  const { lang } = useShop()
+  const tr = translations[lang]
+  const DAYS_SHORT = lang === 'en' ? DAYS_SHORT_EN : DAYS_SHORT_TH
+  const locale = lang === 'en' ? 'en-US' : 'th-TH'
+
   const [employees, setEmployees] = useState(initialEmployees)
   const [schedules, setSchedules] = useState(initialSchedules)
   const todayMonday = getMonday(new Date())
@@ -65,8 +73,7 @@ export default function ScheduleView({
   const [showAdd, setShowAdd] = useState(false)
   const [newEmp, setNewEmp] = useState<NewEmp>({
     name: '',
-    position: 'Front',
-    dailyWage: 350,
+    positions: ['Front'],
     defaultDays: [true, true, true, true, true, false, false],
   })
 
@@ -78,7 +85,7 @@ export default function ScheduleView({
     return d
   })
 
-  // days array: 14 elements — index (dayIdx*2) = เช้า, (dayIdx*2+1) = เย็น
+  // days array: 14 elements — index (dayIdx*2) = morning, (dayIdx*2+1) = evening
   function getEntry(empId: string): boolean[] {
     const sched = schedules.find((s) => s.weekStart === weekStr)
     if (sched) {
@@ -120,7 +127,7 @@ export default function ScheduleView({
       const entries = employees.map((emp) => ({ employeeId: emp.id, days: getEntry(emp.id) }))
       await saveWeekSchedule(shopCode, { weekStart: weekStr, entries })
     } catch (e) {
-      alert('บันทึกไม่สำเร็จ')
+      alert(tr.save_fail)
       console.error(e)
     } finally {
       setSaving(false)
@@ -128,31 +135,30 @@ export default function ScheduleView({
   }
 
   async function handleAddEmployee() {
-    if (!newEmp.name.trim()) return
+    if (!newEmp.name.trim() || newEmp.positions.length === 0) return
     const emp: Employee = {
       id: Date.now().toString(),
       name: newEmp.name.trim(),
-      position: newEmp.position,
-      dailyWage: newEmp.dailyWage,
+      positions: newEmp.positions,
       defaultDays: newEmp.defaultDays,
     }
     try {
       await saveEmployee(shopCode, emp)
       setEmployees((p) => [...p, emp])
-      setNewEmp({ name: '', position: 'Front', dailyWage: 350, defaultDays: [true, true, true, true, true, false, false] })
+      setNewEmp({ name: '', positions: ['Front'], defaultDays: [true, true, true, true, true, false, false] })
       setShowAdd(false)
     } catch {
-      alert('เพิ่มพนักงานไม่สำเร็จ (ต้องเป็น Manager)')
+      alert(tr.add_emp_fail)
     }
   }
 
   async function handleDelete(empId: string) {
-    if (!confirm('ลบพนักงานคนนี้?')) return
+    if (!confirm(tr.confirm_delete_emp)) return
     try {
       await deleteEmployee(shopCode, empId)
       setEmployees((p) => p.filter((e) => e.id !== empId))
     } catch {
-      alert('ลบไม่สำเร็จ')
+      alert(tr.save_fail)
     }
   }
 
@@ -161,15 +167,15 @@ export default function ScheduleView({
       {/* Header */}
       <div className="flex items-center gap-2">
         <Link href={`/${shopCode}`} className="text-gray-400 hover:text-gray-600 text-sm">
-          ← กลับ
+          {tr.back}
         </Link>
-        <h2 className="text-lg font-bold text-gray-800 flex-1">ตารางเวลา</h2>
+        <h2 className="text-lg font-bold text-gray-800 flex-1">{tr.schedule_title}</h2>
         {role === 'owner' && (
           <button
             onClick={() => setShowAdd(true)}
             className="text-sm bg-brand-gold text-white px-3 py-1.5 rounded-lg hover:bg-brand-gold-dark cursor-pointer"
           >
-            + พนักงาน
+            {tr.add_employee_btn}
           </button>
         )}
       </div>
@@ -183,8 +189,8 @@ export default function ScheduleView({
           ◀
         </button>
         <div className="text-center">
-          <div className="text-sm font-semibold text-gray-700">{weekLabel(weekStart)}</div>
-          {isPast && <div className="text-xs text-gray-400 mt-0.5">ดูได้อย่างเดียว</div>}
+          <div className="text-sm font-semibold text-gray-700">{weekLabel(weekStart, locale)}</div>
+          {isPast && <div className="text-xs text-gray-400 mt-0.5">{tr.read_only}</div>}
         </div>
         <button
           onClick={() => setWeekStart((p) => addWeeks(p, 1))}
@@ -196,7 +202,7 @@ export default function ScheduleView({
 
       {/* Matrix per position group */}
       {POSITIONS.map((pos) => {
-        const posEmps = employees.filter((e) => e.position === pos)
+        const posEmps = employees.filter((e) => e.positions.includes(pos))
         if (!posEmps.length) return null
         return (
           <div key={pos} className="bg-white rounded-xl border border-brand-accent overflow-hidden">
@@ -210,15 +216,15 @@ export default function ScheduleView({
                 <thead>
                   <tr className="border-b border-gray-50">
                     <th className="text-left px-3 py-2 text-xs text-gray-400 font-medium min-w-22.5">
-                      ชื่อ
+                      {tr.name_label}
                     </th>
                     {DAYS_SHORT.map((d, i) => (
                       <th key={i} colSpan={2} className="text-center px-1 py-2 text-xs text-gray-400 font-medium">
                         <div>{d}</div>
                         <div className="text-gray-300 text-[10px]">{weekDates[i].getDate()}</div>
                         <div className="flex gap-0.5 justify-center mt-0.5">
-                          <span className="text-[9px] text-blue-300 w-5 text-center">เช้า</span>
-                          <span className="text-[9px] text-orange-300 w-5 text-center">เย็น</span>
+                          <span className="text-[9px] text-blue-300 w-5 text-center">{tr.morning}</span>
+                          <span className="text-[9px] text-orange-300 w-5 text-center">{tr.evening}</span>
                         </div>
                       </th>
                     ))}
@@ -234,7 +240,7 @@ export default function ScheduleView({
                           {emp.name}
                         </td>
                         {Array.from({ length: 7 }, (_, dayIdx) => (
-                          <>
+                          <Fragment key={dayIdx}>
                             {[0, 1].map((shift) => {
                               const slotIdx = dayIdx * 2 + shift
                               const checked = days[slotIdx] ?? false
@@ -253,7 +259,7 @@ export default function ScheduleView({
                                 </td>
                               )
                             })}
-                          </>
+                          </Fragment>
                         ))}
                         {role === 'owner' && (
                           <td className="px-1">
@@ -277,7 +283,7 @@ export default function ScheduleView({
 
       {employees.length === 0 && (
         <div className="text-center py-16 text-gray-400 text-sm">
-          {role === 'owner' ? 'กด "+ พนักงาน" เพื่อเพิ่มพนักงาน' : 'ยังไม่มีพนักงาน — ติดต่อ Manager'}
+          {role === 'owner' ? tr.no_emp_owner : tr.no_emp_staff}
         </div>
       )}
 
@@ -287,7 +293,7 @@ export default function ScheduleView({
           disabled={saving}
           className="w-full py-3 bg-brand-gold text-white rounded-xl font-semibold text-sm hover:bg-brand-gold-dark disabled:opacity-50 transition-colors cursor-pointer"
         >
-          {saving ? 'กำลังบันทึก...' : 'บันทึกตาราง'}
+          {saving ? tr.saving : tr.save_schedule}
         </button>
       )}
 
@@ -295,10 +301,10 @@ export default function ScheduleView({
       {showAdd && role === 'owner' && (
         <div className="fixed inset-0 bg-black/40 flex items-end justify-center z-50 p-4">
           <div className="bg-white rounded-2xl w-full max-w-sm p-6 space-y-4">
-            <h3 className="font-bold text-gray-900">เพิ่มพนักงาน</h3>
+            <h3 className="font-bold text-gray-900">{tr.add_employee}</h3>
             <input
               type="text"
-              placeholder="ชื่อพนักงาน"
+              placeholder={tr.name_placeholder}
               value={newEmp.name}
               onChange={(e) => setNewEmp((p) => ({ ...p, name: e.target.value }))}
               className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-gold"
@@ -308,9 +314,9 @@ export default function ScheduleView({
                 <button
                   key={pos}
                   type="button"
-                  onClick={() => setNewEmp((p) => ({ ...p, position: pos }))}
+                  onClick={() => setNewEmp((p) => ({ ...p, positions: [pos] }))}
                   className={`flex-1 py-2 rounded-lg text-xs font-semibold border cursor-pointer transition-colors ${
-                    newEmp.position === pos
+                    newEmp.positions[0] === pos
                       ? 'bg-brand-gold text-white border-brand-gold'
                       : 'border-brand-accent text-gray-600 hover:border-brand-gold/50'
                   }`}
@@ -320,7 +326,7 @@ export default function ScheduleView({
               ))}
             </div>
             <div>
-              <label className="text-xs text-gray-500 mb-2 block">วันทำงานปกติ (default)</label>
+              <label className="text-xs text-gray-500 mb-2 block">{tr.default_working_days}</label>
               <div className="flex gap-1">
                 {DAYS_SHORT.map((d, i) => (
                   <button
@@ -346,13 +352,13 @@ export default function ScheduleView({
                 onClick={() => setShowAdd(false)}
                 className="flex-1 py-2.5 border border-brand-accent rounded-xl text-sm text-gray-600 cursor-pointer"
               >
-                ยกเลิก
+                {tr.cancel}
               </button>
               <button
                 onClick={handleAddEmployee}
                 className="flex-1 py-2.5 bg-brand-gold text-white rounded-xl text-sm font-semibold cursor-pointer"
               >
-                เพิ่ม
+                {tr.add}
               </button>
             </div>
           </div>

@@ -14,6 +14,7 @@ import type {
   ExpenseEntry,
   DailyNote,
   StoredShop,
+  DeliveryRate,
 } from './types'
 
 const DEFAULT_PLATFORMS: DeliveryPlatform[] = [
@@ -43,25 +44,38 @@ export async function saveShops(shops: StoredShop[]): Promise<void> {
 
 // ─── Employees ────────────────────────────────────────────────────────────────
 
-const EMP_HEADERS = ['id', 'name', 'position', 'dailyWage', 'defaultDays']
+const EMP_HEADERS = ['id', 'name', 'positions', 'phone', 'dailyWage', 'defaultDays']
 
 export async function listEmployees(shopCode: string): Promise<Employee[]> {
   const rows = await getSheetData(`${shopCode}_employees`)
-  return rows.map((r) => ({
-    id: r.id,
-    name: r.name,
-    position: r.position as Employee['position'],
-    dailyWage: Number(r.dailyWage),
-    defaultDays: JSON.parse(r.defaultDays || '[]') as boolean[],
-  }))
+  return rows.map((r) => {
+    // backward compat: old data has 'position' (string), new has 'positions' (JSON array)
+    let positions: Employee['positions']
+    const raw = r.positions || r.position || 'Front'
+    try {
+      const parsed = JSON.parse(raw)
+      positions = Array.isArray(parsed) ? parsed : [parsed]
+    } catch {
+      positions = [raw as Employee['positions'][number]]
+    }
+    return {
+      id: r.id,
+      name: r.name,
+      positions,
+      phone: r.phone || undefined,
+      dailyWage: r.dailyWage ? Number(r.dailyWage) : undefined,
+      defaultDays: JSON.parse(r.defaultDays || '[]') as boolean[],
+    }
+  })
 }
 
 export async function saveEmployees(shopCode: string, employees: Employee[]): Promise<void> {
   const rows = employees.map((e) => [
     e.id,
     e.name,
-    e.position,
-    e.dailyWage,
+    JSON.stringify(e.positions),
+    e.phone ?? '',
+    e.dailyWage ?? '',
     JSON.stringify(e.defaultDays),
   ])
   await setSheetData(`${shopCode}_employees`, EMP_HEADERS, rows)
@@ -105,7 +119,7 @@ export async function saveTimeRecords(shopCode: string, records: TimeRecord[]): 
 
 // ─── Delivery Trips ───────────────────────────────────────────────────────────
 
-const DT_HEADERS = ['id', 'date', 'employeeId', 'distance', 'fee']
+const DT_HEADERS = ['id', 'date', 'employeeId', 'employeeName', 'distance', 'fee']
 
 export async function listDeliveryTrips(shopCode: string): Promise<DeliveryTrip[]> {
   const rows = await getSheetData(`${shopCode}_delivery_trips`)
@@ -113,13 +127,14 @@ export async function listDeliveryTrips(shopCode: string): Promise<DeliveryTrip[
     id: r.id,
     date: r.date,
     employeeId: r.employeeId,
+    employeeName: r.employeeName ?? '',
     distance: Number(r.distance),
     fee: Number(r.fee),
   }))
 }
 
 export async function saveDeliveryTrips(shopCode: string, trips: DeliveryTrip[]): Promise<void> {
-  const rows = trips.map((t) => [t.id, t.date, t.employeeId, t.distance, t.fee])
+  const rows = trips.map((t) => [t.id, t.date, t.employeeId, t.employeeName ?? '', t.distance, t.fee])
   await setSheetData(`${shopCode}_delivery_trips`, DT_HEADERS, rows)
 }
 
@@ -218,6 +233,42 @@ export async function saveExpenses(shopCode: string, entries: ExpenseEntry[]): P
     e.paid,
   ])
   await setSheetData(`${shopCode}_expenses`, EXP_HEADERS, rows)
+}
+
+// ─── Delivery Rates (Shop Config) ─────────────────────────────────────────────
+
+const DEFAULT_DELIVERY_RATES: DeliveryRate[] = [
+  { maxKm: 3, fee: 3.50 },
+  { maxKm: 5, fee: 4.50 },
+  { maxKm: 6, fee: 5.00 },
+  { maxKm: 7, fee: 6.00 },
+  { maxKm: 8, fee: 7.00 },
+  { maxKm: 9999, fee: 8.00 },
+]
+
+const CONFIG_HEADERS = ['key', 'value']
+
+export async function listDeliveryRates(shopCode: string): Promise<DeliveryRate[]> {
+  try {
+    const rows = await getSheetData(`${shopCode}_config`)
+    const row = rows.find((r) => r.key === 'delivery_rates')
+    if (!row) return DEFAULT_DELIVERY_RATES
+    return JSON.parse(row.value) as DeliveryRate[]
+  } catch {
+    return DEFAULT_DELIVERY_RATES
+  }
+}
+
+export async function saveDeliveryRates(shopCode: string, rates: DeliveryRate[]): Promise<void> {
+  let existing: Array<Record<string, string>> = []
+  try {
+    existing = await getSheetData(`${shopCode}_config`)
+  } catch {
+    // sheet ยังไม่มี
+  }
+  const kept = existing.filter((r) => r.key !== 'delivery_rates').map((r) => [r.key, r.value])
+  kept.push(['delivery_rates', JSON.stringify(rates)])
+  await setSheetData(`${shopCode}_config`, CONFIG_HEADERS, kept)
 }
 
 // ─── Notes ────────────────────────────────────────────────────────────────────

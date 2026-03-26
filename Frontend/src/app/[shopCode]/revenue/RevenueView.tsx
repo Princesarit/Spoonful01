@@ -1,11 +1,12 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import React, { useState, useEffect } from 'react'
 import Link from 'next/link'
 import { useParams } from 'next/navigation'
 import type { RevenueEntry, DeliveryPlatform } from '@/lib/types'
 import { getRevenueData, saveRevenueEntry, deleteRevenueEntry, savePlatforms } from './actions'
 import { useShop } from '@/components/ShopProvider'
+import { translations } from '@/lib/translations'
 
 function today(): string {
   return new Date().toISOString().split('T')[0]
@@ -26,7 +27,8 @@ function emptyEntry(platforms: DeliveryPlatform[]): RevenueEntry {
 
 export default function RevenueView() {
   const { shopCode } = useParams() as { shopCode: string }
-  const { session } = useShop()
+  const { session, lang } = useShop()
+  const tr = translations[lang]
   const [entries, setEntries] = useState<RevenueEntry[]>([])
   const [platforms, setPlatforms] = useState<DeliveryPlatform[]>([])
   const [form, setForm] = useState<RevenueEntry | null>(null)
@@ -75,14 +77,14 @@ export default function RevenueView() {
       })
       setForm(null)
     } catch {
-      alert('บันทึกไม่สำเร็จ')
+      alert(tr.save_fail)
     } finally {
       setSaving(false)
     }
   }
 
   async function handleDelete(id: string) {
-    if (!confirm('ลบรายการนี้?')) return
+    if (!confirm(tr.confirm_delete)) return
     await deleteRevenueEntry(shopCode, id)
     setEntries((p) => p.filter((e) => e.id !== id))
   }
@@ -98,12 +100,12 @@ export default function RevenueView() {
       setPlatforms(updated)
       setNewPlatformName('')
     } catch {
-      alert('เพิ่ม Platform ไม่สำเร็จ (ต้องเป็น Manager)')
+      alert(tr.platform_fail)
     }
   }
 
   async function handleDeletePlatform(id: string) {
-    if (!confirm('ลบ Platform นี้?')) return
+    if (!confirm(tr.confirm_del_platform)) return
     const updated = platforms.filter((p) => p.id !== id)
     await savePlatforms(shopCode, updated)
     setPlatforms(updated)
@@ -122,9 +124,9 @@ export default function RevenueView() {
     <div className="space-y-4">
       <div className="flex items-center gap-2">
         <Link href={`/${shopCode}`} className="text-gray-400 hover:text-gray-600 text-sm">
-          ← กลับ
+          {tr.back}
         </Link>
-        <h2 className="text-lg font-bold text-gray-800 flex-1">รายรับ</h2>
+        <h2 className="text-lg font-bold text-gray-800 flex-1">{tr.revenue_title}</h2>
         <div className="flex gap-2">
           {session.role === 'owner' && (
             <button
@@ -138,27 +140,27 @@ export default function RevenueView() {
             onClick={openNew}
             className="text-sm bg-brand-gold text-white px-3 py-1.5 rounded-lg hover:bg-brand-gold-dark cursor-pointer"
           >
-            + เพิ่ม
+            {tr.add}
           </button>
         </div>
       </div>
 
       {/* Date filter */}
       <div className="bg-white rounded-xl border border-brand-accent p-4 flex items-center gap-3">
-        <label className="text-xs text-gray-500 shrink-0">ดูวันที่</label>
+        <label className="text-xs text-gray-500 shrink-0">{tr.view_date}</label>
         <input
           type="date"
           value={filterDate}
           onChange={(e) => setFilterDate(e.target.value)}
           className="border border-gray-300 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-gold"
         />
-        <span className="text-xs text-gray-400">{filtered.length} รายการ</span>
+        <span className="text-xs text-gray-400">{tr.items_count(filtered.length)}</span>
       </div>
 
       {loading ? (
-        <div className="text-center py-12 text-gray-400 text-sm">กำลังโหลด...</div>
+        <div className="text-center py-12 text-gray-400 text-sm">{tr.loading}</div>
       ) : filtered.length === 0 ? (
-        <div className="text-center py-12 text-gray-400 text-sm">ยังไม่มีรายการ</div>
+        <div className="text-center py-12 text-gray-400 text-sm">{tr.no_data}</div>
       ) : (
         <div className="space-y-3">
           {filtered.map((entry) => {
@@ -172,8 +174,8 @@ export default function RevenueView() {
                     <div className="text-xs text-gray-400">{entry.date}</div>
                   </div>
                   <div className="flex gap-2">
-                    <button onClick={() => openEdit(entry)} className="text-xs text-blue-500 cursor-pointer">แก้ไข</button>
-                    <button onClick={() => handleDelete(entry.id)} className="text-xs text-red-400 cursor-pointer">ลบ</button>
+                    <button onClick={() => openEdit(entry)} className="text-xs text-blue-500 cursor-pointer">{tr.edit}</button>
+                    <button onClick={() => handleDelete(entry.id)} className="text-xs text-red-400 cursor-pointer">{tr.delete}</button>
                   </div>
                 </div>
                 <div className="grid grid-cols-2 gap-y-1 text-xs">
@@ -186,12 +188,12 @@ export default function RevenueView() {
                   <span className="text-gray-500">Cash</span>
                   <span className="text-right font-medium">{entry.cash.toLocaleString()} ฿</span>
                   {platforms.map((p) => (
-                    <>
-                      <span key={p.id + 'l'} className="text-gray-500">{p.name}</span>
-                      <span key={p.id + 'v'} className="text-right font-medium">
+                    <React.Fragment key={p.id}>
+                      <span className="text-gray-500">{p.name}</span>
+                      <span className="text-right font-medium">
                         {(entry.platforms[p.id] ?? 0).toLocaleString()} ฿
                       </span>
-                    </>
+                    </React.Fragment>
                   ))}
                   <span className="text-gray-700 font-semibold border-t border-gray-100 pt-1 mt-1">Total sale</span>
                   <span className="text-right font-bold text-brand-gold border-t border-gray-100 pt-1 mt-1">
@@ -210,11 +212,11 @@ export default function RevenueView() {
       {form && (
         <div className="fixed inset-0 bg-black/40 flex items-end justify-center z-50 p-4 overflow-y-auto">
           <div className="bg-white rounded-2xl w-full max-w-sm p-6 space-y-4 my-auto">
-            <h3 className="font-bold text-gray-900">{form.id ? 'แก้ไขรายรับ' : 'เพิ่มรายรับ'}</h3>
+            <h3 className="font-bold text-gray-900">{form.id ? tr.edit_revenue : tr.add_revenue}</h3>
 
             <div className="grid grid-cols-2 gap-3">
               <div className="col-span-2">
-                <label className="text-xs text-gray-500 block mb-1">วันที่</label>
+                <label className="text-xs text-gray-500 block mb-1">{tr.date_label}</label>
                 <input
                   type="date"
                   value={form.date}
@@ -223,12 +225,12 @@ export default function RevenueView() {
                 />
               </div>
               <div className="col-span-2">
-                <label className="text-xs text-gray-500 block mb-1">ชื่อ (แคชเชียร์)</label>
+                <label className="text-xs text-gray-500 block mb-1">{tr.cashier_name}</label>
                 <input
                   type="text"
                   value={form.name}
                   onChange={(e) => setField('name', e.target.value)}
-                  placeholder="ชื่อ"
+                  placeholder={tr.name_input}
                   className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-gold"
                 />
               </div>
@@ -289,14 +291,14 @@ export default function RevenueView() {
                 onClick={() => setForm(null)}
                 className="flex-1 py-2.5 border border-brand-accent rounded-xl text-sm text-gray-600 cursor-pointer"
               >
-                ยกเลิก
+                {tr.cancel}
               </button>
               <button
                 onClick={handleSave}
                 disabled={saving}
                 className="flex-1 py-2.5 bg-brand-gold text-white rounded-xl text-sm font-semibold disabled:opacity-50 cursor-pointer"
               >
-                {saving ? '...' : 'บันทึก'}
+                {saving ? tr.saving : tr.save}
               </button>
             </div>
           </div>
@@ -307,7 +309,7 @@ export default function RevenueView() {
       {showPlatformMgr && (
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-2xl w-full max-w-xs p-6 space-y-4">
-            <h3 className="font-bold text-gray-900">จัดการ Platforms</h3>
+            <h3 className="font-bold text-gray-900">{tr.platform_mgr_title}</h3>
             <div className="space-y-2">
               {platforms.map((p) => (
                 <div key={p.id} className="flex items-center justify-between py-1">
@@ -316,7 +318,7 @@ export default function RevenueView() {
                     onClick={() => handleDeletePlatform(p.id)}
                     className="text-red-400 hover:text-red-600 text-sm cursor-pointer"
                   >
-                    ลบ
+                    {tr.delete}
                   </button>
                 </div>
               ))}
@@ -326,21 +328,21 @@ export default function RevenueView() {
                 type="text"
                 value={newPlatformName}
                 onChange={(e) => setNewPlatformName(e.target.value)}
-                placeholder="ชื่อ Platform ใหม่"
+                placeholder={tr.new_platform_placeholder}
                 className="flex-1 border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-gold"
               />
               <button
                 onClick={handleAddPlatform}
                 className="px-3 py-2 bg-brand-gold text-white rounded-lg text-sm cursor-pointer"
               >
-                เพิ่ม
+                {tr.add}
               </button>
             </div>
             <button
               onClick={() => setShowPlatformMgr(false)}
               className="w-full py-2.5 border border-brand-accent rounded-xl text-sm text-gray-600 cursor-pointer"
             >
-              ปิด
+              {tr.close}
             </button>
           </div>
         </div>

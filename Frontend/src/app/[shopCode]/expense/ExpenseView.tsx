@@ -6,6 +6,8 @@ import { useParams } from 'next/navigation'
 import type { ExpenseEntry, PaymentMethod } from '@/lib/types'
 import { EXPENSE_CATEGORIES } from '@/lib/config'
 import { getExpenses, saveExpenseEntry, deleteExpenseEntry, togglePaid } from './actions'
+import { useShop } from '@/components/ShopProvider'
+import { translations } from '@/lib/translations'
 
 function today(): string {
   return new Date().toISOString().split('T')[0]
@@ -33,6 +35,8 @@ const METHOD_COLORS: Record<PaymentMethod, string> = {
 
 export default function ExpenseView() {
   const { shopCode } = useParams() as { shopCode: string }
+  const { lang } = useShop()
+  const tr = translations[lang]
   const [entries, setEntries] = useState<ExpenseEntry[]>([])
   const [form, setForm] = useState<(Omit<ExpenseEntry, 'id'> & { id?: string }) | null>(null)
   const [loading, setLoading] = useState(true)
@@ -75,14 +79,14 @@ export default function ExpenseView() {
       })
       setForm(null)
     } catch {
-      alert('บันทึกไม่สำเร็จ')
+      alert(tr.save_fail)
     } finally {
       setSaving(false)
     }
   }
 
   async function handleDelete(id: string) {
-    if (!confirm('ลบรายการนี้?')) return
+    if (!confirm(tr.confirm_delete)) return
     await deleteExpenseEntry(shopCode, id)
     setEntries((p) => p.filter((e) => e.id !== id))
   }
@@ -99,20 +103,20 @@ export default function ExpenseView() {
     <div className="space-y-4">
       <div className="flex items-center gap-2">
         <Link href={`/${shopCode}`} className="text-gray-400 hover:text-gray-600 text-sm">
-          ← กลับ
+          {tr.back}
         </Link>
-        <h2 className="text-lg font-bold text-gray-800 flex-1">รายจ่าย</h2>
+        <h2 className="text-lg font-bold text-gray-800 flex-1">{tr.expense_title}</h2>
         <button
           onClick={openNew}
           className="text-sm bg-brand-gold text-white px-3 py-1.5 rounded-lg hover:bg-brand-gold-dark cursor-pointer"
         >
-          + เพิ่ม
+          {tr.add}
         </button>
       </div>
 
       {/* Filter */}
       <div className="bg-white rounded-xl border border-brand-accent p-4 flex items-center gap-3">
-        <label className="text-xs text-gray-500 shrink-0">กรองวันที่</label>
+        <label className="text-xs text-gray-500 shrink-0">{tr.filter_date}</label>
         <input
           type="date"
           value={filterDate}
@@ -124,15 +128,15 @@ export default function ExpenseView() {
             onClick={() => setFilterDate('')}
             className="text-xs text-gray-400 hover:text-gray-600 cursor-pointer"
           >
-            ล้าง
+            {tr.clear}
           </button>
         )}
       </div>
 
       {loading ? (
-        <div className="text-center py-12 text-gray-400 text-sm">กำลังโหลด...</div>
+        <div className="text-center py-12 text-gray-400 text-sm">{tr.loading}</div>
       ) : sortedFiltered.length === 0 ? (
-        <div className="text-center py-12 text-gray-400 text-sm">ยังไม่มีรายการ</div>
+        <div className="text-center py-12 text-gray-400 text-sm">{tr.no_data}</div>
       ) : (
         <div className="space-y-3">
           {sortedFiltered.map((entry) => (
@@ -183,19 +187,19 @@ export default function ExpenseView() {
                       : 'bg-brand-gold-light text-brand-gold hover:bg-brand-gold/20'
                   }`}
                 >
-                  {entry.paid ? '✓ จ่ายแล้ว' : '⏳ ยังไม่จ่าย'}
+                  {entry.paid ? tr.paid_status : tr.unpaid_status}
                 </button>
                 <button
                   onClick={() => openEdit(entry)}
                   className="text-xs text-blue-500 hover:text-blue-700 cursor-pointer"
                 >
-                  แก้ไข
+                  {tr.edit}
                 </button>
                 <button
                   onClick={() => handleDelete(entry.id)}
                   className="text-xs text-red-400 hover:text-red-600 cursor-pointer"
                 >
-                  ลบ
+                  {tr.delete}
                 </button>
               </div>
             </div>
@@ -208,12 +212,12 @@ export default function ExpenseView() {
         <div className="fixed inset-0 bg-black/40 flex items-end justify-center z-50 p-4 overflow-y-auto">
           <div className="bg-white rounded-2xl w-full max-w-sm p-6 space-y-4 my-auto">
             <h3 className="font-bold text-gray-900">
-              {form.id ? 'แก้ไขรายจ่าย' : 'เพิ่มรายจ่าย'}
+              {form.id ? tr.edit_expense : tr.add_expense}
             </h3>
 
             <div className="grid grid-cols-2 gap-3">
               <div>
-                <label className="text-xs text-gray-500 block mb-1">วันที่</label>
+                <label className="text-xs text-gray-500 block mb-1">{tr.date_label}</label>
                 <input
                   type="date"
                   value={form.date}
@@ -239,7 +243,7 @@ export default function ExpenseView() {
                   type="text"
                   value={form.supplier}
                   onChange={(e) => setField('supplier', e.target.value)}
-                  placeholder="ชื่อผู้จำหน่าย"
+                  placeholder={tr.supplier_placeholder}
                   className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-gold"
                 />
               </div>
@@ -249,7 +253,7 @@ export default function ExpenseView() {
                   type="text"
                   value={form.description}
                   onChange={(e) => setField('description', e.target.value)}
-                  placeholder="รายละเอียด"
+                  placeholder={tr.desc_placeholder}
                   className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-gold"
                 />
               </div>
@@ -292,7 +296,7 @@ export default function ExpenseView() {
                       type="text"
                       value={form.bankAccount ?? ''}
                       onChange={(e) => setField('bankAccount', e.target.value)}
-                      placeholder="เลขบัญชี"
+                      placeholder={tr.bank_placeholder}
                       className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-gold"
                     />
                   </div>
@@ -310,7 +314,7 @@ export default function ExpenseView() {
             </div>
 
             <div className="flex items-center gap-3">
-              <label className="text-sm text-gray-700">สถานะ</label>
+              <label className="text-sm text-gray-700">{tr.status_label}</label>
               <button
                 type="button"
                 onClick={() => setField('paid', !form.paid)}
@@ -320,7 +324,7 @@ export default function ExpenseView() {
                     : 'bg-brand-gold-light text-brand-gold'
                 }`}
               >
-                {form.paid ? '✓ จ่ายแล้ว' : '⏳ ยังไม่จ่าย'}
+                {form.paid ? tr.paid_status : tr.unpaid_status}
               </button>
             </div>
 
@@ -329,14 +333,14 @@ export default function ExpenseView() {
                 onClick={() => setForm(null)}
                 className="flex-1 py-2.5 border border-brand-accent rounded-xl text-sm text-gray-600 cursor-pointer"
               >
-                ยกเลิก
+                {tr.cancel}
               </button>
               <button
                 onClick={handleSave}
                 disabled={saving}
                 className="flex-1 py-2.5 bg-brand-gold text-white rounded-xl text-sm font-semibold disabled:opacity-50 cursor-pointer"
               >
-                {saving ? '...' : 'บันทึก'}
+                {saving ? tr.saving : tr.save}
               </button>
             </div>
           </div>

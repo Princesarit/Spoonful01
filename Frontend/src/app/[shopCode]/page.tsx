@@ -5,72 +5,16 @@ import { useParams } from 'next/navigation'
 import { useShop } from '@/components/ShopProvider'
 import { useState, useActionState } from 'react'
 import { elevateToOwnerAction } from '@/app/actions'
+import { translations } from '@/lib/translations'
 
-const NAV_ITEMS = [
-  {
-    label: 'กรอกรายรับ',
-    sub: 'ยอดขายประจำวัน',
-    href: 'revenue',
-    icon: '💰',
-    bg: 'bg-white',
-    border: 'border-brand-accent',
-    text: 'text-brand-green',
-  },
-  {
-    label: 'กรอกรายจ่าย',
-    sub: 'วัตถุดิบ + maintenance',
-    href: 'expense',
-    icon: '🧾',
-    bg: 'bg-white',
-    border: 'border-brand-accent',
-    text: 'text-brand-green',
-  },
-  {
-    label: 'สรุปยอด',
-    sub: 'รายได้ - รายจ่าย',
-    href: 'summary',
-    icon: '📊',
-    bg: 'bg-white',
-    border: 'border-brand-accent',
-    text: 'text-brand-green',
-  },
-  {
-    label: 'พนักงานประจำ',
-    sub: 'ข้อมูลพนักงานและค่าจ้าง',
-    href: 'employees',
-    icon: '👥',
-    bg: 'bg-white',
-    border: 'border-brand-accent',
-    text: 'text-brand-green',
-  },
-  {
-    label: 'กรอกเวลา',
-    sub: 'check การเข้างาน',
-    href: 'time-record',
-    icon: '⏰',
-    bg: 'bg-white',
-    border: 'border-brand-accent',
-    text: 'text-brand-green',
-  },
-  {
-    label: 'ตารางเวลา',
-    sub: 'จัดตารางกะพนักงาน',
-    href: 'schedule',
-    icon: '📅',
-    bg: 'bg-white',
-    border: 'border-brand-accent',
-    text: 'text-brand-green',
-  },
-]
-
-function OwnerModal({ onClose }: { onClose: () => void }) {
+function OwnerModal({ onClose, tr }: { onClose: () => void; tr: typeof translations.th }) {
   const [state, action, pending] = useActionState(elevateToOwnerAction, null)
 
   return (
     <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
       <div className="bg-white rounded-2xl w-full max-w-xs p-6 space-y-4">
-        <h3 className="font-bold text-brand-green">เข้าสู่ Manager Mode</h3>
-        <p className="text-sm text-brand-accent">กรอก Manager Password เพื่อจัดการพนักงานและข้อมูลร้าน</p>
+        <h3 className="font-bold text-brand-green">{tr.manager_modal_title}</h3>
+        <p className="text-sm text-brand-accent">{tr.manager_modal_desc}</p>
         <form action={action} className="space-y-3">
           <input
             type="password"
@@ -89,14 +33,14 @@ function OwnerModal({ onClose }: { onClose: () => void }) {
               onClick={onClose}
               className="flex-1 py-2.5 border border-brand-accent rounded-xl text-sm text-brand-green cursor-pointer"
             >
-              ยกเลิก
+              {tr.cancel}
             </button>
             <button
               type="submit"
               disabled={pending}
               className="flex-1 py-2.5 bg-brand-gold text-white rounded-xl text-sm font-semibold disabled:opacity-50 cursor-pointer hover:bg-brand-gold-dark transition-colors"
             >
-              {pending ? '...' : 'เข้าสู่ระบบ'}
+              {pending ? '...' : tr.enter}
             </button>
           </div>
         </form>
@@ -108,8 +52,66 @@ function OwnerModal({ onClose }: { onClose: () => void }) {
 export default function HomePage() {
   const params = useParams()
   const shopCode = params.shopCode as string
-  const { session } = useShop()
+  const { session, lang } = useShop()
+  const tr = translations[lang]
   const [showOwnerModal, setShowOwnerModal] = useState(false)
+
+  const NAV_ITEMS = [
+    {
+      label: tr.nav_revenue,
+      sub: tr.nav_revenue_sub,
+      href: 'revenue',
+      icon: '💰',
+      bg: 'bg-white',
+      border: 'border-brand-accent',
+      text: 'text-brand-green',
+    },
+    {
+      label: tr.nav_expense,
+      sub: tr.nav_expense_sub,
+      href: 'expense',
+      icon: '🧾',
+      bg: 'bg-white',
+      border: 'border-brand-accent',
+      text: 'text-brand-green',
+    },
+    {
+      label: tr.nav_summary,
+      sub: tr.nav_summary_sub,
+      href: 'summary',
+      icon: '📊',
+      bg: 'bg-white',
+      border: 'border-brand-accent',
+      text: 'text-brand-green',
+    },
+    {
+      label: tr.nav_employees,
+      sub: tr.nav_employees_sub,
+      href: 'employees',
+      icon: '👥',
+      bg: 'bg-white',
+      border: 'border-brand-accent',
+      text: 'text-brand-green',
+    },
+    {
+      label: tr.nav_time_record,
+      sub: tr.nav_time_record_sub,
+      href: 'time-record',
+      icon: '⏰',
+      bg: 'bg-white',
+      border: 'border-brand-accent',
+      text: 'text-brand-green',
+    },
+    {
+      label: tr.nav_schedule,
+      sub: tr.nav_schedule_sub,
+      href: 'schedule',
+      icon: '📅',
+      bg: 'bg-white',
+      border: 'border-brand-accent',
+      text: 'text-brand-green',
+    },
+  ]
 
   return (
     <div className="space-y-4">
@@ -132,11 +134,20 @@ export default function HomePage() {
           onClick={() => setShowOwnerModal(true)}
           className="w-full py-2.5 border border-brand-accent bg-white text-brand-green rounded-xl text-sm hover:border-brand-gold hover:text-brand-gold transition-colors cursor-pointer"
         >
-          🔑 เข้าสู่ Manager Mode
+          {tr.manager_mode_btn}
         </button>
       )}
 
-      {showOwnerModal && <OwnerModal onClose={() => setShowOwnerModal(false)} />}
+      {session.role === 'owner' && (
+        <Link
+          href={`/${shopCode}/config`}
+          className="w-full block text-center py-2.5 border border-brand-accent bg-white text-brand-green rounded-xl text-sm hover:border-brand-gold hover:text-brand-gold transition-colors cursor-pointer"
+        >
+          {tr.delivery_settings}
+        </Link>
+      )}
+
+      {showOwnerModal && <OwnerModal onClose={() => setShowOwnerModal(false)} tr={tr} />}
     </div>
   )
 }
