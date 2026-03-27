@@ -98,6 +98,7 @@ type RGB = { red: number; green: number; blue: number }
 /**
  * ย้อม background color ทีละ row (rowIndex = 0-based รวม header)
  * ถ้า color = null → reset เป็นสีขาว
+ * clearRowsCount: ถ้าส่งมา จะล้างสีทุก row (1..clearRowsCount) เป็นขาวก่อน แล้วค่อย apply rules
  */
 export async function applyRowColors(
   sheetName: string,
@@ -108,34 +109,56 @@ export async function applyRowColors(
     colStart?: number  // 0-based, inclusive (default = entire row)
     colEnd?: number    // 0-based, exclusive
   }>,
+  clearRowsCount?: number,
 ): Promise<void> {
   const meta = await sheetsApi.spreadsheets.get({ spreadsheetId })
   const sheet = meta.data.sheets?.find((s) => s.properties?.title === sheetName)
   const sheetId = sheet?.properties?.sheetId
   if (sheetId === undefined) return
 
-  await sheetsApi.spreadsheets.batchUpdate({
-    spreadsheetId,
-    requestBody: {
-      requests: rules.map(({ rowIndex, color, colStart, colEnd }) => ({
-        repeatCell: {
-          range: {
-            sheetId,
-            startRowIndex: rowIndex,
-            endRowIndex: rowIndex + 1,
-            ...(colStart !== undefined ? { startColumnIndex: colStart } : {}),
-            ...(colEnd !== undefined ? { endColumnIndex: colEnd } : {}),
-          },
-          cell: {
-            userEnteredFormat: {
-              backgroundColor: color ?? { red: 1, green: 1, blue: 1 },
-            },
-          },
-          fields: 'userEnteredFormat.backgroundColor',
+  const WHITE = { red: 1, green: 1, blue: 1 }
+  const requests: object[] = []
+
+  // Clear all row backgrounds to white before applying new colors
+  // Use actual sheet grid row count so shrinking data doesn't leave stale colors
+  if (clearRowsCount !== undefined && clearRowsCount > 0) {
+    const gridRowCount = sheet?.properties?.gridProperties?.rowCount ?? clearRowsCount
+    const clearEnd = Math.max(clearRowsCount + 1, gridRowCount)
+    requests.push({
+      repeatCell: {
+        range: { sheetId, startRowIndex: 1, endRowIndex: clearEnd },
+        cell: { userEnteredFormat: { backgroundColor: WHITE } },
+        fields: 'userEnteredFormat.backgroundColor',
+      },
+    })
+  }
+
+  for (const { rowIndex, color, colStart, colEnd } of rules) {
+    requests.push({
+      repeatCell: {
+        range: {
+          sheetId,
+          startRowIndex: rowIndex,
+          endRowIndex: rowIndex + 1,
+          ...(colStart !== undefined ? { startColumnIndex: colStart } : {}),
+          ...(colEnd !== undefined ? { endColumnIndex: colEnd } : {}),
         },
-      })),
-    },
-  })
+        cell: {
+          userEnteredFormat: {
+            backgroundColor: color ?? WHITE,
+          },
+        },
+        fields: 'userEnteredFormat.backgroundColor',
+      },
+    })
+  }
+
+  if (requests.length > 0) {
+    await sheetsApi.spreadsheets.batchUpdate({
+      spreadsheetId,
+      requestBody: { requests },
+    })
+  }
 }
 
 /**

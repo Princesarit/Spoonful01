@@ -24,7 +24,8 @@ export async function loginAction(
     const data = await res.json() as { token?: string; role?: string; error?: string }
     if (!res.ok || !data.role || !data.token) return { error: data.error ?? 'รหัสผ่านไม่ถูกต้อง' }
 
-    await setSession({ shopCode, role: data.role as 'staff' | 'manager' | 'owner', token: data.token, loginAt: Date.now() })
+    const role = data.role as 'staff' | 'manager' | 'owner'
+    await setSession({ shopCode, role, baseRole: role, token: data.token, loginAt: Date.now() })
   } catch {
     return { error: 'ไม่สามารถเชื่อมต่อ Backend ได้' }
   }
@@ -48,7 +49,7 @@ export async function elevateToOwnerAction(
     })
     const data = await res.json() as { token?: string; role?: string; error?: string }
     if (!res.ok || !data.role || !data.token) return { error: data.error ?? 'Password ไม่ถูกต้อง' }
-    await setSession({ ...session, role: data.role as 'staff' | 'manager' | 'owner', token: data.token })
+    await setSession({ ...session, role: data.role as 'staff' | 'manager' | 'owner', token: data.token, baseRole: session.baseRole ?? session.role })
   } catch {
     return { error: 'ไม่สามารถเชื่อมต่อ Backend ได้' }
   }
@@ -59,4 +60,11 @@ export async function elevateToOwnerAction(
 export async function logoutAction(): Promise<void> {
   await clearSession()
   redirect('/')
+}
+
+export async function demoteAction(): Promise<void> {
+  const session = await getSession()
+  if (!session) { redirect('/'); return }
+  await setSession({ ...session, role: session.baseRole ?? 'staff' })
+  redirect(`/${session.shopCode}`)
 }

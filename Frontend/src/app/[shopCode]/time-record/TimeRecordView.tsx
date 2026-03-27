@@ -5,9 +5,10 @@ import Link from 'next/link'
 import { useParams } from 'next/navigation'
 import type { Employee, TimeRecord, DeliveryTrip, DeliveryRate, Position } from '@/lib/types'
 import { DEFAULT_DELIVERY_RATES, calcDeliveryFee } from '@/lib/config'
-import { getWeekTimeRecords, getTimeRecordData, saveTimeRecords, deleteEmployee, saveEmployee } from './actions'
+import { getWeekTimeRecords, getTimeRecordData, saveTimeRecords, saveEmployee } from './actions'
 import { getDeliveryRates, getDeliveryFee } from '../config/actions'
 import { saveRevenueEntry } from '../revenue/actions'
+import { saveAuditLog } from './actions'
 import { useShop } from '@/components/ShopProvider'
 import { translations } from '@/lib/translations'
 
@@ -89,8 +90,13 @@ export default function TimeRecordView() {
   const [homeEmps, setHomeEmps] = useState<Employee[]>([])
   const [trips, setTrips] = useState<TripMap>({})
   const [codByEmp, setCodByEmp] = useState<Record<string, number>>({})
+  const [noteByEmp, setNoteByEmp] = useState<Record<string, string>>({})
+  const [savedByEmp, setSavedByEmp] = useState<Record<string, boolean>>({})
+  const [editingByEmp, setEditingByEmp] = useState<Record<string, boolean>>({})
+  const [empSaving, setEmpSaving] = useState<Record<string, boolean>>({})
+  const [originalByEmp, setOriginalByEmp] = useState<Record<string, { trips: DeliveryTrip[]; cod: number; note: string }>>({})
+  const [auditModal, setAuditModal] = useState<{ emp: Employee; editorName: string; remark: string } | null>(null)
   const [homeLoading, setHomeLoading] = useState(true)
-  const [homeSaving, setHomeSaving] = useState(false)
 
   // ── Add employee modal ──
   const [showAdd, setShowAdd] = useState(false)
@@ -131,13 +137,30 @@ export default function TimeRecordView() {
         setHomeEmps(home)
         const t: TripMap = {}
         const cod: Record<string, number> = {}
+        const saved: Record<string, boolean> = {}
         home.forEach((e) => {
           const empTrips = deliveryTrips.filter((tr) => tr.employeeId === e.id)
           t[e.id] = empTrips.map((tr) => ({ ...tr, cod: undefined }))
           cod[e.id] = empTrips.reduce((s, tr) => s + (tr.cod ?? 0), 0)
+          saved[e.id] = empTrips.length > 0
         })
         setTrips(t)
         setCodByEmp(cod)
+        setSavedByEmp(saved)
+        setEditingByEmp({})
+        setNoteByEmp({})
+        // Capture original state for already-saved employees
+        const originals: Record<string, { trips: DeliveryTrip[]; cod: number; note: string }> = {}
+        home.forEach((e) => {
+          if (saved[e.id]) {
+            originals[e.id] = {
+              trips: deliveryTrips.filter((tr) => tr.employeeId === e.id).map((tr) => ({ ...tr, cod: undefined })),
+              cod: deliveryTrips.filter((tr) => tr.employeeId === e.id).reduce((s, tr) => s + (tr.cod ?? 0), 0),
+              note: '',
+            }
+          }
+        })
+        setOriginalByEmp(originals)
       })
       .catch(console.error)
       .finally(() => setHomeLoading(false))
@@ -197,9 +220,22 @@ export default function TimeRecordView() {
         setHomeEmps((p) => [...p, emp])
         setTrips((p) => ({ ...p, [emp.id]: [] }))
         setCodByEmp((p) => ({ ...p, [emp.id]: 0 }))
+        setSavedByEmp((p) => ({ ...p, [emp.id]: false }))
       }
       setNewEmp(EMPTY_NEW_EMP)
       setShowAdd(false)
+      // Auto-log without requiring name/note — use role as editorName
+      const shift = emp.positions.includes('Home')
+        ? (emp.defaultDays[0] ? 'Morning' : 'Evening')
+        : emp.positions.join(', ')
+      const roleName = session.role.charAt(0).toUpperCase() + session.role.slice(1)
+      saveAuditLog(shopCode, {
+        editorName: roleName,
+        note: '',
+        employeeName: emp.name,
+        shift,
+        changes: `Add employee: ${emp.name} (${emp.positions.join(', ')})`,
+      }).catch(() => {})
     } catch {
       alert(tr.add_emp_fail)
     } finally {
@@ -208,15 +244,56 @@ export default function TimeRecordView() {
   }
 
   // ── Delete employee ──
-  async function handleDeleteEmployee(empId: string, name: string) {
-    if (!confirm(tr.confirm_delete_emp2(name))) return
-    try {
-      await deleteEmployee(shopCode, empId)
-      setStaffEmps((p) => p.filter((e) => e.id !== empId))
-      setHomeEmps((p) => p.filter((e) => e.id !== empId))
-    } catch {
-      alert(tr.save_fail)
+  // ── Add employee ──
+  async function handleAddEmployee() {
+    if (!newEmp.name.trim() || newEmp.positions.length === 0) return
+    setAddSaving(true)
+    const emp: Employee = {
+      id: Date.now().toString(),
+      name: newEmp.name.trim(),
+      positions: newEmp.positions,
+      defaultDays: newEmp.defaultDays,
     }
+    try {
+      await saveEmployee(shopCode, emp)
+      if (emp.positions.includes('Front') || emp.positions.includes('Back')) {
+        setStaffEmps((p) => [...p, emp])
+        setWeekAttend((p) => {
+          const updated = { ...p }
+          weekDates.forEach((d) => {
+            updated[d] = { ...updated[d], [emp.id]: { morning: 0, evening: 0 } }
+          })
+          return updated
+        })
+      }
+      if (emp.positions.includes('Home')) {
+        setHomeEmps((p) => [...p, emp])
+        setTrips((p) => ({ ...p, [emp.id]: [] }))
+        setCodByEmp((p) => ({ ...p, [emp.id]: 0 }))
+        setSavedByEmp((p) => ({ ...p, [emp.id]: false }))
+      }
+      setNewEmp(EMPTY_NEW_EMP)
+      setShowAdd(false)
+      const roleName = session.role.charAt(0).toUpperCase() + session.role.slice(1)
+      const shift = emp.positions.includes('Home')
+        ? (emp.defaultDays[0] ? 'Morning' : 'Evening')
+        : emp.positions.join(', ')
+      saveAuditLog(shopCode, {
+        editorName: roleName, note: '', employeeName: emp.name, shift,
+        changes: `Add employee: ${emp.name} (${emp.positions.join(', ')})`,
+      }).catch(() => {})
+    } catch {
+      alert(tr.add_emp_fail)
+    } finally {
+      setAddSaving(false)
+    }
+  }
+
+  // ── Remove from view only (does NOT delete from Employees) ──
+  function handleDeleteEmployee(empId: string, name: string) {
+    if (!confirm(tr.confirm_delete_emp2(name))) return
+    setStaffEmps((p) => p.filter((e) => e.id !== empId))
+    setHomeEmps((p) => p.filter((e) => e.id !== empId))
   }
 
   // ── Home/Delivery handlers ──
@@ -245,38 +322,71 @@ export default function TimeRecordView() {
     setTrips((p) => ({ ...p, [empId]: p[empId].filter((t) => t.id !== tripId) }))
   }
 
-  async function handleSaveHome() {
-    setHomeSaving(true)
+  function buildChangeSummary(emp: Employee): string {
+    const orig = originalByEmp[emp.id]
+    const newTrips = (trips[emp.id] ?? []).filter((t) => t.distance > 0)
+    const newCod = codByEmp[emp.id] ?? 0
+    const newNote = noteByEmp[emp.id] ?? ''
+
+    if (!orig) {
+      // First save
+      const parts: string[] = []
+      if (newTrips.length > 0) parts.push(`trips=[${newTrips.map((t) => t.distance).join(', ')}]km`)
+      if (newCod > 0) parts.push(`cod=${newCod}`)
+      if (newNote) parts.push(`note="${newNote}"`)
+      return parts.length > 0 ? `New: ${parts.join(', ')}` : 'New (empty)'
+    }
+
+    // Edit — show what changed
+    const changes: string[] = []
+    const origDists = orig.trips.filter((t) => t.distance > 0).map((t) => t.distance)
+    const newDists = newTrips.map((t) => t.distance)
+    if (JSON.stringify(origDists) !== JSON.stringify(newDists)) {
+      changes.push(`trips=[${origDists.join(', ')}]→[${newDists.join(', ')}]km`)
+    }
+    if (orig.cod !== newCod) changes.push(`cod=${orig.cod}→${newCod}`)
+    if (orig.note !== newNote) changes.push(`note="${orig.note}"→"${newNote}"`)
+    return changes.length > 0 ? changes.join(' | ') : 'No changes'
+  }
+
+  async function doSaveEmp(emp: Employee, editorName: string, remark: string) {
+    setAuditModal(null)
+    setEmpSaving((p) => ({ ...p, [emp.id]: true }))
     try {
-      // Attach per-employee COD to first trip of each employee
-      const allTrips = homeEmps.flatMap((emp) => {
-        const empTrips = trips[emp.id] ?? []
-        const cod = codByEmp[emp.id] ?? 0
+      // Save ALL home trips together to avoid data loss (skip empty rows)
+      const allTrips = homeEmps.flatMap((e) => {
+        const empTrips = (trips[e.id] ?? []).filter((t) => t.distance > 0)
+        const cod = codByEmp[e.id] ?? 0
         if (empTrips.length === 0) return []
         return empTrips.map((t, i) => ({ ...t, cod: i === 0 && cod > 0 ? cod : undefined }))
       })
       await saveTimeRecords(shopCode, date, [], allTrips)
-
-      // Save total COD as revenue entry
-      const totalCod = Object.values(codByEmp).reduce((s, v) => s + v, 0)
-      if (totalCod > 0) {
+      // Save revenue entry for this employee's COD
+      const cod = codByEmp[emp.id] ?? 0
+      if (cod > 0) {
         await saveRevenueEntry(shopCode, {
-          id: `cod_${date}_${Date.now()}`,
+          id: `cod_${date}_${emp.id}_${Date.now()}`,
           date,
-          name: 'Cash on Delivery',
-          netSales: totalCod,
+          name: `Cash on Delivery (${emp.name})`,
+          netSales: cod,
           paidOnline: 0,
           card: 0,
-          cash: totalCod,
+          cash: cod,
           platforms: {},
+          note: noteByEmp[emp.id] || undefined,
         })
       }
-
+      // Save audit log with change summary
+      const shift = emp.defaultDays[0] ? 'Morning' : emp.defaultDays[1] ? 'Evening' : ''
+      const changes = buildChangeSummary(emp)
+      await saveAuditLog(shopCode, { editorName, note: remark, employeeName: emp.name, shift, changes })
+      setSavedByEmp((p) => ({ ...p, [emp.id]: true }))
+      setEditingByEmp((p) => ({ ...p, [emp.id]: false }))
       alert(tr.save)
     } catch {
       alert(tr.save_fail)
     } finally {
-      setHomeSaving(false)
+      setEmpSaving((p) => ({ ...p, [emp.id]: false }))
     }
   }
 
@@ -350,8 +460,8 @@ export default function TimeRecordView() {
                               <div>{DAYS_SHORT[i]}</div>
                               <div className="text-gray-300 text-[10px]">{new Date(d + 'T00:00:00').getDate()}</div>
                               <div className="flex gap-0.5 justify-center mt-0.5">
-                                <span className="text-[9px] text-blue-300 w-8 text-center">{tr.morning}</span>
-                                <span className="text-[9px] text-orange-300 w-8 text-center">{tr.evening}</span>
+                                <span className="text-[9px] text-orange-300 w-8 text-center">{tr.morning}</span>
+                                <span className="text-[9px] text-blue-300 w-8 text-center">{tr.evening}</span>
                               </div>
                             </th>
                           ))}
@@ -380,8 +490,8 @@ export default function TimeRecordView() {
                                         placeholder="0"
                                         className={`w-8 text-center border rounded px-0.5 py-1 text-xs focus:outline-none focus:ring-1 disabled:bg-gray-50 disabled:text-gray-300 ${
                                           shift === 'morning'
-                                            ? 'border-blue-200 focus:ring-blue-300'
-                                            : 'border-orange-200 focus:ring-orange-300'
+                                            ? 'border-orange-200 focus:ring-orange-300'
+                                            : 'border-blue-200 focus:ring-blue-300'
                                         }`}
                                       />
                                     </td>
@@ -472,7 +582,10 @@ export default function TimeRecordView() {
                     )
                   })}
                 </div>
-                {homeEmps.map((emp) => (
+                {homeEmps.map((emp) => {
+                  const isSaved = savedByEmp[emp.id] && !editingByEmp[emp.id]
+                  const isSavingThis = empSaving[emp.id]
+                  return (
                   <div key={emp.id} className="border-b border-gray-50 last:border-0">
                     <div className="px-4 py-2.5 flex items-center justify-between">
                       <div>
@@ -489,12 +602,41 @@ export default function TimeRecordView() {
                         </div>
                       </div>
                       <div className="flex items-center gap-2">
-                        <button
-                          onClick={() => addTrip(emp.id)}
-                          className="text-xs bg-green-50 text-green-700 border border-green-200 px-2.5 py-1 rounded-lg hover:bg-green-100 cursor-pointer"
-                        >
-                          {tr.add_trip}
-                        </button>
+                        {!isSaved && (
+                          <button
+                            onClick={() => addTrip(emp.id)}
+                            className="text-xs bg-green-50 text-green-700 border border-green-200 px-2.5 py-1 rounded-lg hover:bg-green-100 cursor-pointer"
+                          >
+                            {tr.add_trip}
+                          </button>
+                        )}
+                        {isSaved ? (
+                          <button
+                            onClick={() => {
+                              // Snapshot current saved state as "original" before editing
+                              setOriginalByEmp((p) => ({
+                                ...p,
+                                [emp.id]: {
+                                  trips: [...(trips[emp.id] ?? [])],
+                                  cod: codByEmp[emp.id] ?? 0,
+                                  note: noteByEmp[emp.id] ?? '',
+                                },
+                              }))
+                              setEditingByEmp((p) => ({ ...p, [emp.id]: true }))
+                            }}
+                            className="text-xs bg-brand-gold text-white px-2.5 py-1 rounded-lg hover:bg-brand-gold-dark cursor-pointer"
+                          >
+                            Edit
+                          </button>
+                        ) : (
+                          <button
+                            onClick={() => setAuditModal({ emp, editorName: '', remark: '' })}
+                            disabled={isSavingThis}
+                            className="text-xs bg-brand-gold text-white px-2.5 py-1 rounded-lg hover:bg-brand-gold-dark disabled:opacity-50 cursor-pointer"
+                          >
+                            {isSavingThis ? '...' : tr.save}
+                          </button>
+                        )}
                         {(session.role === 'manager' || session.role === 'owner') && (
                           <button
                             onClick={() => handleDeleteEmployee(emp.id, emp.name)}
@@ -513,52 +655,111 @@ export default function TimeRecordView() {
                           type="number"
                           min="0"
                           step="0.1"
+                          disabled={isSaved}
                           value={trip.distance || ''}
                           onChange={(e) => updateTrip(emp.id, trip.id, Number(e.target.value))}
                           placeholder="ระยะ (km)"
-                          className="w-24 border border-brand-accent rounded px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-brand-gold"
+                          className="w-24 border border-brand-accent rounded px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-brand-gold disabled:bg-gray-50 disabled:text-gray-400"
                         />
                         <span className="text-xs text-gray-400">km</span>
                         <span className="text-xs font-semibold text-green-700 w-10 text-right">
                           {trip.fee > 0 ? `$${trip.fee}` : '—'}
                         </span>
-                        <button
-                          onClick={() => removeTrip(emp.id, trip.id)}
-                          className="text-red-300 hover:text-red-500 cursor-pointer"
-                        >
-                          ×
-                        </button>
+                        {!isSaved && (
+                          <button
+                            onClick={() => removeTrip(emp.id, trip.id)}
+                            className="text-red-300 hover:text-red-500 cursor-pointer"
+                          >
+                            ×
+                          </button>
+                        )}
                       </div>
                     ))}
-                    <div className="px-4 pb-3 flex items-center gap-2">
+                    <div className="px-4 pb-1 flex items-center gap-2">
                       <label className="text-xs text-blue-500 font-medium">Cash on Delivery</label>
                       <input
                         type="number"
                         min="0"
                         step="1"
+                        disabled={isSaved}
                         value={codByEmp[emp.id] || ''}
                         onChange={(e) => setCodByEmp((p) => ({ ...p, [emp.id]: Number(e.target.value) }))}
                         placeholder="0"
-                        className="w-28 border border-blue-200 rounded px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-blue-300"
+                        className="w-28 border border-blue-200 rounded px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-blue-300 disabled:bg-gray-50 disabled:text-gray-400"
+                      />
+                    </div>
+                    <div className="px-4 pb-3 flex items-center gap-2">
+                      <label className="text-xs text-gray-400 font-medium">Note</label>
+                      <input
+                        type="text"
+                        disabled={isSaved}
+                        value={noteByEmp[emp.id] || ''}
+                        onChange={(e) => setNoteByEmp((p) => ({ ...p, [emp.id]: e.target.value }))}
+                        placeholder="optional"
+                        className="flex-1 border border-gray-200 rounded px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-gray-300 disabled:bg-gray-50 disabled:text-gray-400"
                       />
                     </div>
                   </div>
-                ))}
+                  )
+                })}
               </div>
             )}
 
-            {homeEmps.length > 0 && (
-              <button
-                onClick={handleSaveHome}
-                disabled={homeSaving}
-                className="w-full py-3 bg-brand-gold text-white rounded-xl font-semibold text-sm hover:bg-brand-gold-dark disabled:opacity-50 transition-colors cursor-pointer"
-              >
-                {homeSaving ? tr.saving : tr.save_home}
-              </button>
-            )}
           </>
         )}
       </div>
+
+      {/* ═══ Audit Modal ════════════════════════════════════════════════════ */}
+      {auditModal && (
+        <div className="fixed inset-0 bg-black/40 flex items-end justify-center z-50 p-4">
+          <div className="bg-white rounded-2xl w-full max-w-sm p-6 space-y-4">
+            <h3 className="font-bold text-gray-900">บันทึกการแก้ไข</h3>
+            <div className="text-xs text-gray-500 bg-gray-50 rounded-lg px-3 py-2">
+              <span className="font-medium text-gray-700">{auditModal.emp.name}</span>
+              {' · '}
+              {auditModal.emp.defaultDays[0] ? 'Morning' : 'Evening'}
+            </div>
+            <div className="space-y-3">
+              <div>
+                <label className="text-xs text-gray-500 block mb-1">ชื่อผู้แก้ไข *</label>
+                <input
+                  type="text"
+                  autoFocus
+                  value={auditModal.editorName}
+                  onChange={(e) => setAuditModal((p) => p && ({ ...p, editorName: e.target.value }))}
+                  placeholder="กรอกชื่อ"
+                  className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-gold"
+                />
+              </div>
+              <div>
+                <label className="text-xs text-gray-500 block mb-1">หมายเหตุ</label>
+                <input
+                  type="text"
+                  value={auditModal.remark}
+                  onChange={(e) => setAuditModal((p) => p && ({ ...p, remark: e.target.value }))}
+                  placeholder="เหตุผลการแก้ไข (ถ้ามี)"
+                  className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-gold"
+                />
+              </div>
+            </div>
+            <div className="flex gap-2 pt-1">
+              <button
+                onClick={() => setAuditModal(null)}
+                className="flex-1 py-2.5 border border-brand-accent rounded-xl text-sm text-gray-600 cursor-pointer"
+              >
+                {tr.cancel}
+              </button>
+              <button
+                onClick={() => doSaveEmp(auditModal.emp, auditModal.editorName, auditModal.remark)}
+                disabled={!auditModal.editorName.trim()}
+                className="flex-1 py-2.5 bg-brand-gold text-white rounded-xl text-sm font-semibold disabled:opacity-50 cursor-pointer"
+              >
+                {tr.save}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* ═══ Add Employee Modal ══════════════════════════════════════════════ */}
       {showAdd && (
@@ -602,25 +803,33 @@ export default function TimeRecordView() {
               <div>
                 <label className="text-xs text-gray-500 mb-1.5 block">Shift</label>
                 <div className="flex gap-2">
-                  {(['Morning', 'Evening'] as const).map((shift, i) => (
-                    <button
-                      key={shift}
-                      type="button"
-                      onClick={() =>
-                        setNewEmp((p) => ({
-                          ...p,
-                          defaultDays: p.defaultDays.map((_, j) => j === i),
-                        }))
-                      }
-                      className={`flex-1 py-2 rounded-lg text-xs font-semibold border cursor-pointer transition-colors ${
-                        newEmp.defaultDays[i]
-                          ? i === 0 ? 'bg-orange-100 text-orange-600 border-orange-300' : 'bg-blue-100 text-blue-700 border-blue-300'
-                          : 'bg-brand-parchment text-gray-400 border-brand-accent'
-                      }`}
-                    >
-                      {shift}
-                    </button>
-                  ))}
+                  {(['Morning', 'Evening'] as const).map((shift, i) => {
+                    const occupied = homeEmps.some(
+                      (e) => savedByEmp[e.id] && !editingByEmp[e.id] && e.defaultDays[i]
+                    )
+                    return (
+                      <button
+                        key={shift}
+                        type="button"
+                        disabled={occupied}
+                        onClick={() =>
+                          setNewEmp((p) => ({
+                            ...p,
+                            defaultDays: p.defaultDays.map((_, j) => j === i),
+                          }))
+                        }
+                        className={`flex-1 py-2 rounded-lg text-xs font-semibold border transition-colors ${
+                          occupied
+                            ? 'bg-gray-100 text-gray-300 border-gray-200 cursor-not-allowed'
+                            : newEmp.defaultDays[i]
+                            ? i === 0 ? 'bg-orange-100 text-orange-600 border-orange-300 cursor-pointer' : 'bg-blue-100 text-blue-700 border-blue-300 cursor-pointer'
+                            : 'bg-brand-parchment text-gray-400 border-brand-accent cursor-pointer'
+                        }`}
+                      >
+                        {shift}{occupied ? ' (taken)' : ''}
+                      </button>
+                    )
+                  })}
                 </div>
               </div>
             ) : (

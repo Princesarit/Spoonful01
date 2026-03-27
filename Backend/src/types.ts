@@ -28,7 +28,7 @@ export interface Employee {
 
 export interface WeekSchedule {
   weekStart: string // ISO Monday date: YYYY-MM-DD
-  entries: { employeeId: string; days: boolean[] }[]
+  entries: { employeeId: string; days: (string | null)[] }[]
 }
 
 export interface TimeRecord {
@@ -62,6 +62,7 @@ export interface RevenueEntry {
   card: number
   cash: number
   platforms: Record<string, number>
+  note?: string
 }
 
 export interface ExpenseEntry {

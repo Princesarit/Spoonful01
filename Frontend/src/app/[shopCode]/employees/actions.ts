@@ -23,6 +23,21 @@ export async function saveEmployeeAction(shopCode: string, employee: Employee) {
   return { ok: true }
 }
 
+export async function saveAuditLog(
+  shopCode: string,
+  entry: { editorName: string; note: string; employeeName: string; shift: string; changes: string },
+): Promise<void> {
+  const session = await getSession()
+  if (!session || session.shopCode !== shopCode) return
+  try {
+    await fetch(`${BACKEND_URL}/${shopCode}/config/audit-log`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...authHeader(session.token) },
+      body: JSON.stringify(entry),
+    })
+  } catch { /* audit failure should not block the action */ }
+}
+
 export async function deleteEmployeeAction(shopCode: string, id: string) {
   const session = await getSession()
   if (!session || session.shopCode !== shopCode || (session.role !== 'owner' && session.role !== 'manager'))

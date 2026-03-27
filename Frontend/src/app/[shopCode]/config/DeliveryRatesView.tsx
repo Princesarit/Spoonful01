@@ -5,7 +5,7 @@ import Link from 'next/link'
 import { useParams } from 'next/navigation'
 import type { DeliveryRate } from '@/lib/types'
 import { rateLabel } from '@/lib/config'
-import { saveDeliveryRates, saveDeliveryFee } from './actions'
+import { saveDeliveryRates, saveDeliveryFee, saveConfigAuditLog } from './actions'
 
 export default function DeliveryRatesView({
   initialRates,
@@ -53,8 +53,28 @@ export default function DeliveryRatesView({
   async function handleSave() {
     setSaving(true)
     try {
+      // Compute diff for audit log
+      const changeParts: string[] = []
+      rates.forEach((r, i) => {
+        const orig = initialRates[i]
+        if (!orig) { changeParts.push(`+tier: ≤${r.maxKm}km=$${r.fee}`); return }
+        if (orig.maxKm !== r.maxKm || orig.fee !== r.fee) {
+          changeParts.push(`tier${i + 1}: ≤${orig.maxKm}km=$${orig.fee}→≤${r.maxKm}km=$${r.fee}`)
+        }
+      })
+      if (initialRates.length > rates.length) {
+        for (let i = rates.length; i < initialRates.length; i++) {
+          changeParts.push(`-tier: ≤${initialRates[i].maxKm}km=$${initialRates[i].fee}`)
+        }
+      }
+      if (initialDeliveryFee !== deliveryFee) {
+        changeParts.push(`fee=${initialDeliveryFee}→${deliveryFee}`)
+      }
+      const changes = changeParts.length > 0 ? changeParts.join(' | ') : 'No changes'
+
       await saveDeliveryRates(shopCode, rates)
       await saveDeliveryFee(shopCode, deliveryFee)
+      await saveConfigAuditLog(shopCode, changes)
       setSaved(true)
     } catch {
       alert('บันทึกไม่สำเร็จ')

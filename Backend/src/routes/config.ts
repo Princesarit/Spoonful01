@@ -1,5 +1,5 @@
 import { Router, Response } from 'express'
-import { listDeliveryRates, saveDeliveryRates, getDeliveryFee, saveDeliveryFee } from '../db'
+import { listDeliveryRates, saveDeliveryRates, getDeliveryFee, saveDeliveryFee, appendAuditLog } from '../db'
 import { requireShopAuth, requireOwner } from '../middleware/auth'
 import type { AuthRequest } from '../middleware/auth'
 import type { DeliveryRate } from '../types'
@@ -41,6 +41,19 @@ router.post('/delivery-fee', requireOwner, async (req: AuthRequest, res: Respons
   try {
     const { fee } = req.body as { fee: number }
     await saveDeliveryFee(req.params.shopCode, fee)
+    res.json({ ok: true })
+  } catch {
+    res.status(500).json({ error: 'Server error' })
+  }
+})
+
+// POST /:shopCode/config/audit-log
+router.post('/audit-log', requireShopAuth, async (req: AuthRequest, res: Response) => {
+  try {
+    const { editorName, note, employeeName, shift, changes } = req.body as {
+      editorName: string; note: string; employeeName: string; shift: string; changes: string
+    }
+    await appendAuditLog(req.params.shopCode, { editorName, note, employeeName, shift, changes })
     res.json({ ok: true })
   } catch {
     res.status(500).json({ error: 'Server error' })

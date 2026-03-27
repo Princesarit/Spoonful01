@@ -4,7 +4,7 @@ import { useState, Fragment } from 'react'
 import Link from 'next/link'
 import { useParams } from 'next/navigation'
 import type { Employee, WeekSchedule, Position } from '@/lib/types'
-import { saveWeekSchedule, saveEmployee, deleteEmployee } from './actions'
+import { saveWeekSchedule, saveEmployee, saveAuditLog } from './actions'
 import { useShop } from '@/components/ShopProvider'
 import { translations } from '@/lib/translations'
 
@@ -20,7 +20,10 @@ function getMonday(date: Date): Date {
 }
 
 function isoDate(d: Date): string {
-  return d.toISOString().split('T')[0]
+  const y = d.getFullYear()
+  const m = String(d.getMonth() + 1).padStart(2, '0')
+  const day = String(d.getDate()).padStart(2, '0')
+  return `${y}-${m}-${day}`
 }
 
 function addWeeks(d: Date, n: number): Date {
@@ -70,7 +73,12 @@ export default function ScheduleView({
   const todayMonday = getMonday(new Date())
   const [weekStart, setWeekStart] = useState(todayMonday)
   const [saving, setSaving] = useState(false)
+  const [isEditing, setIsEditing] = useState(false)
   const [showAdd, setShowAdd] = useState(false)
+  const [auditModal, setAuditModal] = useState<{
+    label: string; editorName: string; note: string
+    onConfirm: (name: string, note: string) => void
+  } | null>(null)
   const [newEmp, setNewEmp] = useState<NewEmp>({
     name: '',
     positions: ['Front'],
@@ -79,6 +87,8 @@ export default function ScheduleView({
 
   const weekStr = isoDate(weekStart)
   const isPast = weekStart < todayMonday
+  const weekSaved = schedules.some((s) => s.weekStart === weekStr)
+  const isLocked = !isPast && weekSaved && !isEditing
   const weekDates = Array.from({ length: 7 }, (_, i) => {
     const d = new Date(weekStart)
     d.setDate(d.getDate() + i)
@@ -86,18 +96,22 @@ export default function ScheduleView({
   })
 
   // days array: 14 elements — index (dayIdx*2) = morning, (dayIdx*2+1) = evening
-  function getEntry(empId: string): boolean[] {
+  function getEntry(empId: string): (string | null)[] {
     const sched = schedules.find((s) => s.weekStart === weekStr)
     if (sched) {
       const e = sched.entries.find((e) => e.employeeId === empId)
-      if (e && e.days.length === 14) return e.days
+      if (e && e.days.length === 14) return e.days as (string | null)[]
     }
-    const defaultDays = employees.find((e) => e.id === empId)?.defaultDays ?? Array(7).fill(false)
-    return defaultDays.flatMap((d) => [d, d])
+    const emp = employees.find((e) => e.id === empId)
+    const defaultDays = emp?.defaultDays ?? Array(7).fill(false)
+    const primaryPos = emp?.positions[0] ?? 'Front'
+    return defaultDays.flatMap((d) => [d ? primaryPos : null, d ? primaryPos : null])
   }
 
-  function toggleShift(empId: string, slotIdx: number) {
-    if (isPast) return
+  const canEdit = role === 'manager' || role === 'owner'
+
+  function toggleShift(empId: string, slotIdx: number, pos: string) {
+    if (isPast || isLocked || !canEdit) return
     setSchedules((prev) => {
       const all = [...prev]
       const si = all.findIndex((s) => s.weekStart === weekStr)
@@ -107,31 +121,43 @@ export default function ScheduleView({
           : employees.map((e) => ({ employeeId: e.id, days: getEntry(e.id) }))
       const newEntries = currentEntries.map((e) =>
         e.employeeId === empId
-          ? { ...e, days: e.days.map((d, i) => (i === slotIdx ? !d : d)) }
+          ? { ...e, days: e.days.map((d, i) => (i === slotIdx ? (d === pos ? null : pos) : d)) }
           : e,
       )
       const merged = employees.map((emp) => {
         const found = newEntries.find((e) => e.employeeId === emp.id)
         return found ?? { employeeId: emp.id, days: getEntry(emp.id) }
       })
-      const ws: WeekSchedule = { weekStart: weekStr, entries: merged }
+      const ws = { weekStart: weekStr, entries: merged }
       if (si >= 0) all[si] = ws
       else all.push(ws)
       return all
     })
   }
 
-  async function handleSave() {
-    setSaving(true)
-    try {
-      const entries = employees.map((emp) => ({ employeeId: emp.id, days: getEntry(emp.id) }))
-      await saveWeekSchedule(shopCode, { weekStart: weekStr, entries })
-    } catch (e) {
-      alert(tr.save_fail)
-      console.error(e)
-    } finally {
-      setSaving(false)
-    }
+  function handleSave() {
+    const isEdit = weekSaved
+    setAuditModal({
+      label: isEdit ? `Edit schedule: week of ${weekStr}` : `Save schedule: week of ${weekStr}`,
+      editorName: '', note: '',
+      onConfirm: async (editorName, note) => {
+        setSaving(true)
+        try {
+          const entries = employees.map((emp) => ({ employeeId: emp.id, days: getEntry(emp.id) }))
+          await saveWeekSchedule(shopCode, { weekStart: weekStr, entries })
+          await saveAuditLog(shopCode, {
+            editorName, note, employeeName: 'schedule', shift: weekStr,
+            changes: isEdit ? `Edit schedule: week ${weekStr}` : `Save schedule: week ${weekStr}`,
+          })
+          setIsEditing(false)
+        } catch (e) {
+          alert(tr.save_fail)
+          console.error(e)
+        } finally {
+          setSaving(false)
+        }
+      },
+    })
   }
 
   async function handleAddEmployee() {
@@ -152,14 +178,28 @@ export default function ScheduleView({
     }
   }
 
-  async function handleDelete(empId: string) {
-    if (!confirm(tr.confirm_delete_emp)) return
-    try {
-      await deleteEmployee(shopCode, empId)
-      setEmployees((p) => p.filter((e) => e.id !== empId))
-    } catch {
-      alert(tr.save_fail)
-    }
+  function handleDelete(empId: string) {
+    const emp = employees.find((e) => e.id === empId)
+    setAuditModal({
+      label: `Remove from schedule: ${emp?.name ?? empId}`,
+      editorName: '', note: '',
+      onConfirm: async (editorName, note) => {
+        // Remove from local state
+        const updatedEmployees = employees.filter((e) => e.id !== empId)
+        setEmployees(updatedEmployees)
+        // Save schedule without this employee (does NOT delete from Employees page)
+        const updatedEntries = updatedEmployees.map((e) => ({ employeeId: e.id, days: getEntry(e.id) }))
+        try {
+          await saveWeekSchedule(shopCode, { weekStart: weekStr, entries: updatedEntries })
+        } catch {
+          alert(tr.save_fail)
+        }
+        await saveAuditLog(shopCode, {
+          editorName, note, employeeName: emp?.name ?? empId, shift: '',
+          changes: `Remove from schedule: ${emp?.name ?? empId} (week ${weekStr})`,
+        })
+      },
+    })
   }
 
   return (
@@ -183,7 +223,7 @@ export default function ScheduleView({
       {/* Week Nav */}
       <div className="flex items-center justify-between bg-white rounded-xl border border-gray-100 shadow-sm px-4 py-3">
         <button
-          onClick={() => setWeekStart((p) => addWeeks(p, -1))}
+          onClick={() => { setWeekStart((p) => addWeeks(p, -1)); setIsEditing(false) }}
           className="text-gray-500 hover:text-gray-800 w-8 h-8 flex items-center justify-center rounded cursor-pointer"
         >
           ◀
@@ -193,7 +233,7 @@ export default function ScheduleView({
           {isPast && <div className="text-xs text-gray-400 mt-0.5">{tr.read_only}</div>}
         </div>
         <button
-          onClick={() => setWeekStart((p) => addWeeks(p, 1))}
+          onClick={() => { setWeekStart((p) => addWeeks(p, 1)); setIsEditing(false) }}
           className="text-gray-500 hover:text-gray-800 w-8 h-8 flex items-center justify-center rounded cursor-pointer"
         >
           ▶
@@ -202,7 +242,12 @@ export default function ScheduleView({
 
       {/* Matrix per position group */}
       {POSITIONS.map((pos) => {
-        const posEmps = employees.filter((e) => e.positions.includes(pos))
+        const savedSched = schedules.find((s) => s.weekStart === weekStr)
+        const posEmps = employees.filter((e) => {
+          if (!e.positions.includes(pos)) return false
+          if (!weekSaved || !savedSched) return true
+          return savedSched.entries.some((entry) => entry.employeeId === e.id)
+        })
         if (!posEmps.length) return null
         return (
           <div key={pos} className="bg-white rounded-xl border border-gray-100 shadow-sm overflow-hidden">
@@ -223,8 +268,8 @@ export default function ScheduleView({
                         <div>{d}</div>
                         <div className="text-gray-300 text-[10px]">{weekDates[i].getDate()}</div>
                         <div className="flex gap-0.5 justify-center mt-0.5">
-                          <span className="text-[9px] text-blue-300 w-5 text-center">{tr.morning}</span>
-                          <span className="text-[9px] text-orange-300 w-5 text-center">{tr.evening}</span>
+                          <span className="text-[9px] text-orange-300 w-5 text-center">{tr.morning}</span>
+                          <span className="text-[9px] text-blue-300 w-5 text-center">{tr.evening}</span>
                         </div>
                       </th>
                     ))}
@@ -243,18 +288,22 @@ export default function ScheduleView({
                           <Fragment key={dayIdx}>
                             {[0, 1].map((shift) => {
                               const slotIdx = dayIdx * 2 + shift
-                              const checked = days[slotIdx] ?? false
-                              const color = shift === 0
-                                ? checked ? 'bg-blue-100 text-blue-600 hover:bg-blue-200' : 'bg-brand-parchment text-gray-300 hover:bg-gray-100'
-                                : checked ? 'bg-orange-100 text-orange-500 hover:bg-orange-200' : 'bg-brand-parchment text-gray-300 hover:bg-gray-100'
+                              const slotVal = days[slotIdx] ?? null
+                              const checked = slotVal === pos
+                              const blockedByOther = slotVal !== null && slotVal !== pos
+                              const color = blockedByOther
+                                ? 'bg-gray-100 text-gray-300 cursor-not-allowed'
+                                : shift === 0
+                                ? checked ? 'bg-orange-100 text-orange-500 hover:bg-orange-200' : 'bg-brand-parchment text-gray-300 hover:bg-gray-100'
+                                : checked ? 'bg-blue-100 text-blue-600 hover:bg-blue-200' : 'bg-brand-parchment text-gray-300 hover:bg-gray-100'
                               return (
                                 <td key={slotIdx} className="text-center px-0.5 py-1.5">
                                   <button
-                                    onClick={() => toggleShift(emp.id, slotIdx)}
-                                    disabled={isPast}
+                                    onClick={() => toggleShift(emp.id, slotIdx, pos)}
+                                    disabled={isPast || isLocked || !canEdit || blockedByOther}
                                     className={`w-5 h-6 rounded text-[10px] font-bold transition-colors cursor-pointer ${color} disabled:cursor-default`}
                                   >
-                                    {checked ? '✓' : '·'}
+                                    {checked ? '✓' : blockedByOther ? '—' : '·'}
                                   </button>
                                 </td>
                               )
@@ -287,14 +336,66 @@ export default function ScheduleView({
         </div>
       )}
 
-      {!isPast && employees.length > 0 && (
-        <button
-          onClick={handleSave}
-          disabled={saving}
-          className="w-full py-3 bg-brand-gold text-white rounded-xl font-semibold text-sm hover:bg-brand-gold-dark disabled:opacity-50 transition-colors cursor-pointer"
-        >
-          {saving ? tr.saving : tr.save_schedule}
-        </button>
+      {!isPast && canEdit && employees.length > 0 && (
+        isLocked ? (
+          <button
+            onClick={() => setIsEditing(true)}
+            className="w-full py-3 bg-brand-gold text-white rounded-xl font-semibold text-sm hover:bg-brand-gold-dark transition-colors cursor-pointer"
+          >
+            ✏️ {tr.edit ?? 'Edit'}
+          </button>
+        ) : (
+          <button
+            onClick={handleSave}
+            disabled={saving}
+            className="w-full py-3 bg-brand-gold text-white rounded-xl font-semibold text-sm hover:bg-brand-gold-dark disabled:opacity-50 transition-colors cursor-pointer"
+          >
+            {saving ? tr.saving : tr.save_schedule}
+          </button>
+        )
+      )}
+
+      {/* Audit Modal */}
+      {auditModal && (
+        <div className="fixed inset-0 bg-black/40 flex items-end justify-center z-50 p-4">
+          <div className="bg-white rounded-2xl w-full max-w-sm p-6 space-y-4">
+            <h3 className="font-bold text-gray-900">บันทึกการเปลี่ยนแปลง</h3>
+            <div className="text-xs text-gray-500 bg-gray-50 rounded-lg px-3 py-2">{auditModal.label}</div>
+            <div className="space-y-3">
+              <div>
+                <label className="text-xs text-gray-500 block mb-1">ชื่อผู้แก้ไข *</label>
+                <input
+                  type="text"
+                  autoFocus
+                  value={auditModal.editorName}
+                  onChange={(e) => setAuditModal((p) => p && ({ ...p, editorName: e.target.value }))}
+                  placeholder="กรอกชื่อ"
+                  className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-gold"
+                />
+              </div>
+              <div>
+                <label className="text-xs text-gray-500 block mb-1">หมายเหตุ</label>
+                <input
+                  type="text"
+                  value={auditModal.note}
+                  onChange={(e) => setAuditModal((p) => p && ({ ...p, note: e.target.value }))}
+                  placeholder="เหตุผล (ถ้ามี)"
+                  className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-gold"
+                />
+              </div>
+            </div>
+            <div className="flex gap-2 pt-1">
+              <button onClick={() => setAuditModal(null)} className="flex-1 py-2.5 border border-brand-accent rounded-xl text-sm text-gray-600 cursor-pointer">{tr.cancel}</button>
+              <button
+                onClick={() => { auditModal.onConfirm(auditModal.editorName, auditModal.note); setAuditModal(null) }}
+                disabled={!auditModal.editorName.trim()}
+                className="flex-1 py-2.5 bg-brand-gold text-white rounded-xl text-sm font-semibold disabled:opacity-50 cursor-pointer"
+              >
+                {tr.save}
+              </button>
+            </div>
+          </div>
+        </div>
       )}
 
       {/* Add Employee Modal */}
