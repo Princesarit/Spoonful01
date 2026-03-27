@@ -5,17 +5,20 @@ import Link from 'next/link'
 import { useParams } from 'next/navigation'
 import type { DeliveryRate } from '@/lib/types'
 import { rateLabel } from '@/lib/config'
-import { saveDeliveryRates } from './actions'
+import { saveDeliveryRates, saveDeliveryFee } from './actions'
 
 export default function DeliveryRatesView({
   initialRates,
+  initialDeliveryFee,
   role,
 }: {
   initialRates: DeliveryRate[]
+  initialDeliveryFee: number
   role: string
 }) {
   const { shopCode } = useParams() as { shopCode: string }
   const [rates, setRates] = useState(initialRates)
+  const [deliveryFee, setDeliveryFee] = useState(initialDeliveryFee)
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
 
@@ -51,6 +54,7 @@ export default function DeliveryRatesView({
     setSaving(true)
     try {
       await saveDeliveryRates(shopCode, rates)
+      await saveDeliveryFee(shopCode, deliveryFee)
       setSaved(true)
     } catch {
       alert('บันทึกไม่สำเร็จ')
@@ -139,6 +143,30 @@ export default function DeliveryRatesView({
             ))}
           </tbody>
         </table>
+      </div>
+
+      <div className="bg-white rounded-xl border border-brand-accent overflow-hidden">
+        <div className="px-4 py-3 border-b border-gray-100 bg-brand-parchment">
+          <p className="text-xs text-gray-500 font-medium">ค่า Delivery Fee รายวัน (ต่อพนักงาน 1 คน)</p>
+        </div>
+        <div className="px-4 py-3 flex items-center gap-3">
+          <span className="text-sm text-gray-600">Fixed Delivery Fee per employee per day</span>
+          <div className="flex items-center gap-1 ml-auto">
+            <span className="text-sm text-gray-400">$</span>
+            {isOwner ? (
+              <input
+                type="number"
+                min="0"
+                step="0.50"
+                value={deliveryFee}
+                onChange={(e) => { setDeliveryFee(Number(e.target.value)); setSaved(false) }}
+                className="w-24 border border-brand-accent rounded px-2 py-1 text-sm focus:outline-none focus:ring-1 focus:ring-brand-gold"
+              />
+            ) : (
+              <span className="text-sm font-semibold text-brand-green">{deliveryFee.toFixed(2)}</span>
+            )}
+          </div>
+        </div>
       </div>
 
       {isOwner && (

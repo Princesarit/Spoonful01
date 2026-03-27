@@ -34,6 +34,8 @@ export function ShopHeader({ shopName, role, loginAt }: { shopName: string; role
   }, null)
 
   const roleLabel = role === 'owner'
+    ? (lang === 'th' ? '👑 Owner' : '👑 Owner')
+    : role === 'manager'
     ? (lang === 'th' ? '👑 ผู้จัดการ' : '👑 Manager')
     : (lang === 'th' ? '👤 พนักงาน' : '👤 Staff')
 
@@ -60,7 +62,7 @@ export function ShopHeader({ shopName, role, loginAt }: { shopName: string; role
 
           <span
             className={`text-xs px-2 py-1 rounded-full font-medium ${
-              role === 'owner' ? 'bg-brand-gold text-white' : 'bg-white/10 text-white'
+              role === 'owner' ? 'bg-red-500 text-white' : role === 'manager' ? 'bg-brand-gold text-white' : 'bg-white/10 text-white'
             }`}
           >
             {roleLabel}

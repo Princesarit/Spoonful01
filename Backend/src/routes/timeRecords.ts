@@ -32,11 +32,13 @@ router.get('/', requireShopAuth, async (req: AuthRequest, res: Response) => {
   }
 })
 
-// POST /:shopCode/time-records — replace records for a given date
+// POST /:shopCode/time-records
+// Weekly: { records: TimeRecord[], trips: [] }
+// Home delivery: { date: string, records: [], trips: DeliveryTrip[] }
 router.post('/', requireShopAuth, async (req: AuthRequest, res: Response) => {
   try {
     const { date, records, trips } = req.body as {
-      date: string
+      date?: string
       records: TimeRecord[]
       trips: DeliveryTrip[]
     }
@@ -45,12 +47,18 @@ router.post('/', requireShopAuth, async (req: AuthRequest, res: Response) => {
       listTimeRecords(shopCode),
       listDeliveryTrips(shopCode),
     ])
+    // Replace records whose dates appear in the new batch
+    const newDates = new Set(records.map((r) => r.date))
+    const keptRecords = allRecords.filter((r) => !newDates.has(r.date))
+    // Replace trips for the given date (home delivery)
+    const keptTrips = date ? allTrips.filter((t) => t.date !== date) : allTrips
     await Promise.all([
-      saveTimeRecords(shopCode, [...allRecords.filter((r) => r.date !== date), ...records]),
-      saveDeliveryTrips(shopCode, [...allTrips.filter((t) => t.date !== date), ...trips]),
+      saveTimeRecords(shopCode, [...keptRecords, ...records]),
+      saveDeliveryTrips(shopCode, [...keptTrips, ...trips]),
     ])
     res.json({ ok: true })
-  } catch {
+  } catch (err) {
+    console.error('[timeRecords POST]', err)
     res.status(500).json({ error: 'Server error' })
   }
 })

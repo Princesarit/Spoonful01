@@ -7,21 +7,33 @@ import { useState, useActionState } from 'react'
 import { elevateToOwnerAction } from '@/app/actions'
 import { translations } from '@/lib/translations'
 
-function OwnerModal({ onClose, tr }: { onClose: () => void; tr: typeof translations.th }) {
+function ElevateModal({
+  onClose,
+  tr,
+  title,
+  desc,
+  placeholder,
+}: {
+  onClose: () => void
+  tr: typeof translations.th
+  title: string
+  desc: string
+  placeholder: string
+}) {
   const [state, action, pending] = useActionState(elevateToOwnerAction, null)
 
   return (
     <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
       <div className="bg-white rounded-2xl w-full max-w-xs p-6 space-y-4">
-        <h3 className="font-bold text-brand-green">{tr.manager_modal_title}</h3>
-        <p className="text-sm text-brand-accent">{tr.manager_modal_desc}</p>
+        <h3 className="font-bold text-brand-green">{title}</h3>
+        <p className="text-sm text-brand-accent">{desc}</p>
         <form action={action} className="space-y-3">
           <input
             type="password"
             name="password"
             required
             autoFocus
-            placeholder="Manager Password"
+            placeholder={placeholder}
             className="w-full px-3 py-2.5 border border-brand-accent rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-brand-gold"
           />
           {state?.error && (
@@ -54,6 +66,7 @@ export default function HomePage() {
   const shopCode = params.shopCode as string
   const { session, lang } = useShop()
   const tr = translations[lang]
+  const [showManagerModal, setShowManagerModal] = useState(false)
   const [showOwnerModal, setShowOwnerModal] = useState(false)
 
   const NAV_ITEMS = [
@@ -129,16 +142,34 @@ export default function HomePage() {
         ))}
       </div>
 
-      {session.role !== 'owner' && (
+      {session.role === 'staff' && (
         <button
-          onClick={() => setShowOwnerModal(true)}
+          onClick={() => setShowManagerModal(true)}
           className="w-full py-2.5 border border-brand-accent bg-white text-brand-green rounded-xl text-sm hover:border-brand-gold hover:text-brand-gold transition-colors cursor-pointer"
         >
           {tr.manager_mode_btn}
         </button>
       )}
 
-      {session.role === 'owner' && (
+      {session.role === 'staff' && (
+        <button
+          onClick={() => setShowOwnerModal(true)}
+          className="w-full py-2.5 border border-brand-accent bg-white text-brand-green rounded-xl text-sm hover:border-brand-gold hover:text-brand-gold transition-colors cursor-pointer"
+        >
+          {lang === 'th' ? 'เข้าสู่โหมด Owner' : 'Enter Owner Mode'}
+        </button>
+      )}
+
+      {session.role === 'manager' && (
+        <button
+          onClick={() => setShowOwnerModal(true)}
+          className="w-full py-2.5 border border-brand-accent bg-white text-brand-green rounded-xl text-sm hover:border-brand-gold hover:text-brand-gold transition-colors cursor-pointer"
+        >
+          {lang === 'th' ? 'เข้าสู่โหมด Owner' : 'Enter Owner Mode'}
+        </button>
+      )}
+
+      {(session.role === 'manager' || session.role === 'owner') && (
         <Link
           href={`/${shopCode}/config`}
           className="w-full block text-center py-2.5 border border-brand-accent bg-white text-brand-green rounded-xl text-sm hover:border-brand-gold hover:text-brand-gold transition-colors cursor-pointer"
@@ -147,7 +178,24 @@ export default function HomePage() {
         </Link>
       )}
 
-      {showOwnerModal && <OwnerModal onClose={() => setShowOwnerModal(false)} tr={tr} />}
+      {showManagerModal && (
+        <ElevateModal
+          onClose={() => setShowManagerModal(false)}
+          tr={tr}
+          title={tr.manager_modal_title}
+          desc={tr.manager_modal_desc}
+          placeholder="Manager Password"
+        />
+      )}
+      {showOwnerModal && (
+        <ElevateModal
+          onClose={() => setShowOwnerModal(false)}
+          tr={tr}
+          title={lang === 'th' ? 'เข้าสู่โหมด Owner' : 'Enter Owner Mode'}
+          desc={lang === 'th' ? 'กรอก Owner Password เพื่อเข้าสู่โหมด Owner' : 'Enter your Owner Password to access Owner mode'}
+          placeholder="Owner Password"
+        />
+      )}
     </div>
   )
 }

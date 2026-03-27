@@ -32,13 +32,14 @@ export async function addShopAction(
   password: string,
   name: string,
   restaurantPassword: string,
+  managerPassword: string,
   ownerPassword: string,
 ): Promise<{ error: string } | { ok: true }> {
   try {
     const res = await fetch(`${BACKEND_URL}/shops`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ password, name, restaurantPassword, ownerPassword }),
+      body: JSON.stringify({ password, name, restaurantPassword, managerPassword, ownerPassword: ownerPassword || undefined }),
     })
     const data = await res.json() as { error?: string }
     if (!res.ok) return { error: data.error ?? 'เกิดข้อผิดพลาด' }
@@ -53,13 +54,14 @@ export async function updateShopAction(
   code: string,
   name: string,
   restaurantPassword: string,
+  managerPassword: string,
   ownerPassword: string,
 ): Promise<{ error: string } | { ok: true }> {
   try {
     const res = await fetch(`${BACKEND_URL}/shops/${encodeURIComponent(code)}`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ password, name, restaurantPassword, ownerPassword }),
+      body: JSON.stringify({ password, name, restaurantPassword, managerPassword, ownerPassword: ownerPassword || undefined }),
     })
     const data = await res.json() as { error?: string }
     if (!res.ok) return { error: data.error ?? 'เกิดข้อผิดพลาด' }

@@ -4,6 +4,7 @@ import { listShops } from '../db'
 import { config } from '../config'
 import { requireAuth } from '../middleware/auth'
 import type { AuthRequest } from '../middleware/auth'
+import type { Role } from '../types'
 
 const router = Router()
 
@@ -23,8 +24,9 @@ router.post('/login', async (req: Request, res: Response) => {
       return
     }
 
-    let role: 'staff' | 'owner' | null = null
-    if (password === shop.ownerPassword) role = 'owner'
+    let role: Role | null = null
+    if (shop.ownerPassword && password === shop.ownerPassword) role = 'owner'
+    else if (password === shop.managerPassword) role = shop.ownerPassword ? 'manager' : 'owner'
     else if (password === shop.restaurantPassword) role = 'staff'
 
     if (!role) {
@@ -52,17 +54,22 @@ router.post('/elevate', requireAuth, async (req: AuthRequest, res: Response) => 
       return
     }
 
-    if (password !== shop.ownerPassword) {
-      res.status(401).json({ error: 'Owner Password ไม่ถูกต้อง' })
+    let elevatedRole: Role
+    if (shop.ownerPassword && password === shop.ownerPassword) {
+      elevatedRole = 'owner'
+    } else if (password === shop.managerPassword) {
+      elevatedRole = shop.ownerPassword ? 'manager' : 'owner'
+    } else {
+      res.status(401).json({ error: 'Password ไม่ถูกต้อง' })
       return
     }
 
     const token = jwt.sign(
-      { shopCode: session.shopCode, role: 'owner' },
+      { shopCode: session.shopCode, role: elevatedRole },
       config.jwtSecret,
       { expiresIn: '7d' },
     )
-    res.json({ token, shopCode: session.shopCode, role: 'owner' })
+    res.json({ token, shopCode: session.shopCode, role: elevatedRole })
   } catch {
     res.status(500).json({ error: 'Server error' })
   }

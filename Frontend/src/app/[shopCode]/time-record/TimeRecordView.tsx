@@ -6,7 +6,8 @@ import { useParams } from 'next/navigation'
 import type { Employee, TimeRecord, DeliveryTrip, DeliveryRate, Position } from '@/lib/types'
 import { DEFAULT_DELIVERY_RATES, calcDeliveryFee } from '@/lib/config'
 import { getWeekTimeRecords, getTimeRecordData, saveTimeRecords, deleteEmployee, saveEmployee } from './actions'
-import { getDeliveryRates } from '../config/actions'
+import { getDeliveryRates, getDeliveryFee } from '../config/actions'
+import { saveRevenueEntry } from '../revenue/actions'
 import { useShop } from '@/components/ShopProvider'
 import { translations } from '@/lib/translations'
 
@@ -74,17 +75,20 @@ export default function TimeRecordView() {
   const [weekLoading, setWeekLoading] = useState(true)
   const [weekSaving, setWeekSaving] = useState(false)
 
-  // ── Delivery rates ──
+  // ── Delivery rates & fee ──
   const [deliveryRates, setDeliveryRates] = useState<DeliveryRate[]>(DEFAULT_DELIVERY_RATES)
+  const [deliveryFee, setDeliveryFee] = useState<number>(0)
 
   useEffect(() => {
     getDeliveryRates(shopCode).then(setDeliveryRates).catch(() => {})
+    getDeliveryFee(shopCode).then(setDeliveryFee).catch(() => {})
   }, [shopCode])
 
   // ── Daily state (Home) ──
   const [date, setDate] = useState(today)
   const [homeEmps, setHomeEmps] = useState<Employee[]>([])
   const [trips, setTrips] = useState<TripMap>({})
+  const [codByEmp, setCodByEmp] = useState<Record<string, number>>({})
   const [homeLoading, setHomeLoading] = useState(true)
   const [homeSaving, setHomeSaving] = useState(false)
 
@@ -106,10 +110,9 @@ export default function TimeRecordView() {
           map[d] = {}
           staff.forEach((e) => {
             const r = timeRecords.find((r) => r.date === d && r.employeeId === e.id)
-            const packed = r?.extra ?? 0
             map[d][e.id] = {
-              morning: Math.floor(packed / 10000),
-              evening: packed % 10000,
+              morning: r?.morning ?? 0,
+              evening: r?.evening ?? 0,
             }
           })
         })
@@ -127,10 +130,14 @@ export default function TimeRecordView() {
         const home = employees.filter((e) => e.positions.includes('Home'))
         setHomeEmps(home)
         const t: TripMap = {}
+        const cod: Record<string, number> = {}
         home.forEach((e) => {
-          t[e.id] = deliveryTrips.filter((tr) => tr.employeeId === e.id)
+          const empTrips = deliveryTrips.filter((tr) => tr.employeeId === e.id)
+          t[e.id] = empTrips.map((tr) => ({ ...tr, cod: undefined }))
+          cod[e.id] = empTrips.reduce((s, tr) => s + (tr.cod ?? 0), 0)
         })
         setTrips(t)
+        setCodByEmp(cod)
       })
       .catch(console.error)
       .finally(() => setHomeLoading(false))
@@ -147,22 +154,16 @@ export default function TimeRecordView() {
   async function handleSaveWeek() {
     setWeekSaving(true)
     try {
-      await Promise.all(
-        weekDates.map((d) => {
-          const records: TimeRecord[] = staffEmps.map((e) => {
-            const a = weekAttend[d]?.[e.id] ?? { morning: 0, evening: 0 }
-            return {
-              date: d,
-              employeeId: e.id,
-              attended: a.morning > 0 || a.evening > 0,
-              extra: a.morning * 10000 + a.evening,
-            }
-          })
-          return saveTimeRecords(shopCode, d, records, [])
+      const records: TimeRecord[] = weekDates.flatMap((d) =>
+        staffEmps.map((e) => {
+          const a = weekAttend[d]?.[e.id] ?? { morning: 0, evening: 0 }
+          return { date: d, employeeId: e.id, morning: a.morning, evening: a.evening }
         }),
       )
+      await saveTimeRecords(shopCode, isoDate(weekStart), records, [])
       alert(tr.save)
-    } catch {
+    } catch (err) {
+      console.error('[handleSaveWeek]', err)
       alert(tr.save_fail)
     } finally {
       setWeekSaving(false)
@@ -195,6 +196,7 @@ export default function TimeRecordView() {
       if (emp.positions.includes('Home')) {
         setHomeEmps((p) => [...p, emp])
         setTrips((p) => ({ ...p, [emp.id]: [] }))
+        setCodByEmp((p) => ({ ...p, [emp.id]: 0 }))
       }
       setNewEmp(EMPTY_NEW_EMP)
       setShowAdd(false)
@@ -246,8 +248,30 @@ export default function TimeRecordView() {
   async function handleSaveHome() {
     setHomeSaving(true)
     try {
-      const allTrips = Object.values(trips).flat()
+      // Attach per-employee COD to first trip of each employee
+      const allTrips = homeEmps.flatMap((emp) => {
+        const empTrips = trips[emp.id] ?? []
+        const cod = codByEmp[emp.id] ?? 0
+        if (empTrips.length === 0) return []
+        return empTrips.map((t, i) => ({ ...t, cod: i === 0 && cod > 0 ? cod : undefined }))
+      })
       await saveTimeRecords(shopCode, date, [], allTrips)
+
+      // Save total COD as revenue entry
+      const totalCod = Object.values(codByEmp).reduce((s, v) => s + v, 0)
+      if (totalCod > 0) {
+        await saveRevenueEntry(shopCode, {
+          id: `cod_${date}_${Date.now()}`,
+          date,
+          name: 'Cash on Delivery',
+          netSales: totalCod,
+          paidOnline: 0,
+          card: 0,
+          cash: totalCod,
+          platforms: {},
+        })
+      }
+
       alert(tr.save)
     } catch {
       alert(tr.save_fail)
@@ -267,7 +291,7 @@ export default function TimeRecordView() {
           {tr.back}
         </Link>
         <h2 className="text-lg font-bold text-gray-800 flex-1">{tr.time_record_title}</h2>
-        {session.role === 'owner' && (
+        {(session.role === 'manager' || session.role === 'owner') && (
           <button
             onClick={() => setShowAdd(true)}
             className="text-sm bg-brand-gold text-white px-3 py-1.5 rounded-lg hover:bg-brand-gold-dark cursor-pointer"
@@ -332,7 +356,7 @@ export default function TimeRecordView() {
                             </th>
                           ))}
                           <th className="text-center px-2 py-2 text-xs text-gray-400 font-medium">{tr.total_col}</th>
-                          {session.role === 'owner' && <th className="w-6" />}
+                          {(session.role === 'manager' || session.role === 'owner') && <th className="w-6" />}
                         </tr>
                       </thead>
                       <tbody>
@@ -376,7 +400,7 @@ export default function TimeRecordView() {
                                 })()}
                               </span>
                             </td>
-                            {session.role === 'owner' && (
+                            {(session.role === 'manager' || session.role === 'owner') && (
                               <td className="px-1">
                                 <button
                                   onClick={() => handleDeleteEmployee(emp.id, emp.name)}
@@ -452,9 +476,16 @@ export default function TimeRecordView() {
                   <div key={emp.id} className="border-b border-gray-50 last:border-0">
                     <div className="px-4 py-2.5 flex items-center justify-between">
                       <div>
-                        <div className="text-xs font-semibold text-gray-700">{emp.name}</div>
+                        <div className="flex items-center gap-1.5">
+                          <span className="text-xs font-semibold text-gray-700">{emp.name}</span>
+                          {emp.defaultDays[0] && <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-orange-100 text-orange-600">Morning</span>}
+                          {emp.defaultDays[1] && <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-blue-100 text-blue-600">Evening</span>}
+                        </div>
                         <div className="text-xs text-gray-400">
                           {tr.total_col}: ${(trips[emp.id] ?? []).reduce((s, t) => s + t.fee, 0).toFixed(2)}
+                          {deliveryFee > 0 && (
+                            <span className="ml-1 text-orange-500">+ ${deliveryFee.toFixed(2)} fee = ${((trips[emp.id] ?? []).reduce((s, t) => s + t.fee, 0) + deliveryFee).toFixed(2)}</span>
+                          )}
                         </div>
                       </div>
                       <div className="flex items-center gap-2">
@@ -464,7 +495,7 @@ export default function TimeRecordView() {
                         >
                           {tr.add_trip}
                         </button>
-                        {session.role === 'owner' && (
+                        {(session.role === 'manager' || session.role === 'owner') && (
                           <button
                             onClick={() => handleDeleteEmployee(emp.id, emp.name)}
                             className="text-red-300 hover:text-red-500 text-base leading-none cursor-pointer"
@@ -476,8 +507,8 @@ export default function TimeRecordView() {
                       </div>
                     </div>
                     {(trips[emp.id] ?? []).map((trip, ti) => (
-                      <div key={trip.id} className="px-4 pb-2 flex items-center gap-2">
-                        <span className="text-xs text-gray-400 w-10">{ti + 1}</span>
+                      <div key={trip.id} className="px-4 pb-2 flex items-center gap-2 flex-wrap">
+                        <span className="text-xs text-gray-400 w-6">{ti + 1}</span>
                         <input
                           type="number"
                           min="0"
@@ -485,10 +516,10 @@ export default function TimeRecordView() {
                           value={trip.distance || ''}
                           onChange={(e) => updateTrip(emp.id, trip.id, Number(e.target.value))}
                           placeholder="ระยะ (km)"
-                          className="w-28 border border-brand-accent rounded px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-brand-gold"
+                          className="w-24 border border-brand-accent rounded px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-brand-gold"
                         />
                         <span className="text-xs text-gray-400">km</span>
-                        <span className="text-xs font-semibold text-green-700 w-12 text-right">
+                        <span className="text-xs font-semibold text-green-700 w-10 text-right">
                           {trip.fee > 0 ? `$${trip.fee}` : '—'}
                         </span>
                         <button
@@ -499,6 +530,18 @@ export default function TimeRecordView() {
                         </button>
                       </div>
                     ))}
+                    <div className="px-4 pb-3 flex items-center gap-2">
+                      <label className="text-xs text-blue-500 font-medium">Cash on Delivery</label>
+                      <input
+                        type="number"
+                        min="0"
+                        step="1"
+                        value={codByEmp[emp.id] || ''}
+                        onChange={(e) => setCodByEmp((p) => ({ ...p, [emp.id]: Number(e.target.value) }))}
+                        placeholder="0"
+                        className="w-28 border border-blue-200 rounded px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-blue-300"
+                      />
+                    </div>
                   </div>
                 ))}
               </div>
@@ -537,7 +580,13 @@ export default function TimeRecordView() {
                 <button
                   key={pos}
                   type="button"
-                  onClick={() => setNewEmp((p) => ({ ...p, positions: [pos] }))}
+                  onClick={() => setNewEmp((p) => ({
+                    ...p,
+                    positions: [pos],
+                    defaultDays: pos === 'Home'
+                      ? Array(7).fill(false)
+                      : [true, true, true, true, true, false, false],
+                  }))}
                   className={`flex-1 py-2 rounded-lg text-xs font-semibold border cursor-pointer transition-colors ${
                     newEmp.positions[0] === pos
                       ? 'bg-brand-gold text-white border-brand-gold'
@@ -549,28 +598,55 @@ export default function TimeRecordView() {
               ))}
             </div>
 
-            <div>
-              <label className="text-xs text-gray-500 mb-1.5 block">{tr.default_days_label}</label>
-              <div className="flex gap-1">
-                {DAYS_SHORT.map((d, i) => (
-                  <button
-                    key={i}
-                    type="button"
-                    onClick={() =>
-                      setNewEmp((p) => ({
-                        ...p,
-                        defaultDays: p.defaultDays.map((v, j) => (j === i ? !v : v)),
-                      }))
-                    }
-                    className={`flex-1 py-1.5 rounded text-xs font-medium cursor-pointer transition-colors ${
-                      newEmp.defaultDays[i] ? 'bg-green-100 text-green-700' : 'bg-brand-parchment text-gray-400'
-                    }`}
-                  >
-                    {d}
-                  </button>
-                ))}
+            {newEmp.positions[0] === 'Home' ? (
+              <div>
+                <label className="text-xs text-gray-500 mb-1.5 block">Shift</label>
+                <div className="flex gap-2">
+                  {(['Morning', 'Evening'] as const).map((shift, i) => (
+                    <button
+                      key={shift}
+                      type="button"
+                      onClick={() =>
+                        setNewEmp((p) => ({
+                          ...p,
+                          defaultDays: p.defaultDays.map((_, j) => j === i),
+                        }))
+                      }
+                      className={`flex-1 py-2 rounded-lg text-xs font-semibold border cursor-pointer transition-colors ${
+                        newEmp.defaultDays[i]
+                          ? i === 0 ? 'bg-orange-100 text-orange-600 border-orange-300' : 'bg-blue-100 text-blue-700 border-blue-300'
+                          : 'bg-brand-parchment text-gray-400 border-brand-accent'
+                      }`}
+                    >
+                      {shift}
+                    </button>
+                  ))}
+                </div>
               </div>
-            </div>
+            ) : (
+              <div>
+                <label className="text-xs text-gray-500 mb-1.5 block">{tr.default_days_label}</label>
+                <div className="flex gap-1">
+                  {DAYS_SHORT.map((d, i) => (
+                    <button
+                      key={i}
+                      type="button"
+                      onClick={() =>
+                        setNewEmp((p) => ({
+                          ...p,
+                          defaultDays: p.defaultDays.map((v, j) => (j === i ? !v : v)),
+                        }))
+                      }
+                      className={`flex-1 py-1.5 rounded text-xs font-medium cursor-pointer transition-colors ${
+                        newEmp.defaultDays[i] ? 'bg-green-100 text-green-700' : 'bg-brand-parchment text-gray-400'
+                      }`}
+                    >
+                      {d}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
 
             <div className="flex gap-2 pt-1">
               <button

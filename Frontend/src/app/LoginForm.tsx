@@ -17,7 +17,7 @@ import type { StoredShop } from '@/lib/types'
 type ManagerStep = 'auth' | 'list'
 
 function emptyForm(code = ''): StoredShop {
-  return { code, name: '', restaurantPassword: '', ownerPassword: '' }
+  return { code, name: '', restaurantPassword: '', managerPassword: '', ownerPassword: '' }
 }
 
 function BranchManagerModal({
@@ -49,7 +49,7 @@ function BranchManagerModal({
   async function handleAdd() {
     setError('')
     startTransition(async () => {
-      const res = await addShopAction(masterPassword, newForm.name, newForm.restaurantPassword, newForm.ownerPassword)
+      const res = await addShopAction(masterPassword, newForm.name, newForm.restaurantPassword, newForm.managerPassword, newForm.ownerPassword ?? '')
       if ('error' in res) { setError(res.error); return }
       const updated = await getStoredShopsAction(masterPassword)
       if (updated) setShops(updated)
@@ -63,7 +63,7 @@ function BranchManagerModal({
     if (!editing) return
     setError('')
     startTransition(async () => {
-      const res = await updateShopAction(masterPassword, editing.code, editing.name, editing.restaurantPassword, editing.ownerPassword)
+      const res = await updateShopAction(masterPassword, editing.code, editing.name, editing.restaurantPassword, editing.managerPassword, editing.ownerPassword ?? '')
       if ('error' in res) { setError(res.error); return }
       const updated = await getStoredShopsAction(masterPassword)
       if (updated) setShops(updated)
@@ -126,8 +126,9 @@ function BranchManagerModal({
                   {editing?.code === shop.code ? (
                     <div className="border border-brand-gold/40 rounded-xl p-3 space-y-2 bg-brand-gold-light">
                       <input value={editing.name} onChange={(e) => setEditing({ ...editing, name: e.target.value })} placeholder="ชื่อสาขา" className={inputCls} />
-                      <input type="password" value={editing.restaurantPassword} onChange={(e) => setEditing({ ...editing, restaurantPassword: e.target.value })} placeholder="Restaurant Password" className={inputCls} />
-                      <input type="password" value={editing.ownerPassword} onChange={(e) => setEditing({ ...editing, ownerPassword: e.target.value })} placeholder="Manager Password" className={inputCls} />
+                      <input type="password" value={editing.restaurantPassword} onChange={(e) => setEditing({ ...editing, restaurantPassword: e.target.value })} placeholder="Staff Password" className={inputCls} />
+                      <input type="password" value={editing.managerPassword} onChange={(e) => setEditing({ ...editing, managerPassword: e.target.value })} placeholder="Manager Password" className={inputCls} />
+                      <input type="password" value={editing.ownerPassword ?? ''} onChange={(e) => setEditing({ ...editing, ownerPassword: e.target.value })} placeholder="Owner Password (optional)" className={inputCls} />
                       <div className="flex gap-2">
                         <button onClick={() => setEditing(null)} className="flex-1 py-1.5 border border-brand-accent rounded-lg text-xs text-brand-green cursor-pointer">ยกเลิก</button>
                         <button onClick={handleUpdate} disabled={isPending} className="flex-1 py-1.5 bg-brand-gold text-white rounded-lg text-xs font-semibold disabled:opacity-50 cursor-pointer">บันทึก</button>
@@ -153,8 +154,9 @@ function BranchManagerModal({
               <div className="border border-brand-gold/40 rounded-xl p-3 space-y-2 bg-brand-gold-light">
                 <p className="text-xs font-semibold text-brand-green">สาขาใหม่</p>
                 <input value={newForm.name} onChange={(e) => setNewForm({ ...newForm, name: e.target.value })} placeholder="ชื่อสาขา" className={inputCls} />
-                <input type="password" value={newForm.restaurantPassword} onChange={(e) => setNewForm({ ...newForm, restaurantPassword: e.target.value })} placeholder="Restaurant Password" className={inputCls} />
-                <input type="password" value={newForm.ownerPassword} onChange={(e) => setNewForm({ ...newForm, ownerPassword: e.target.value })} placeholder="Manager Password" className={inputCls} />
+                <input type="password" value={newForm.restaurantPassword} onChange={(e) => setNewForm({ ...newForm, restaurantPassword: e.target.value })} placeholder="Staff Password" className={inputCls} />
+                <input type="password" value={newForm.managerPassword} onChange={(e) => setNewForm({ ...newForm, managerPassword: e.target.value })} placeholder="Manager Password" className={inputCls} />
+                <input type="password" value={newForm.ownerPassword ?? ''} onChange={(e) => setNewForm({ ...newForm, ownerPassword: e.target.value })} placeholder="Owner Password (optional)" className={inputCls} />
                 <div className="flex gap-2">
                   <button onClick={() => { setAdding(false); setNewForm(emptyForm()) }} className="flex-1 py-1.5 border border-brand-accent rounded-lg text-xs text-brand-green cursor-pointer">ยกเลิก</button>
                   <button onClick={handleAdd} disabled={isPending} className="flex-1 py-1.5 bg-brand-gold text-white rounded-lg text-xs font-semibold disabled:opacity-50 cursor-pointer">เพิ่มสาขา</button>

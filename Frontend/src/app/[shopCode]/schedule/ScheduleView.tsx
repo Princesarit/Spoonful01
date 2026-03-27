@@ -170,7 +170,7 @@ export default function ScheduleView({
           {tr.back}
         </Link>
         <h2 className="text-lg font-bold text-gray-800 flex-1">{tr.schedule_title}</h2>
-        {role === 'owner' && (
+        {(role === 'manager' || role === 'owner') && (
           <button
             onClick={() => setShowAdd(true)}
             className="text-sm bg-brand-gold text-white px-3 py-1.5 rounded-lg hover:bg-brand-gold-dark cursor-pointer"
@@ -228,7 +228,7 @@ export default function ScheduleView({
                         </div>
                       </th>
                     ))}
-                    {role === 'owner' && <th className="w-6" />}
+                    {(role === 'manager' || role === 'owner') && <th className="w-6" />}
                   </tr>
                 </thead>
                 <tbody>
@@ -261,7 +261,7 @@ export default function ScheduleView({
                             })}
                           </Fragment>
                         ))}
-                        {role === 'owner' && (
+                        {(role === 'manager' || role === 'owner') && (
                           <td className="px-1">
                             <button
                               onClick={() => handleDelete(emp.id)}
@@ -283,7 +283,7 @@ export default function ScheduleView({
 
       {employees.length === 0 && (
         <div className="text-center py-16 text-gray-400 text-sm">
-          {role === 'owner' ? tr.no_emp_owner : tr.no_emp_staff}
+          {(role === 'manager' || role === 'owner') ? tr.no_emp_owner : tr.no_emp_staff}
         </div>
       )}
 
@@ -298,7 +298,7 @@ export default function ScheduleView({
       )}
 
       {/* Add Employee Modal */}
-      {showAdd && role === 'owner' && (
+      {showAdd && (role === 'manager' || role === 'owner') && (
         <div className="fixed inset-0 bg-black/40 flex items-end justify-center z-50 p-4">
           <div className="bg-white rounded-2xl w-full max-w-sm p-6 space-y-4">
             <h3 className="font-bold text-gray-900">{tr.add_employee}</h3>

@@ -32,7 +32,18 @@ export function requireShopAuth(req: AuthRequest, res: Response, next: NextFunct
   })
 }
 
-/** ตรวจเพิ่มว่า role เป็น owner */
+/** manager หรือ owner */
+export function requireManager(req: AuthRequest, res: Response, next: NextFunction): void {
+  requireShopAuth(req, res, () => {
+    if (req.session?.role !== 'manager' && req.session?.role !== 'owner') {
+      res.status(403).json({ error: 'Manager access required' })
+      return
+    }
+    next()
+  })
+}
+
+/** เฉพาะ owner เท่านั้น */
 export function requireOwner(req: AuthRequest, res: Response, next: NextFunction): void {
   requireShopAuth(req, res, () => {
     if (req.session?.role !== 'owner') {

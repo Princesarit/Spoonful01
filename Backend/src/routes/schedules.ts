@@ -14,7 +14,8 @@ router.get('/', requireShopAuth, async (req: AuthRequest, res: Response) => {
       listSchedules(req.params.shopCode),
     ])
     res.json({ employees, schedules })
-  } catch {
+  } catch (err) {
+    console.error('[schedules GET]', err)
     res.status(500).json({ error: 'Server error' })
   }
 })
@@ -29,7 +30,8 @@ router.post('/', requireShopAuth, async (req: AuthRequest, res: Response) => {
     else all.push(weekSchedule)
     await saveSchedules(req.params.shopCode, all)
     res.json({ ok: true })
-  } catch {
+  } catch (err) {
+    console.error('[schedules POST]', err)
     res.status(500).json({ error: 'Server error' })
   }
 })

@@ -1,5 +1,5 @@
 export type ShopCode = string
-export type Role = 'staff' | 'owner'
+export type Role = 'staff' | 'manager' | 'owner'
 export type Position = 'Front' | 'Back' | 'Home' | 'Manager'
 export type PaymentMethod = 'Cash' | 'Credit Card' | 'Online Banking'
 
@@ -11,8 +11,10 @@ export interface Session {
 export interface StoredShop {
   code: string
   name: string
-  restaurantPassword: string
-  ownerPassword: string
+  restaurantPassword: string  // staff login
+  managerPassword: string     // manager login
+  ownerPassword?: string      // owner login (optional; if not set, managerPassword gives owner)
+  spreadsheetId?: string
 }
 
 export interface Employee {
@@ -32,8 +34,8 @@ export interface WeekSchedule {
 export interface TimeRecord {
   date: string // YYYY-MM-DD
   employeeId: string
-  attended: boolean
-  extra: number
+  morning: number
+  evening: number
 }
 
 export interface DeliveryTrip {
@@ -43,6 +45,7 @@ export interface DeliveryTrip {
   employeeName: string
   distance: number
   fee: number
+  cod?: number  // cash on delivery amount
 }
 
 export interface DeliveryPlatform {

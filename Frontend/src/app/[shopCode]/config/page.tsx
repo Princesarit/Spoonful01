@@ -1,6 +1,6 @@
 import { redirect } from 'next/navigation'
 import { getSession } from '@/lib/session'
-import { getDeliveryRates } from './actions'
+import { getDeliveryRates, getDeliveryFee } from './actions'
 import DeliveryRatesView from './DeliveryRatesView'
 
 export default async function ConfigPage({
@@ -12,7 +12,10 @@ export default async function ConfigPage({
   const session = await getSession()
   if (!session || session.shopCode !== shopCode) redirect('/')
 
-  const rates = await getDeliveryRates(shopCode)
+  const [rates, deliveryFee] = await Promise.all([
+    getDeliveryRates(shopCode),
+    getDeliveryFee(shopCode),
+  ])
 
-  return <DeliveryRatesView initialRates={rates} role={session.role} />
+  return <DeliveryRatesView initialRates={rates} initialDeliveryFee={deliveryFee} role={session.role} />
 }

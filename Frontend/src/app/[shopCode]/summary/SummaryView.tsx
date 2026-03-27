@@ -100,8 +100,8 @@ function calcDay(
     .filter((e) => !e.positions.includes('Home'))
     .reduce((sum, emp) => {
       const rec = dayRecords.find((r) => r.employeeId === emp.id)
-      if (!rec?.attended) return sum
-      return sum + emp.dailyWage + (rec.extra ?? 0)
+      if (!rec || (rec.morning === 0 && rec.evening === 0)) return sum
+      return sum + rec.morning + rec.evening
     }, 0)
   const deliveryLabor = dayTrips.reduce((s, t) => s + t.fee, 0)
   const labor = staffLabor + deliveryLabor

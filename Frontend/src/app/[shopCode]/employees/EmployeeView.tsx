@@ -79,7 +79,7 @@ export default function EmployeeView({
   const [form, setForm] = useState(EMPTY_FORM)
   const [saving, setSaving] = useState(false)
 
-  const isOwner = role === 'owner'
+  const isOwner = role === 'manager' || role === 'owner'
   const filtered = employees.filter((e) => {
     if (filter !== 'all' && !e.positions.includes(filter)) return false
     if (dayFilter !== null && !e.defaultDays[dayFilter]) return false

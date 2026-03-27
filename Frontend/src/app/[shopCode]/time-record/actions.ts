@@ -55,7 +55,7 @@ export async function getWeekTimeRecords(shopCode: string, weekStart: string) {
 
 export async function saveEmployee(shopCode: string, employee: import('@/lib/types').Employee) {
   const session = await getSession()
-  if (!session || session.shopCode !== shopCode || session.role !== 'owner')
+  if (!session || session.shopCode !== shopCode || (session.role !== 'owner' && session.role !== 'manager'))
     throw new Error('Unauthorized')
 
   const res = await fetch(`${BACKEND_URL}/${shopCode}/employees`, {
@@ -68,7 +68,7 @@ export async function saveEmployee(shopCode: string, employee: import('@/lib/typ
 
 export async function deleteEmployee(shopCode: string, employeeId: string) {
   const session = await getSession()
-  if (!session || session.shopCode !== shopCode || session.role !== 'owner')
+  if (!session || session.shopCode !== shopCode || (session.role !== 'owner' && session.role !== 'manager'))
     throw new Error('Unauthorized')
 
   const res = await fetch(`${BACKEND_URL}/${shopCode}/employees/${employeeId}`, {

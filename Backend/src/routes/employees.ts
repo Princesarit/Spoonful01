@@ -1,6 +1,6 @@
 import { Router, Response } from 'express'
 import { listEmployees, saveEmployees } from '../db'
-import { requireShopAuth, requireOwner } from '../middleware/auth'
+import { requireShopAuth, requireOwner, requireManager } from '../middleware/auth'
 import type { AuthRequest } from '../middleware/auth'
 import type { Employee } from '../types'
 
@@ -15,8 +15,8 @@ router.get('/', requireShopAuth, async (req: AuthRequest, res: Response) => {
   }
 })
 
-// POST /:shopCode/employees — upsert (owner only)
-router.post('/', requireOwner, async (req: AuthRequest, res: Response) => {
+// POST /:shopCode/employees — upsert (manager or owner)
+router.post('/', requireManager, async (req: AuthRequest, res: Response) => {
   try {
     const employee = req.body as Employee
     const all = await listEmployees(req.params.shopCode)
@@ -30,8 +30,8 @@ router.post('/', requireOwner, async (req: AuthRequest, res: Response) => {
   }
 })
 
-// DELETE /:shopCode/employees/:id (owner only)
-router.delete('/:id', requireOwner, async (req: AuthRequest, res: Response) => {
+// DELETE /:shopCode/employees/:id (manager or owner)
+router.delete('/:id', requireManager, async (req: AuthRequest, res: Response) => {
   try {
     const all = await listEmployees(req.params.shopCode)
     await saveEmployees(req.params.shopCode, all.filter((e) => e.id !== req.params.id))

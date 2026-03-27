@@ -1,5 +1,6 @@
 import { Router, Request, Response } from 'express'
-import { listShops, saveShops } from '../db'
+import { listShops, saveShops, invalidateShopCache, migrateShopToOwnSpreadsheet } from '../db'
+import { createSpreadsheet } from '../sheets'
 import { config } from '../config'
 import type { StoredShop } from '../types'
 
@@ -35,11 +36,12 @@ router.get('/admin', async (req: Request, res: Response) => {
 
 // POST /shops — เพิ่มสาขาใหม่
 router.post('/', async (req: Request, res: Response) => {
-  const { password, name, restaurantPassword, ownerPassword } = req.body as {
+  const { password, name, restaurantPassword, managerPassword, ownerPassword } = req.body as {
     password: string
     name: string
     restaurantPassword: string
-    ownerPassword: string
+    managerPassword: string
+    ownerPassword?: string
   }
   if (!verifyMaster(password)) {
     res.status(401).json({ error: 'Unauthorized' })
@@ -57,9 +59,12 @@ router.post('/', async (req: Request, res: Response) => {
     }, 0)
     const code = String(maxCode + 1).padStart(2, '0')
 
-    const shop: StoredShop = { code, name: name.trim(), restaurantPassword, ownerPassword }
+    // สร้าง Spreadsheet ใหม่สำหรับสาขานี้
+    const spreadsheetId = await createSpreadsheet(`Spoonful - ${name.trim()}`)
+
+    const shop: StoredShop = { code, name: name.trim(), restaurantPassword, managerPassword, ownerPassword: ownerPassword || undefined, spreadsheetId }
     await saveShops([...all, shop])
-    res.json({ ok: true, code })
+    res.json({ ok: true, code, spreadsheetId })
   } catch {
     res.status(500).json({ error: 'Server error' })
   }
@@ -67,11 +72,12 @@ router.post('/', async (req: Request, res: Response) => {
 
 // PUT /shops/:code — แก้ไขสาขา
 router.put('/:code', async (req: Request, res: Response) => {
-  const { password, name, restaurantPassword, ownerPassword } = req.body as {
+  const { password, name, restaurantPassword, managerPassword, ownerPassword } = req.body as {
     password: string
     name: string
     restaurantPassword: string
-    ownerPassword: string
+    managerPassword: string
+    ownerPassword?: string
   }
   if (!verifyMaster(password)) {
     res.status(401).json({ error: 'Unauthorized' })
@@ -84,8 +90,9 @@ router.put('/:code', async (req: Request, res: Response) => {
       res.status(404).json({ error: 'ไม่พบสาขา' })
       return
     }
-    all[idx] = { code: req.params.code, name: name.trim(), restaurantPassword, ownerPassword }
+    all[idx] = { ...all[idx], name: name.trim(), restaurantPassword, managerPassword, ownerPassword: ownerPassword || undefined }
     await saveShops(all)
+    invalidateShopCache(req.params.code)
     res.json({ ok: true })
   } catch {
     res.status(500).json({ error: 'Server error' })
@@ -105,6 +112,32 @@ router.delete('/:code', async (req: Request, res: Response) => {
     res.json({ ok: true })
   } catch {
     res.status(500).json({ error: 'Server error' })
+  }
+})
+
+// POST /shops/:code/migrate — ย้ายร้านเก่าไปยัง Spreadsheet ของตัวเอง
+// body: { password, spreadsheetId } — spreadsheetId ของ Sheet ใหม่ที่สร้างเองและ share กับ service account แล้ว
+router.post('/:code/migrate', async (req: Request, res: Response) => {
+  const { password, spreadsheetId } = req.body as { password: string; spreadsheetId: string }
+  if (!verifyMaster(password)) {
+    res.status(401).json({ error: 'Unauthorized' })
+    return
+  }
+  if (!spreadsheetId?.trim()) {
+    res.status(400).json({ error: 'กรุณาส่ง spreadsheetId ของ Google Sheet ที่สร้างใหม่' })
+    return
+  }
+  try {
+    const all = await listShops()
+    const shop = all.find((s) => s.code === req.params.code)
+    if (!shop) { res.status(404).json({ error: 'ไม่พบสาขา' }); return }
+    if (shop.spreadsheetId) { res.json({ ok: true, spreadsheetId: shop.spreadsheetId, note: 'already migrated' }); return }
+    await migrateShopToOwnSpreadsheet(req.params.code, spreadsheetId)
+    res.json({ ok: true, spreadsheetId })
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? `${err.message}\n${err.stack}` : String(err)
+    console.error('[migrate]', msg)
+    res.status(500).json({ error: 'Migration failed', detail: msg })
   }
 })
 

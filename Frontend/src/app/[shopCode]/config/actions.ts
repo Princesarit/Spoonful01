@@ -38,3 +38,33 @@ export async function saveDeliveryRates(shopCode: string, rates: DeliveryRate[])
   })
   if (!res.ok) throw new Error('Failed to save delivery rates')
 }
+
+export async function getDeliveryFee(shopCode: string): Promise<number> {
+  const session = await getSession()
+  if (!session || session.shopCode !== shopCode) return 0
+
+  try {
+    const res = await fetch(`${BACKEND_URL}/${shopCode}/config/delivery-fee`, {
+      headers: authHeader(session.token),
+      cache: 'no-store',
+    })
+    if (!res.ok) return 0
+    const data = await res.json() as { fee: number }
+    return data.fee ?? 0
+  } catch {
+    return 0
+  }
+}
+
+export async function saveDeliveryFee(shopCode: string, fee: number): Promise<void> {
+  const session = await getSession()
+  if (!session || session.shopCode !== shopCode || session.role !== 'owner')
+    throw new Error('Unauthorized')
+
+  const res = await fetch(`${BACKEND_URL}/${shopCode}/config/delivery-fee`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...authHeader(session.token) },
+    body: JSON.stringify({ fee }),
+  })
+  if (!res.ok) throw new Error('Failed to save delivery fee')
+}

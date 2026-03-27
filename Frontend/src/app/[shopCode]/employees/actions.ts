@@ -11,7 +11,7 @@ function authHeader(token: string) {
 
 export async function saveEmployeeAction(shopCode: string, employee: Employee) {
   const session = await getSession()
-  if (!session || session.shopCode !== shopCode || session.role !== 'owner')
+  if (!session || session.shopCode !== shopCode || (session.role !== 'owner' && session.role !== 'manager'))
     return { error: 'ไม่มีสิทธิ์' }
 
   const res = await fetch(`${BACKEND_URL}/${shopCode}/employees`, {
@@ -25,7 +25,7 @@ export async function saveEmployeeAction(shopCode: string, employee: Employee) {
 
 export async function deleteEmployeeAction(shopCode: string, id: string) {
   const session = await getSession()
-  if (!session || session.shopCode !== shopCode || session.role !== 'owner')
+  if (!session || session.shopCode !== shopCode || (session.role !== 'owner' && session.role !== 'manager'))
     return { error: 'ไม่มีสิทธิ์' }
 
   const res = await fetch(`${BACKEND_URL}/${shopCode}/employees/${id}`, {
