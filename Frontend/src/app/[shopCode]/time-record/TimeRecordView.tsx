@@ -308,7 +308,7 @@ export default function TimeRecordView() {
         </div>
 
         {/* Week Nav */}
-        <div className="flex items-center justify-between bg-white rounded-xl border border-brand-accent px-4 py-3">
+        <div className="flex items-center justify-between bg-white rounded-xl border border-gray-100 shadow-sm px-4 py-3">
           <button
             onClick={() => setWeekStart((p) => addWeeks(p, -1))}
             className="text-gray-500 hover:text-gray-800 w-8 h-8 flex items-center justify-center rounded cursor-pointer"
@@ -336,7 +336,7 @@ export default function TimeRecordView() {
               { label: 'Back',  color: 'text-brand-gold', emps: staffEmps.filter((e) => e.positions.includes('Back')) },
             ].map(({ label, color, emps }) =>
               emps.length === 0 ? null : (
-                <div key={label} className="bg-white rounded-xl border border-brand-accent overflow-hidden">
+                <div key={label} className="bg-white rounded-xl border border-gray-100 shadow-sm overflow-hidden">
                   <div className="px-4 py-2 border-b border-gray-100">
                     <span className={`text-xs font-semibold ${color}`}>{label}</span>
                   </div>
@@ -440,7 +440,7 @@ export default function TimeRecordView() {
       <div className="space-y-3">
         <h3 className="text-sm font-bold text-gray-700">{tr.home_delivery_daily}</h3>
 
-        <div className="bg-white rounded-xl border border-brand-accent p-4">
+        <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-4">
           <label className="text-xs text-gray-500 block mb-1.5">{tr.date_label}</label>
           <input
             type="date"
@@ -457,11 +457,11 @@ export default function TimeRecordView() {
             {homeEmps.length === 0 ? (
               <div className="text-center py-8 text-gray-400 text-sm">{tr.no_home}</div>
             ) : (
-              <div className="bg-white rounded-xl border border-brand-accent overflow-hidden">
+              <div className="bg-white rounded-xl border border-gray-100 shadow-sm overflow-hidden">
                 <div className="px-4 py-2 border-b border-gray-100 flex items-center justify-between">
                   <span className="text-xs font-semibold text-green-600">Home Delivery</span>
                 </div>
-                <div className="px-4 py-2 bg-brand-parchment border-b border-gray-100 flex flex-wrap gap-2">
+                <div className="px-4 py-2 bg-gray-50 border-b border-gray-100 flex flex-wrap gap-2">
                   {deliveryRates.map((r, i) => {
                     const prev = i === 0 ? 0 : deliveryRates[i - 1].maxKm
                     const label = i === 0 ? `≤${r.maxKm}km` : r.maxKm >= 9999 ? `>${prev}km` : `>${prev}–${r.maxKm}km`

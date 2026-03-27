@@ -1,8 +1,8 @@
 @import "tailwindcss";
 
 :root {
-  --background: #FAF9F6;
-  --foreground: #2D392F;
+  --background: #f5f6fa;
+  --foreground: #1a1a2e;
 }
 
 @theme inline {
@@ -14,13 +14,13 @@
   /* Brand fonts */
   --font-brand: var(--font-cinzel);
 
-  /* Brand palette — The Heritage Sanctuary */
+  /* Brand palette */
   --color-brand-green: #2D392F;
   --color-brand-gold: #775A19;
   --color-brand-gold-dark: #5E4614;
   --color-brand-gold-light: #F0EAD6;
-  --color-brand-parchment: #FAF9F6;
-  --color-brand-accent: #D9D7D2;
+  --color-brand-parchment: #f5f6fa;
+  --color-brand-accent: #e5e7eb;
 }
 
 body {

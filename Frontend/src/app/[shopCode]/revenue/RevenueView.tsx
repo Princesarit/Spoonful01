@@ -146,7 +146,7 @@ export default function RevenueView() {
       </div>
 
       {/* Date filter */}
-      <div className="bg-white rounded-xl border border-brand-accent p-4 flex items-center gap-3">
+      <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-4 flex items-center gap-3">
         <label className="text-xs text-gray-500 shrink-0">{tr.view_date}</label>
         <input
           type="date"
@@ -167,7 +167,7 @@ export default function RevenueView() {
             const pTotal = Object.values(entry.platforms).reduce((s, v) => s + v, 0)
             const tSale = entry.netSales + entry.paidOnline + pTotal
             return (
-              <div key={entry.id} className="bg-white rounded-xl border border-brand-accent p-4">
+              <div key={entry.id} className="bg-white rounded-xl border border-gray-100 shadow-sm p-4">
                 <div className="flex items-start justify-between mb-3">
                   <div>
                     <div className="text-sm font-semibold text-gray-800">{entry.name || '—'}</div>

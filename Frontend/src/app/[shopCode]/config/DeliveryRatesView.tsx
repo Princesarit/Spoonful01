@@ -72,8 +72,8 @@ export default function DeliveryRatesView({
         <h2 className="text-lg font-bold text-gray-800 flex-1">อัตรา Delivery</h2>
       </div>
 
-      <div className="bg-white rounded-xl border border-brand-accent overflow-hidden">
-        <div className="px-4 py-3 border-b border-gray-100 bg-brand-parchment">
+      <div className="bg-white rounded-xl border border-gray-100 shadow-sm overflow-hidden">
+        <div className="px-4 py-3 border-b border-gray-100 bg-gray-50">
           <p className="text-xs text-gray-500">
             {isOwner ? 'แก้ไขอัตราค่าจัดส่งแต่ละช่วงระยะทาง' : 'อัตราค่าจัดส่งปัจจุบัน (ต้องเป็น Manager ถึงจะแก้ไขได้)'}
           </p>
@@ -145,8 +145,8 @@ export default function DeliveryRatesView({
         </table>
       </div>
 
-      <div className="bg-white rounded-xl border border-brand-accent overflow-hidden">
-        <div className="px-4 py-3 border-b border-gray-100 bg-brand-parchment">
+      <div className="bg-white rounded-xl border border-gray-100 shadow-sm overflow-hidden">
+        <div className="px-4 py-3 border-b border-gray-100 bg-gray-50">
           <p className="text-xs text-gray-500 font-medium">ค่า Delivery Fee รายวัน (ต่อพนักงาน 1 คน)</p>
         </div>
         <div className="px-4 py-3 flex items-center gap-3">

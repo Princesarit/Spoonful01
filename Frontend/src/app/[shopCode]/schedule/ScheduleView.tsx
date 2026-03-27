@@ -181,7 +181,7 @@ export default function ScheduleView({
       </div>
 
       {/* Week Nav */}
-      <div className="flex items-center justify-between bg-white rounded-xl border border-brand-accent px-4 py-3">
+      <div className="flex items-center justify-between bg-white rounded-xl border border-gray-100 shadow-sm px-4 py-3">
         <button
           onClick={() => setWeekStart((p) => addWeeks(p, -1))}
           className="text-gray-500 hover:text-gray-800 w-8 h-8 flex items-center justify-center rounded cursor-pointer"
@@ -205,7 +205,7 @@ export default function ScheduleView({
         const posEmps = employees.filter((e) => e.positions.includes(pos))
         if (!posEmps.length) return null
         return (
-          <div key={pos} className="bg-white rounded-xl border border-brand-accent overflow-hidden">
+          <div key={pos} className="bg-white rounded-xl border border-gray-100 shadow-sm overflow-hidden">
             <div className="px-4 py-2 border-b border-gray-100 flex items-center gap-2">
               <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${POS_COLORS[pos]}`}>
                 {pos}

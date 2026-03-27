@@ -137,7 +137,7 @@ export default function EmployeeView({
     <div className="space-y-4">
       {/* Header */}
       <div className="flex items-center justify-between">
-        <Link href={`/${shopCode}`} className="text-brand-accent text-sm hover:text-brand-green">
+        <Link href={`/${shopCode}`} className="text-gray-400 text-sm hover:text-gray-600">
           {tr.back}
         </Link>
         <h2 className="font-bold text-brand-green">{tr.employees_title}</h2>
@@ -206,7 +206,7 @@ export default function EmployeeView({
           {filtered.map((emp) => (
             <div
               key={emp.id}
-              className="bg-white border border-brand-accent rounded-2xl p-4 flex items-center justify-between gap-3"
+              className="bg-white border border-gray-100 shadow-sm rounded-2xl p-4 flex items-center justify-between gap-3"
             >
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-2 flex-wrap mb-1.5">

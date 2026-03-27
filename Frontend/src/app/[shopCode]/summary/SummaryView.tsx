@@ -263,7 +263,7 @@ export default function SummaryView() {
       </div>
 
       {/* Month Nav */}
-      <div className="flex items-center justify-between bg-white rounded-xl border border-brand-accent px-4 py-3">
+      <div className="flex items-center justify-between bg-white rounded-xl border border-gray-100 shadow-sm px-4 py-3">
         <button
           onClick={() => setMonth((m) => addMonth(m, -1))}
           className="text-gray-500 hover:text-gray-800 w-8 h-8 flex items-center justify-center rounded cursor-pointer"
@@ -284,7 +284,7 @@ export default function SummaryView() {
       ) : (
         <>
           {/* Monthly totals */}
-          <div className="bg-white rounded-xl border border-brand-accent overflow-hidden">
+          <div className="bg-white rounded-xl border border-gray-100 shadow-sm overflow-hidden">
             <div className="px-4 py-2 border-b border-gray-100">
               <span className="text-xs font-semibold text-gray-500">
                 {tr.summary_total_prefix} {activeRows.length} {tr.days_suffix}
@@ -313,7 +313,7 @@ export default function SummaryView() {
           ) : (
             <div className="space-y-3">
               {activeRows.map((d) => (
-                <div key={d.date} className="bg-white rounded-xl border border-brand-accent p-4">
+                <div key={d.date} className="bg-white rounded-xl border border-gray-100 shadow-sm p-4">
                   {/* Day header */}
                   <div className="flex items-center justify-between mb-3">
                     <span className="text-sm font-semibold text-gray-700">{thDate(d.date, locale)}</span>

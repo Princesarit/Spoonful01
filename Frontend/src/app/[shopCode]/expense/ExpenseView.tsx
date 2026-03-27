@@ -115,7 +115,7 @@ export default function ExpenseView() {
       </div>
 
       {/* Filter */}
-      <div className="bg-white rounded-xl border border-brand-accent p-4 flex items-center gap-3">
+      <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-4 flex items-center gap-3">
         <label className="text-xs text-gray-500 shrink-0">{tr.filter_date}</label>
         <input
           type="date"
@@ -142,8 +142,8 @@ export default function ExpenseView() {
           {sortedFiltered.map((entry) => (
             <div
               key={entry.id}
-              className={`bg-white rounded-xl border p-4 ${
-                entry.paid ? 'border-brand-accent' : 'border-brand-gold/30'
+              className={`bg-white rounded-xl border shadow-sm p-4 ${
+                entry.paid ? 'border-gray-100' : 'border-amber-200'
               }`}
             >
               <div className="flex items-start justify-between mb-2">

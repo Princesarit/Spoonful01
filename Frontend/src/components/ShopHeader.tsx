@@ -1,6 +1,7 @@
 'use client'
 
 import { useActionState, useEffect, useState } from 'react'
+import Link from 'next/link'
 import { logoutAction } from '@/app/actions'
 import { useShop } from './ShopProvider'
 
@@ -39,32 +40,43 @@ export function ShopHeader({ shopName, role, loginAt }: { shopName: string; role
     ? (lang === 'th' ? '👑 ผู้จัดการ' : '👑 Manager')
     : (lang === 'th' ? '👤 พนักงาน' : '👤 Staff')
 
+  const roleBg = role === 'owner'
+    ? 'bg-red-500 text-white'
+    : role === 'manager'
+    ? 'bg-amber-500 text-white'
+    : 'bg-blue-500 text-white'
+
   const logoutLabel = lang === 'th' ? 'ออกจากระบบ' : 'Logout'
 
   return (
-    <header className="bg-brand-green border-b border-brand-green sticky top-0 z-40">
+    <header className="bg-white border-b border-gray-200 sticky top-0 z-40">
       <div className="max-w-2xl mx-auto px-4 py-3 flex items-center justify-between">
-        <div>
-          <h1 className="text-base font-bold text-white">{shopName}</h1>
-          <p className="text-xs text-brand-accent">{today}</p>
+        <div className="flex items-center gap-3">
+          <Link
+            href="/"
+            className="text-gray-400 hover:text-gray-600 text-base leading-none font-light"
+          >
+            ←
+          </Link>
+          <div>
+            <h1 className="text-base font-bold text-gray-900 leading-tight">{shopName}</h1>
+            <p className="text-xs text-gray-400 leading-tight">{today}</p>
+          </div>
         </div>
-        <div className="flex items-center gap-2">
-          <span className="text-xs text-white/60 font-mono">{duration}</span>
 
-          {/* Language toggle */}
+        <div className="flex items-center gap-2">
+          <span className="text-xs text-gray-500 font-mono bg-gray-100 px-2.5 py-1 rounded-full">
+            ⏱ {duration}
+          </span>
+
           <button
             onClick={toggleLang}
-            className="text-xs px-2 py-1 rounded-full border border-white/20 text-white/70 hover:text-white hover:border-white/50 transition-colors cursor-pointer font-medium"
-            title={lang === 'th' ? 'Switch to English' : 'เปลี่ยนเป็นภาษาไทย'}
+            className="text-xs px-2.5 py-1 rounded-full border border-gray-200 text-gray-600 hover:border-gray-400 hover:text-gray-800 transition-colors cursor-pointer font-medium"
           >
-            {lang === 'th' ? 'EN' : 'TH'}
+            {lang.toUpperCase()}
           </button>
 
-          <span
-            className={`text-xs px-2 py-1 rounded-full font-medium ${
-              role === 'owner' ? 'bg-red-500 text-white' : role === 'manager' ? 'bg-brand-gold text-white' : 'bg-white/10 text-white'
-            }`}
-          >
+          <span className={`text-xs px-3 py-1.5 rounded-full font-medium ${roleBg}`}>
             {roleLabel}
           </span>
 
@@ -72,7 +84,7 @@ export function ShopHeader({ shopName, role, loginAt }: { shopName: string; role
             <button
               type="submit"
               disabled={pending}
-              className="text-xs text-brand-accent hover:text-white px-2 py-1 rounded transition-colors disabled:opacity-50 cursor-pointer"
+              className="text-xs text-gray-500 hover:text-gray-800 transition-colors disabled:opacity-50 cursor-pointer"
             >
               {logoutLabel}
             </button>

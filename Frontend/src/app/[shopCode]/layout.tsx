@@ -23,7 +23,7 @@ export default async function ShopLayout({
 
   return (
     <ShopProvider session={session} shop={shop}>
-      <div className="min-h-screen bg-brand-parchment">
+      <div className="min-h-screen bg-[#f5f6fa]">
         <ShopHeader shopName={shop.name} role={session.role} loginAt={session.loginAt ?? Date.now()} />
         <main className="max-w-2xl mx-auto px-4 py-6">{children}</main>
       </div>
