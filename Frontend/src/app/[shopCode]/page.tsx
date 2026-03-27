@@ -222,7 +222,7 @@ export default function HomePage() {
           className="w-full py-3 rounded-2xl text-sm font-semibold text-white cursor-pointer transition-all hover:opacity-90 active:scale-[0.99]"
           style={{ background: 'linear-gradient(135deg, #3b82f6 0%, #7c3aed 100%)' }}
         >
-          🔑 {tr.manager_mode_btn}
+          {tr.manager_mode_btn}
         </button>
       )}
 

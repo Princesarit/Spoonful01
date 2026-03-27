@@ -152,6 +152,20 @@ export async function saveEmployees(shopCode: string, employees: Employee[]): Pr
     JSON.stringify(e.defaultDays),
   ])
   await setSheetData(tab('employees'), EMP_HEADERS, rows, sid)
+
+  // Auto-sync to master Employees tab
+  try {
+    const existing = await getSheetData('Employees')
+    const otherRows = existing
+      .filter((r) => r.shopCode !== shopCode)
+      .map((r) => [r.shopCode, r.id, r.employeeId, r.positions, r.name, r.phone ?? '', r.defaultDays])
+    const newRows = sorted.map((e) => [
+      shopCode, e.id, e.id, JSON.stringify(e.positions), e.name, e.phone ?? '', JSON.stringify(e.defaultDays),
+    ])
+    await setSheetData('Employees', MASTER_EMP_HEADERS, [...otherRows, ...newRows])
+  } catch (err) {
+    console.error('[saveEmployees] master sync failed:', err)
+  }
 }
 
 // ─── Schedules ────────────────────────────────────────────────────────────────
@@ -172,14 +186,18 @@ function weekScheduleToPivotRows(ws: WeekSchedule, employees: Employee[]): strin
       const shiftLabel = shift === 0 ? 'morning' : 'evening'
       const scheduled = ws.entries
         .filter((e) => e.days[slotIdx])
-        .map((e) => employees.find((emp) => emp.id === e.employeeId))
-        .filter(Boolean) as Employee[]
-      const front = scheduled.filter((e) => e.positions.includes('Front')).map((e) => e.name).join(', ')
-      const back = scheduled.filter((e) => e.positions.includes('Back')).map((e) => e.name).join(', ')
-      const home = scheduled.filter((e) => e.positions.includes('Home')).map((e) => e.name).join(', ')
-      const totalFront = scheduled.filter((e) => e.positions.includes('Front')).length
-      const totalBack = scheduled.filter((e) => e.positions.includes('Back')).length
-      const totalHome = scheduled.filter((e) => e.positions.includes('Home')).length
+        .map((e) => {
+          const emp = employees.find((emp) => emp.id === e.employeeId)
+          const pos = e.days[slotIdx] as string
+          return emp ? { emp, pos } : null
+        })
+        .filter(Boolean) as { emp: Employee; pos: string }[]
+      const front = scheduled.filter((s) => s.pos === 'Front').map((s) => s.emp.name).join(', ')
+      const back = scheduled.filter((s) => s.pos === 'Back').map((s) => s.emp.name).join(', ')
+      const home = scheduled.filter((s) => s.pos === 'Home').map((s) => s.emp.name).join(', ')
+      const totalFront = scheduled.filter((s) => s.pos === 'Front').length
+      const totalBack = scheduled.filter((s) => s.pos === 'Back').length
+      const totalHome = scheduled.filter((s) => s.pos === 'Home').length
       const total = scheduled.length
       // Skip empty rows (no one scheduled)
       if (total === 0) continue
@@ -204,23 +222,25 @@ function pivotRowsToWeekSchedules(rows: Record<string, string>[], employees: Emp
     if (!weekMap.has(weekStart)) {
       weekMap.set(weekStart, {
         weekStart,
-        entries: employees.map((e) => ({ employeeId: e.id, days: Array(14).fill(false) })),
+        entries: employees.map((e) => ({ employeeId: e.id, days: Array(14).fill(null) })),
       })
     }
     const ws = weekMap.get(weekStart)!
 
-    // Mark all employees whose name appears in any position column
-    const names = new Set(
-      [r.front, r.back, r.home]
-        .join(',')
-        .split(',')
-        .map((n) => n.trim())
-        .filter(Boolean),
-    )
+    // Mark employees with their position for this slot
+    const posCols: { pos: string; names: string[] }[] = [
+      { pos: 'Front', names: (r.front ?? '').split(',').map((n) => n.trim()).filter(Boolean) },
+      { pos: 'Back',  names: (r.back  ?? '').split(',').map((n) => n.trim()).filter(Boolean) },
+      { pos: 'Home',  names: (r.home  ?? '').split(',').map((n) => n.trim()).filter(Boolean) },
+    ]
     for (const entry of ws.entries) {
       const emp = employees.find((e) => e.id === entry.employeeId)
-      if (emp && names.has(emp.name)) {
-        entry.days[slotIdx] = true
+      if (!emp) continue
+      for (const { pos, names } of posCols) {
+        if (names.includes(emp.name)) {
+          entry.days[slotIdx] = pos
+          break
+        }
       }
     }
   }
@@ -241,7 +261,13 @@ export async function listSchedules(shopCode: string): Promise<WeekSchedule[]> {
       .filter((r) => /^\d{4}-\d{2}-\d{2}$/.test(r.weekStart))
       .map((r) => {
         try {
-          return { weekStart: r.weekStart, entries: JSON.parse(r.entries || '[]') as WeekSchedule['entries'] }
+          const raw = JSON.parse(r.entries || '[]') as { employeeId: string; days: (boolean | string | null)[] }[]
+          const entries = raw.map((e) => {
+            // Convert boolean days to null (can't know which position from old format)
+            const days = e.days.map((d) => (typeof d === 'string' ? d : null))
+            return { employeeId: e.employeeId, days }
+          })
+          return { weekStart: r.weekStart, entries }
         } catch {
           return { weekStart: r.weekStart, entries: [] }
         }
@@ -257,12 +283,22 @@ const SHIFT_BLUE   = { red: 0.67, green: 0.84, blue: 0.97 } // Evening
 export async function saveSchedules(shopCode: string, schedules: WeekSchedule[]): Promise<void> {
   const { sid, tab } = await getShopDb(shopCode)
   const employees = await listEmployees(shopCode)
-  const allRows = schedules.flatMap((ws) => weekScheduleToPivotRows(ws, employees))
+  // Deduplicate by (date, shift) — last WeekSchedule processed wins (newer overwrites older)
+  const pivotMap = new Map<string, string[]>()
+  for (const ws of schedules) {
+    for (const row of weekScheduleToPivotRows(ws, employees)) {
+      pivotMap.set(`${row[0]}|${row[2]}`, row)
+    }
+  }
+  const sorted = Array.from(pivotMap.values()).sort((a, b) =>
+    a[0] !== b[0] ? a[0].localeCompare(b[0]) : a[2].localeCompare(b[2]),
+  )
+
   const rows: string[][] = []
-  for (let i = 0; i < allRows.length; i++) {
-    rows.push(allRows[i])
-    // Insert 2 separator rows after the last SAT row before a new week starts
-    if (allRows[i][1] === 'SAT' && allRows[i + 1]?.[1] !== 'SAT') {
+  for (let i = 0; i < sorted.length; i++) {
+    rows.push(sorted[i])
+    // Insert 2 separator rows after SUN (last day of Mon–Sun week)
+    if (sorted[i][1] === 'SUN' && sorted[i + 1]?.[1] !== 'SUN') {
       rows.push(Array(SCHED_HEADERS.length).fill(''))
       rows.push(Array(SCHED_HEADERS.length).fill(''))
     }
@@ -279,7 +315,7 @@ export async function saveSchedules(shopCode: string, schedules: WeekSchedule[])
     ]
   })
   if (colorRules.length > 0) {
-    await applyRowColors(tab('schedules'), sid, colorRules)
+    await applyRowColors(tab('schedules'), sid, colorRules, rows.length)
   }
 }
 
@@ -353,7 +389,7 @@ export async function saveTimeRecords(shopCode: string, records: TimeRecord[]): 
 
 // ─── Delivery Trips ───────────────────────────────────────────────────────────
 
-const DT_HEADERS = ['id', 'date', 'employeeId', 'employeeName', 'distance', 'fee', 'cod']
+const DT_HEADERS = ['id', 'date', 'employeeId', 'employeeName', 'distance', 'fee', 'shift']
 
 export async function listDeliveryTrips(shopCode: string): Promise<DeliveryTrip[]> {
   const { sid, tab } = await getShopDb(shopCode)
@@ -447,7 +483,7 @@ export async function saveDeliveryTrips(shopCode: string, trips: DeliveryTrip[])
 
   await setSheetData(tab('delivery_trips'), DT_HEADERS, rows, sid)
   if (colorRules.length > 0) {
-    await applyRowColors(tab('delivery_trips'), sid, colorRules)
+    await applyRowColors(tab('delivery_trips'), sid, colorRules, rows.length)
   }
 }
 
@@ -470,7 +506,7 @@ export async function savePlatforms(shopCode: string, platforms: DeliveryPlatfor
 
 // ─── Revenue ──────────────────────────────────────────────────────────────────
 
-const REV_HEADERS = ['id', 'date', 'name', 'netSales', 'paidOnline', 'card', 'cash', 'platforms']
+const REV_HEADERS = ['id', 'date', 'name', 'netSales', 'paidOnline', 'card', 'cash', 'platforms', 'note']
 
 export async function listRevenue(shopCode: string): Promise<RevenueEntry[]> {
   const { sid, tab } = await getShopDb(shopCode)
@@ -484,13 +520,14 @@ export async function listRevenue(shopCode: string): Promise<RevenueEntry[]> {
     card: Number(r.card),
     cash: Number(r.cash),
     platforms: JSON.parse(r.platforms || '{}') as Record<string, number>,
+    note: r.note || undefined,
   }))
 }
 
 export async function saveRevenue(shopCode: string, entries: RevenueEntry[]): Promise<void> {
   const { sid, tab } = await getShopDb(shopCode)
   const rows = entries.map((e) => [
-    e.id, e.date, e.name, e.netSales, e.paidOnline, e.card, e.cash, JSON.stringify(e.platforms),
+    e.id, e.date, e.name, e.netSales, e.paidOnline, e.card, e.cash, JSON.stringify(e.platforms), e.note ?? '',
   ])
   await setSheetData(tab('revenue'), REV_HEADERS, rows, sid)
 }
@@ -642,4 +679,47 @@ export async function saveNotes(shopCode: string, notes: DailyNote[]): Promise<v
   const { sid, tab } = await getShopDb(shopCode)
   const rows = notes.map((n) => [n.date, n.note])
   await setSheetData(tab('notes'), NOTES_HEADERS, rows, sid)
+}
+
+// ─── Audit / Edit Log ─────────────────────────────────────────────────────────
+
+const AUDIT_HEADERS = ['date', 'time', 'editorName', 'employeeName', 'shift', 'changes', 'note']
+
+export async function appendAuditLog(
+  shopCode: string,
+  entry: { editorName: string; note: string; employeeName: string; shift: string; changes: string },
+): Promise<void> {
+  const { sid, tab } = await getShopDb(shopCode)
+  const existing = await getSheetData(tab('edit_log'), sid)
+  const rows = existing.map((r) => [r.date, r.time, r.editorName, r.employeeName, r.shift, r.changes ?? '', r.note ?? ''])
+  const now = new Date()
+  const date = now.toISOString().split('T')[0]
+  const time = now.toTimeString().split(' ')[0]
+  rows.push([date, time, entry.editorName, entry.employeeName, entry.shift, entry.changes, entry.note])
+  await setSheetData(tab('edit_log'), AUDIT_HEADERS, rows, sid)
+}
+
+// ─── Master Employee Sync ──────────────────────────────────────────────────────
+
+const MASTER_EMP_HEADERS = ['shopCode', 'id', 'employeeId', 'positions', 'name', 'phone', 'defaultDays']
+
+/** รวม employee ทุกสาขาลง Employees tab ใน master spreadsheet */
+export async function syncAllEmployeesToMaster(): Promise<void> {
+  const shops = await listShops()
+  const allRows: string[][] = []
+  for (const shop of shops) {
+    const emps = await listEmployees(shop.code)
+    for (const e of emps) {
+      allRows.push([
+        shop.code,
+        e.id,
+        e.id,
+        JSON.stringify(e.positions),
+        e.name,
+        e.phone ?? '',
+        JSON.stringify(e.defaultDays),
+      ])
+    }
+  }
+  await setSheetData('Employees', MASTER_EMP_HEADERS, allRows)
 }

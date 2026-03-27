@@ -2,12 +2,14 @@
 
 import { useActionState, useEffect, useState } from 'react'
 import Link from 'next/link'
-import { logoutAction } from '@/app/actions'
+import { useParams, usePathname } from 'next/navigation'
+import { logoutAction, demoteAction } from '@/app/actions'
 import { useShop } from './ShopProvider'
 
 function useLoginDuration(loginAt: number) {
-  const [elapsed, setElapsed] = useState(Date.now() - loginAt)
+  const [elapsed, setElapsed] = useState(0)
   useEffect(() => {
+    setElapsed(Date.now() - loginAt)
     const id = setInterval(() => setElapsed(Date.now() - loginAt), 1000)
     return () => clearInterval(id)
   }, [loginAt])
@@ -20,6 +22,11 @@ function useLoginDuration(loginAt: number) {
 
 export function ShopHeader({ shopName, role, loginAt }: { shopName: string; role: string; loginAt: number }) {
   const { lang, toggleLang } = useShop()
+  const params = useParams()
+  const shopCode = params?.shopCode as string | undefined
+  const pathname = usePathname()
+  const isHome = shopCode ? pathname === `/${shopCode}` : true
+  const backHref = isHome ? '/' : `/${shopCode}`
 
   const today = new Date().toLocaleDateString(lang === 'th' ? 'th-TH' : 'en-US', {
     weekday: 'long',
@@ -35,25 +42,26 @@ export function ShopHeader({ shopName, role, loginAt }: { shopName: string; role
   }, null)
 
   const roleLabel = role === 'owner'
-    ? (lang === 'th' ? '👑 Owner' : '👑 Owner')
+    ? '👑 Owner'
     : role === 'manager'
-    ? (lang === 'th' ? '👑 ผู้จัดการ' : '👑 Manager')
+    ? '🔑 Manager'
     : (lang === 'th' ? '👤 พนักงาน' : '👤 Staff')
 
   const roleBg = role === 'owner'
-    ? 'bg-red-500 text-white'
-    : role === 'manager'
     ? 'bg-amber-500 text-white'
+    : role === 'manager'
+    ? 'bg-red-500 text-white'
     : 'bg-blue-500 text-white'
 
   const logoutLabel = lang === 'th' ? 'ออกจากระบบ' : 'Logout'
+  const isElevated = role === 'owner' || role === 'manager'
 
   return (
     <header className="bg-white border-b border-gray-200 sticky top-0 z-40">
       <div className="max-w-2xl mx-auto px-4 py-3 flex items-center justify-between">
         <div className="flex items-center gap-3">
           <Link
-            href="/"
+            href={backHref}
             className="text-gray-400 hover:text-gray-600 text-base leading-none font-light"
           >
             ←
@@ -80,15 +88,26 @@ export function ShopHeader({ shopName, role, loginAt }: { shopName: string; role
             {roleLabel}
           </span>
 
-          <form action={formAction}>
-            <button
-              type="submit"
-              disabled={pending}
-              className="text-xs text-gray-500 hover:text-gray-800 transition-colors disabled:opacity-50 cursor-pointer"
-            >
-              {logoutLabel}
-            </button>
-          </form>
+          {isElevated ? (
+            <form action={demoteAction}>
+              <button
+                type="submit"
+                className="text-xs text-gray-500 hover:text-gray-800 transition-colors cursor-pointer"
+              >
+                {logoutLabel}
+              </button>
+            </form>
+          ) : (
+            <form action={formAction}>
+              <button
+                type="submit"
+                disabled={pending}
+                className="text-xs text-gray-500 hover:text-gray-800 transition-colors disabled:opacity-50 cursor-pointer"
+              >
+                {logoutLabel}
+              </button>
+            </form>
+          )}
         </div>
       </div>
     </header>

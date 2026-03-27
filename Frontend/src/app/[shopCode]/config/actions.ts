@@ -68,3 +68,20 @@ export async function saveDeliveryFee(shopCode: string, fee: number): Promise<vo
   })
   if (!res.ok) throw new Error('Failed to save delivery fee')
 }
+
+export async function saveConfigAuditLog(
+  shopCode: string,
+  changes: string,
+): Promise<void> {
+  const session = await getSession()
+  if (!session || session.shopCode !== shopCode) return
+  try {
+    await fetch(`${BACKEND_URL}/${shopCode}/config/audit-log`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...authHeader(session.token) },
+      body: JSON.stringify({ editorName: session.role, note: '', employeeName: 'config', shift: '', changes }),
+    })
+  } catch {
+    // audit log failure should not block the save
+  }
+}

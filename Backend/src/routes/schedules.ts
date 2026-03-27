@@ -25,10 +25,14 @@ router.post('/', requireShopAuth, async (req: AuthRequest, res: Response) => {
   try {
     const weekSchedule = req.body as WeekSchedule
     const all = await listSchedules(req.params.shopCode)
-    const idx = all.findIndex((s) => s.weekStart === weekSchedule.weekStart)
-    if (idx >= 0) all[idx] = weekSchedule
-    else all.push(weekSchedule)
-    await saveSchedules(req.params.shopCode, all)
+    const newMs = new Date(weekSchedule.weekStart + 'T00:00:00Z').getTime()
+    // Remove any existing schedule whose 7-day window overlaps (handles off-by-one weekStart from old bug)
+    const filtered = all.filter((s) => {
+      const ms = new Date(s.weekStart + 'T00:00:00Z').getTime()
+      return Math.abs(newMs - ms) >= 7 * 24 * 60 * 60 * 1000
+    })
+    filtered.push(weekSchedule)
+    await saveSchedules(req.params.shopCode, filtered)
     res.json({ ok: true })
   } catch (err) {
     console.error('[schedules POST]', err)

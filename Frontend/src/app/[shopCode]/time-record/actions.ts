@@ -78,6 +78,20 @@ export async function deleteEmployee(shopCode: string, employeeId: string) {
   if (!res.ok) throw new Error('Failed to delete employee')
 }
 
+export async function saveAuditLog(
+  shopCode: string,
+  entry: { editorName: string; note: string; employeeName: string; shift: string; changes: string },
+) {
+  const session = await getSession()
+  if (!session || session.shopCode !== shopCode) throw new Error('Unauthorized')
+  const res = await fetch(`${BACKEND_URL}/${shopCode}/config/audit-log`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...authHeader(session.token) },
+    body: JSON.stringify(entry),
+  })
+  if (!res.ok) throw new Error('Failed to save audit log')
+}
+
 export async function saveTimeRecords(
   shopCode: string,
   date: string,

@@ -6,6 +6,7 @@ export type PaymentMethod = 'Cash' | 'Credit Card' | 'Online Banking'
 export interface Session {
   shopCode: ShopCode
   role: Role
+  baseRole: Role  // role at initial login, before any elevation
   token: string
   loginAt: number // Unix timestamp ms
 }
@@ -29,7 +30,7 @@ export interface Employee {
 
 export interface WeekSchedule {
   weekStart: string // ISO Monday date: YYYY-MM-DD
-  entries: { employeeId: string; days: boolean[] }[]
+  entries: { employeeId: string; days: (string | null)[] }[]
 }
 
 export interface TimeRecord {
@@ -63,6 +64,7 @@ export interface RevenueEntry {
   card: number
   cash: number
   platforms: Record<string, number> // platformId → amount
+  note?: string
 }
 
 export interface ExpenseEntry {

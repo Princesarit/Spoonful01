@@ -46,6 +46,21 @@ export async function saveEmployee(shopCode: string, employee: Employee) {
   if (!res.ok) throw new Error('Failed to save employee')
 }
 
+export async function saveAuditLog(
+  shopCode: string,
+  entry: { editorName: string; note: string; employeeName: string; shift: string; changes: string },
+): Promise<void> {
+  const session = await getSession()
+  if (!session || session.shopCode !== shopCode) return
+  try {
+    await fetch(`${BACKEND_URL}/${shopCode}/config/audit-log`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...authHeader(session.token) },
+      body: JSON.stringify(entry),
+    })
+  } catch { /* audit failure should not block the action */ }
+}
+
 export async function deleteEmployee(shopCode: string, employeeId: string) {
   const session = await getSession()
   if (!session || session.shopCode !== shopCode || (session.role !== 'owner' && session.role !== 'manager'))

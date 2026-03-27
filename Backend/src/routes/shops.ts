@@ -1,5 +1,5 @@
 import { Router, Request, Response } from 'express'
-import { listShops, saveShops, invalidateShopCache, migrateShopToOwnSpreadsheet } from '../db'
+import { listShops, saveShops, invalidateShopCache, migrateShopToOwnSpreadsheet, syncAllEmployeesToMaster } from '../db'
 import { createSpreadsheet } from '../sheets'
 import { config } from '../config'
 import type { StoredShop } from '../types'
@@ -110,6 +110,32 @@ router.delete('/:code', async (req: Request, res: Response) => {
     const all = await listShops()
     await saveShops(all.filter((s) => s.code !== req.params.code))
     res.json({ ok: true })
+  } catch {
+    res.status(500).json({ error: 'Server error' })
+  }
+})
+
+// POST /shops/sync-employees?password=... — sync all employees to master Employees tab
+router.post('/sync-employees', async (req: Request, res: Response) => {
+  const { password } = req.body as { password: string }
+  if (!verifyMaster(password)) { res.status(401).json({ error: 'Unauthorized' }); return }
+  try {
+    await syncAllEmployeesToMaster()
+    res.json({ ok: true })
+  } catch (err) {
+    console.error('[sync-employees]', err)
+    res.status(500).json({ error: 'Server error' })
+  }
+})
+
+// POST /shops/migrate-headers?password=... — re-save shops with new column names
+router.post('/migrate-headers', async (req: Request, res: Response) => {
+  const { password } = req.body as { password: string }
+  if (!verifyMaster(password)) { res.status(401).json({ error: 'Unauthorized' }); return }
+  try {
+    const all = await listShops()
+    await saveShops(all)
+    res.json({ ok: true, count: all.length })
   } catch {
     res.status(500).json({ error: 'Server error' })
   }
