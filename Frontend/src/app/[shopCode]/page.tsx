@@ -4,10 +4,11 @@ import Link from 'next/link'
 import { useParams } from 'next/navigation'
 import { useShop } from '@/components/ShopProvider'
 import { useState, useActionState, useEffect } from 'react'
-import { elevateToOwnerAction } from '@/app/actions'
+import { elevateToOwnerAction, elevateToManagerAction } from '@/app/actions'
 import { translations } from '@/lib/translations'
 import { getRevenueData } from './revenue/actions'
 import { getTimeRecordData } from './time-record/actions'
+import { getScheduleData } from './schedule/actions'
 
 function today(): string {
   return new Date().toISOString().split('T')[0]
@@ -19,14 +20,16 @@ function ElevateModal({
   desc,
   placeholder,
   cancelLabel,
+  action: elevateAction,
 }: {
   onClose: () => void
   title: string
   desc: string
   placeholder: string
   cancelLabel: string
+  action: (prev: { error: string } | null, formData: FormData) => Promise<{ error: string } | null>
 }) {
-  const [state, action, pending] = useActionState(elevateToOwnerAction, null)
+  const [state, action, pending] = useActionState(elevateAction, null)
   return (
     <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
       <div className="bg-white rounded-2xl w-full max-w-xs p-6 space-y-4 shadow-xl">
@@ -81,6 +84,8 @@ export default function HomePage() {
   const [showManagerModal, setShowManagerModal] = useState(false)
   const [showOwnerModal, setShowOwnerModal] = useState(false)
   const [stats, setStats] = useState<Stats | null>(null)
+  const [staffShift, setStaffShift] = useState<'morning' | 'evening'>('morning')
+  const [staffCounts, setStaffCounts] = useState<{ morning: number; evening: number } | null>(null)
 
   useEffect(() => {
     const todayDate = today()
@@ -102,6 +107,23 @@ export default function HomePage() {
         totalEmployees: trData.employees.length,
         ordersToday: todayEntries.length,
       })
+    }).catch(() => {})
+
+    getScheduleData(shopCode).then(({ schedules }) => {
+      const now = new Date()
+      const dayOfWeek = now.getDay() // 0=Sun
+      const dayIdx = dayOfWeek === 0 ? 6 : dayOfWeek - 1 // Mon=0..Sun=6
+      // Find monday of current week (local time)
+      const d = new Date(now)
+      d.setDate(d.getDate() - (dayOfWeek === 0 ? 6 : dayOfWeek - 1))
+      d.setHours(0, 0, 0, 0)
+      const weekStr = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+      const currentSchedule = schedules.find((s) => s.weekStart === weekStr)
+      if (currentSchedule) {
+        const morning = currentSchedule.entries.filter((e) => e.days[dayIdx * 2] != null && e.days[dayIdx * 2] !== false).length
+        const evening = currentSchedule.entries.filter((e) => e.days[dayIdx * 2 + 1] != null && e.days[dayIdx * 2 + 1] !== false).length
+        setStaffCounts({ morning, evening })
+      }
     }).catch(() => {})
   }, [shopCode])
 
@@ -167,20 +189,25 @@ export default function HomePage() {
           </div>
         </div>
 
-        <div className="bg-white rounded-2xl p-4 shadow-sm border border-gray-100">
+        <button
+          onClick={() => setStaffShift((s) => s === 'morning' ? 'evening' : 'morning')}
+          className="bg-white rounded-2xl p-4 shadow-sm border border-gray-100 text-left w-full active:scale-95 transition-all cursor-pointer"
+        >
           <div className="flex items-start justify-between mb-2">
             <span className="text-xs text-gray-500">{lang === 'th' ? 'พนักงาน' : 'Active Staff'}</span>
-            <span className="text-blue-400 text-sm">👥</span>
+            <span className={`text-xs px-1.5 py-0.5 rounded-full font-medium ${staffShift === 'morning' ? 'bg-orange-100 text-orange-600' : 'bg-blue-100 text-blue-600'}`}>
+              {staffShift === 'morning' ? (lang === 'th' ? 'เช้า' : 'AM') : (lang === 'th' ? 'บ่าย' : 'PM')}
+            </span>
           </div>
           <div className="text-lg font-bold text-gray-900">
-            {stats ? stats.activeStaff : '—'}
+            {staffCounts ? staffCounts[staffShift] : (stats ? stats.activeStaff : '—')}
           </div>
           <div className="text-xs text-gray-400 mt-1">
-            {stats
-              ? `${lang === 'th' ? 'จาก' : 'of'} ${stats.totalEmployees} ${lang === 'th' ? 'คน' : 'total'}`
+            {staffCounts
+              ? `${lang === 'th' ? 'กด เปลี่ยน เช้า/บ่าย' : 'tap to toggle AM/PM'}`
               : '...'}
           </div>
-        </div>
+        </button>
 
         <div className="bg-white rounded-2xl p-4 shadow-sm border border-gray-100">
           <div className="flex items-start justify-between mb-2">
@@ -252,6 +279,7 @@ export default function HomePage() {
           desc={tr.manager_modal_desc}
           placeholder="Manager Password"
           cancelLabel={tr.cancel}
+          action={elevateToManagerAction}
         />
       )}
       {showOwnerModal && (
@@ -261,6 +289,7 @@ export default function HomePage() {
           desc={lang === 'th' ? 'กรอก Owner Password' : 'Enter your Owner Password'}
           placeholder="Owner Password"
           cancelLabel={tr.cancel}
+          action={elevateToOwnerAction}
         />
       )}
     </div>

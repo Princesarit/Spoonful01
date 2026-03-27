@@ -243,52 +243,6 @@ export default function TimeRecordView() {
     }
   }
 
-  // ── Delete employee ──
-  // ── Add employee ──
-  async function handleAddEmployee() {
-    if (!newEmp.name.trim() || newEmp.positions.length === 0) return
-    setAddSaving(true)
-    const emp: Employee = {
-      id: Date.now().toString(),
-      name: newEmp.name.trim(),
-      positions: newEmp.positions,
-      defaultDays: newEmp.defaultDays,
-    }
-    try {
-      await saveEmployee(shopCode, emp)
-      if (emp.positions.includes('Front') || emp.positions.includes('Back')) {
-        setStaffEmps((p) => [...p, emp])
-        setWeekAttend((p) => {
-          const updated = { ...p }
-          weekDates.forEach((d) => {
-            updated[d] = { ...updated[d], [emp.id]: { morning: 0, evening: 0 } }
-          })
-          return updated
-        })
-      }
-      if (emp.positions.includes('Home')) {
-        setHomeEmps((p) => [...p, emp])
-        setTrips((p) => ({ ...p, [emp.id]: [] }))
-        setCodByEmp((p) => ({ ...p, [emp.id]: 0 }))
-        setSavedByEmp((p) => ({ ...p, [emp.id]: false }))
-      }
-      setNewEmp(EMPTY_NEW_EMP)
-      setShowAdd(false)
-      const roleName = session.role.charAt(0).toUpperCase() + session.role.slice(1)
-      const shift = emp.positions.includes('Home')
-        ? (emp.defaultDays[0] ? 'Morning' : 'Evening')
-        : emp.positions.join(', ')
-      saveAuditLog(shopCode, {
-        editorName: roleName, note: '', employeeName: emp.name, shift,
-        changes: `Add employee: ${emp.name} (${emp.positions.join(', ')})`,
-      }).catch(() => {})
-    } catch {
-      alert(tr.add_emp_fail)
-    } finally {
-      setAddSaving(false)
-    }
-  }
-
   // ── Remove from view only (does NOT delete from Employees) ──
   function handleDeleteEmployee(empId: string, name: string) {
     if (!confirm(tr.confirm_delete_emp2(name))) return
@@ -365,7 +319,7 @@ export default function TimeRecordView() {
       const cod = codByEmp[emp.id] ?? 0
       if (cod > 0) {
         await saveRevenueEntry(shopCode, {
-          id: `cod_${date}_${emp.id}_${Date.now()}`,
+          id: `cod_${date}_${emp.id}`,
           date,
           name: `Cash on Delivery (${emp.name})`,
           netSales: cod,
@@ -391,6 +345,7 @@ export default function TimeRecordView() {
   }
 
   const isPast = weekStart < getMonday(new Date())
+  const isToday = date === today()
 
   // ─── Render ──────────────────────────────────────────────────────────────────
 
@@ -558,6 +513,9 @@ export default function TimeRecordView() {
             onChange={(e) => setDate(e.target.value)}
             className="border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-gold"
           />
+          {!isToday && (
+            <p className="text-xs text-orange-500 mt-1">⚠ ดูได้อย่างเดียว (ไม่ใช่วันนี้)</p>
+          )}
         </div>
 
         {homeLoading ? (
@@ -605,7 +563,8 @@ export default function TimeRecordView() {
                         {!isSaved && (
                           <button
                             onClick={() => addTrip(emp.id)}
-                            className="text-xs bg-green-50 text-green-700 border border-green-200 px-2.5 py-1 rounded-lg hover:bg-green-100 cursor-pointer"
+                            disabled={isSaved || !isToday}
+                            className="text-xs bg-green-50 text-green-700 border border-green-200 px-2.5 py-1 rounded-lg hover:bg-green-100 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
                           >
                             {tr.add_trip}
                           </button>
@@ -631,8 +590,8 @@ export default function TimeRecordView() {
                         ) : (
                           <button
                             onClick={() => setAuditModal({ emp, editorName: '', remark: '' })}
-                            disabled={isSavingThis}
-                            className="text-xs bg-brand-gold text-white px-2.5 py-1 rounded-lg hover:bg-brand-gold-dark disabled:opacity-50 cursor-pointer"
+                            disabled={!isToday || isSavingThis}
+                            className="text-xs bg-brand-gold text-white px-2.5 py-1 rounded-lg hover:bg-brand-gold-dark disabled:opacity-50 cursor-pointer disabled:cursor-not-allowed"
                           >
                             {isSavingThis ? '...' : tr.save}
                           </button>

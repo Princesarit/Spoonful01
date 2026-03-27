@@ -4,7 +4,7 @@ import { useActionState, useEffect, useState } from 'react'
 import Link from 'next/link'
 import { useParams, usePathname } from 'next/navigation'
 import { logoutAction, demoteAction } from '@/app/actions'
-import { useShop } from './ShopProvider'
+import { useShop } from '@/components/ShopProvider'
 
 function useLoginDuration(loginAt: number) {
   const [elapsed, setElapsed] = useState(0)

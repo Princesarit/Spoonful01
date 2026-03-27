@@ -33,6 +33,30 @@ export async function loginAction(
   redirect(`/${shopCode}`)
 }
 
+export async function elevateToManagerAction(
+  _prev: { error: string } | null,
+  formData: FormData,
+): Promise<{ error: string } | null> {
+  const password = formData.get('password') as string
+  const session = await getSession()
+  if (!session) return { error: 'ไม่ได้เข้าสู่ระบบ' }
+
+  try {
+    const res = await fetch(`${BACKEND_URL}/auth/elevate`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session.token}` },
+      body: JSON.stringify({ password }),
+    })
+    const data = await res.json() as { token?: string; role?: string; error?: string }
+    if (!res.ok || !data.role || !data.token) return { error: data.error ?? 'Password ไม่ถูกต้อง' }
+    if (data.role !== 'manager') return { error: 'Password ไม่ถูกต้อง' }
+    await setSession({ ...session, role: 'manager', token: data.token, baseRole: session.baseRole ?? session.role })
+  } catch {
+    return { error: 'ไม่สามารถเชื่อมต่อ Backend ได้' }
+  }
+  redirect(`/${session.shopCode}`)
+}
+
 export async function elevateToOwnerAction(
   _prev: { error: string } | null,
   formData: FormData,
@@ -49,7 +73,8 @@ export async function elevateToOwnerAction(
     })
     const data = await res.json() as { token?: string; role?: string; error?: string }
     if (!res.ok || !data.role || !data.token) return { error: data.error ?? 'Password ไม่ถูกต้อง' }
-    await setSession({ ...session, role: data.role as 'staff' | 'manager' | 'owner', token: data.token, baseRole: session.baseRole ?? session.role })
+    if (data.role !== 'owner') return { error: 'Password ไม่ถูกต้อง' }
+    await setSession({ ...session, role: 'owner', token: data.token, baseRole: session.baseRole ?? session.role })
   } catch {
     return { error: 'ไม่สามารถเชื่อมต่อ Backend ได้' }
   }

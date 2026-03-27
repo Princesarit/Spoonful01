@@ -63,7 +63,7 @@ export default function ScheduleView({
   role: string
 }) {
   const { shopCode } = useParams() as { shopCode: string }
-  const { lang } = useShop()
+  const { lang, session } = useShop()
   const tr = translations[lang]
   const DAYS_SHORT = lang === 'en' ? DAYS_SHORT_EN : DAYS_SHORT_TH
   const locale = lang === 'en' ? 'en-US' : 'th-TH'
@@ -137,8 +137,31 @@ export default function ScheduleView({
 
   function handleSave() {
     const isEdit = weekSaved
+    if (!isEdit) {
+      // First save — auto-log without modal
+      const roleName = session.role.charAt(0).toUpperCase() + session.role.slice(1)
+      setSaving(true)
+      ;(async () => {
+        try {
+          const entries = employees.map((emp) => ({ employeeId: emp.id, days: getEntry(emp.id) }))
+          await saveWeekSchedule(shopCode, { weekStart: weekStr, entries })
+          await saveAuditLog(shopCode, {
+            editorName: roleName, note: '',
+            employeeName: 'schedule', shift: weekStr,
+            changes: `Save schedule: week ${weekStr}`,
+          })
+          setIsEditing(false)
+        } catch {
+          alert(tr.save_fail)
+        } finally {
+          setSaving(false)
+        }
+      })()
+      return
+    }
+    // Edit — show audit modal
     setAuditModal({
-      label: isEdit ? `Edit schedule: week of ${weekStr}` : `Save schedule: week of ${weekStr}`,
+      label: `Edit schedule: week of ${weekStr}`,
       editorName: '', note: '',
       onConfirm: async (editorName, note) => {
         setSaving(true)
@@ -147,12 +170,11 @@ export default function ScheduleView({
           await saveWeekSchedule(shopCode, { weekStart: weekStr, entries })
           await saveAuditLog(shopCode, {
             editorName, note, employeeName: 'schedule', shift: weekStr,
-            changes: isEdit ? `Edit schedule: week ${weekStr}` : `Save schedule: week ${weekStr}`,
+            changes: `Edit schedule: week ${weekStr}`,
           })
           setIsEditing(false)
-        } catch (e) {
+        } catch {
           alert(tr.save_fail)
-          console.error(e)
         } finally {
           setSaving(false)
         }
@@ -171,6 +193,26 @@ export default function ScheduleView({
     try {
       await saveEmployee(shopCode, emp)
       setEmployees((p) => [...p, emp])
+      // Add employee to current week's schedule entries so they appear immediately
+      setSchedules((prev) => {
+        const si = prev.findIndex((s) => s.weekStart === weekStr)
+        const primaryPos = emp.positions[0] ?? 'Front'
+        const defaultEntry = {
+          employeeId: emp.id,
+          days: emp.defaultDays.flatMap((d) => [d ? primaryPos : null, d ? primaryPos : null]) as (string | null)[],
+        }
+        if (si >= 0) {
+          return prev.map((s, i) => i === si
+            ? { ...s, entries: [...s.entries, defaultEntry] }
+            : s
+          )
+        }
+        // No saved schedule yet — create one
+        const allEntries = [...employees, emp].map((e) =>
+          e.id === emp.id ? defaultEntry : { employeeId: e.id, days: getEntry(e.id) as (string | null)[] }
+        )
+        return [...prev, { weekStart: weekStr, entries: allEntries }]
+      })
       setNewEmp({ name: '', positions: ['Front'], defaultDays: [true, true, true, true, true, false, false] })
       setShowAdd(false)
     } catch {
