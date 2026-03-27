@@ -33,7 +33,7 @@ function weekLabel(monday: Date, locale: string): string {
   const sunday = new Date(monday)
   sunday.setDate(sunday.getDate() + 6)
   const opts: Intl.DateTimeFormatOptions = { month: 'short', day: 'numeric' }
-  return `${monday.toLocaleDateString(locale, opts)} – ${sunday.toLocaleDateString(locale, { ...opts, year: '2-digit' })}`
+  return `${monday.toLocaleDateString(locale, opts)} – ${sunday.toLocaleDateString(locale, { ...opts, year: 'numeric' })}`
 }
 
 const POSITIONS: Position[] = ['Front', 'Back', 'Home']
@@ -189,7 +189,7 @@ export default function ScheduleView({
           ◀
         </button>
         <div className="text-center">
-          <div className="text-sm font-semibold text-gray-700">{weekLabel(weekStart, locale)}</div>
+          <div className="text-sm font-semibold text-gray-700" suppressHydrationWarning>{weekLabel(weekStart, locale)}</div>
           {isPast && <div className="text-xs text-gray-400 mt-0.5">{tr.read_only}</div>}
         </div>
         <button
