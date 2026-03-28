@@ -49,6 +49,21 @@ async function ensureSheet(sheetName: string, spreadsheetId: string): Promise<vo
 }
 
 /**
+ * อ่านข้อมูลดิบจาก sheet เป็น 2D array (ไม่ parse header)
+ */
+export async function getSheetDataRaw(
+  sheetName: string,
+  spreadsheetId = config.spreadsheetId,
+): Promise<string[][]> {
+  try {
+    const res = await sheetsApi.spreadsheets.values.get({ spreadsheetId, range: sheetName })
+    return (res.data.values ?? []) as string[][]
+  } catch {
+    return []
+  }
+}
+
+/**
  * อ่านข้อมูลจาก sheet
  * @param sheetName ชื่อ tab
  * @param spreadsheetId ถ้าไม่ส่งใช้ master spreadsheet
@@ -74,6 +89,26 @@ export async function getSheetData(
 }
 
 /**
+ * เขียนข้อมูลดิบลง sheet เป็น 2D array (clear แล้ว write ใหม่, ไม่มี header row พิเศษ)
+ */
+export async function setSheetDataRaw(
+  sheetName: string,
+  rows: (string | number)[][],
+  spreadsheetId = config.spreadsheetId,
+): Promise<void> {
+  await ensureSheet(sheetName, spreadsheetId)
+  await sheetsApi.spreadsheets.values.clear({ spreadsheetId, range: sheetName })
+  if (rows.length > 0) {
+    await sheetsApi.spreadsheets.values.update({
+      spreadsheetId,
+      range: `${sheetName}!A1`,
+      valueInputOption: 'RAW',
+      requestBody: { values: rows },
+    })
+  }
+}
+
+/**
  * เขียนข้อมูลลง sheet (clear แล้ว write ใหม่)
  * @param spreadsheetId ถ้าไม่ส่งใช้ master spreadsheet
  */
@@ -94,6 +129,78 @@ export async function setSheetData(
 }
 
 type RGB = { red: number; green: number; blue: number }
+
+/**
+ * Apply formatting for time record pivot sheets:
+ *   - clear all backgrounds to white
+ *   - AM header cells → yellow, PM header cells → blue
+ *   - employee data rows → NUMBER format (prevents 0 showing as date)
+ */
+export async function applyTimeRecordFormatting(
+  sheetName: string,
+  spreadsheetId: string,
+  nameRowIndices: number[],     // 0-based row indices of NAME header rows
+  empRowRanges: Array<{ start: number; end: number }>,  // 0-based [start, end) of employee data rows
+  totalRows: number,
+): Promise<void> {
+  const meta = await sheetsApi.spreadsheets.get({ spreadsheetId })
+  const sheet = meta.data.sheets?.find((s) => s.properties?.title === sheetName)
+  const sheetId = sheet?.properties?.sheetId
+  if (sheetId === undefined) return
+
+  const gridRowCount = sheet?.properties?.gridProperties?.rowCount ?? totalRows
+  const clearEnd = Math.max(totalRows, gridRowCount)
+
+  const WHITE = { red: 1, green: 1, blue: 1 }
+  const AM_YELLOW = { red: 1, green: 0.949, blue: 0.8 }
+  const PM_BLUE = { red: 0.678, green: 0.847, blue: 0.933 }
+
+  const requests: object[] = []
+
+  // 1. Clear all backgrounds to white
+  requests.push({
+    repeatCell: {
+      range: { sheetId, startRowIndex: 0, endRowIndex: clearEnd },
+      cell: { userEnteredFormat: { backgroundColor: WHITE } },
+      fields: 'userEnteredFormat.backgroundColor',
+    },
+  })
+
+  // 2. Apply NUMBER format to employee data rows (prevents 0 → date display)
+  for (const { start, end } of empRowRanges) {
+    requests.push({
+      repeatCell: {
+        range: { sheetId, startRowIndex: start, endRowIndex: end, startColumnIndex: 1, endColumnIndex: 16 },
+        cell: { userEnteredFormat: { numberFormat: { type: 'NUMBER', pattern: '0' } } },
+        fields: 'userEnteredFormat.numberFormat',
+      },
+    })
+  }
+
+  // 3. AM (odd cols 1,3,5,7,9,11,13) = yellow, PM (even cols 2,4,6,8,10,12,14) = blue on NAME rows
+  for (const rowIdx of nameRowIndices) {
+    for (const col of [1, 3, 5, 7, 9, 11, 13]) {
+      requests.push({
+        repeatCell: {
+          range: { sheetId, startRowIndex: rowIdx, endRowIndex: rowIdx + 1, startColumnIndex: col, endColumnIndex: col + 1 },
+          cell: { userEnteredFormat: { backgroundColor: AM_YELLOW } },
+          fields: 'userEnteredFormat.backgroundColor',
+        },
+      })
+    }
+    for (const col of [2, 4, 6, 8, 10, 12, 14]) {
+      requests.push({
+        repeatCell: {
+          range: { sheetId, startRowIndex: rowIdx, endRowIndex: rowIdx + 1, startColumnIndex: col, endColumnIndex: col + 1 },
+          cell: { userEnteredFormat: { backgroundColor: PM_BLUE } },
+          fields: 'userEnteredFormat.backgroundColor',
+        },
+      })
+    }
+  }
+
+  await sheetsApi.spreadsheets.batchUpdate({ spreadsheetId, requestBody: { requests } })
+}
 
 /**
  * ย้อม background color ทีละ row (rowIndex = 0-based รวม header)
@@ -126,7 +233,7 @@ export async function applyRowColors(
     const clearEnd = Math.max(clearRowsCount + 1, gridRowCount)
     requests.push({
       repeatCell: {
-        range: { sheetId, startRowIndex: 1, endRowIndex: clearEnd },
+        range: { sheetId, startRowIndex: 0, endRowIndex: clearEnd },
         cell: { userEnteredFormat: { backgroundColor: WHITE } },
         fields: 'userEnteredFormat.backgroundColor',
       },

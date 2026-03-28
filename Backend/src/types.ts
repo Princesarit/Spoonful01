@@ -24,6 +24,7 @@ export interface Employee {
   phone?: string
   dailyWage?: number
   defaultDays: boolean[]
+  fired?: boolean   // soft-delete flag
 }
 
 export interface WeekSchedule {

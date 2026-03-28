@@ -9,7 +9,8 @@ const router = Router({ mergeParams: true })
 // GET /:shopCode/employees
 router.get('/', requireShopAuth, async (req: AuthRequest, res: Response) => {
   try {
-    res.json(await listEmployees(req.params.shopCode))
+    const includeAll = req.query.all === 'true'
+    res.json(await listEmployees(req.params.shopCode, includeAll))
   } catch {
     res.status(500).json({ error: 'Server error' })
   }
@@ -19,9 +20,19 @@ router.get('/', requireShopAuth, async (req: AuthRequest, res: Response) => {
 router.post('/', requireManager, async (req: AuthRequest, res: Response) => {
   try {
     const employee = req.body as Employee
-    const all = await listEmployees(req.params.shopCode)
+    // Load all including fired to check duplicates across all employees
+    const all = await listEmployees(req.params.shopCode, true)
     const idx = all.findIndex((e) => e.id === employee.id)
-    if (idx >= 0) all[idx] = employee
+    // Reject duplicate name (different ID, same name case-insensitive, not fired)
+    const nameLower = employee.name.trim().toLowerCase()
+    const duplicate = all.find(
+      (e) => e.id !== employee.id && !e.fired && e.name.trim().toLowerCase() === nameLower
+    )
+    if (duplicate) {
+      res.status(409).json({ error: 'มีพนักงานชื่อนี้อยู่แล้ว' })
+      return
+    }
+    if (idx >= 0) all[idx] = { ...employee, fired: undefined }
     else all.push(employee)
     await saveEmployees(req.params.shopCode, all)
     res.json({ ok: true })
@@ -30,11 +41,12 @@ router.post('/', requireManager, async (req: AuthRequest, res: Response) => {
   }
 })
 
-// DELETE /:shopCode/employees/:id (manager or owner)
+// DELETE /:shopCode/employees/:id — soft delete (manager or owner)
 router.delete('/:id', requireManager, async (req: AuthRequest, res: Response) => {
   try {
-    const all = await listEmployees(req.params.shopCode)
-    await saveEmployees(req.params.shopCode, all.filter((e) => e.id !== req.params.id))
+    const all = await listEmployees(req.params.shopCode, true)
+    const updated = all.map((e) => e.id === req.params.id ? { ...e, fired: true } : e)
+    await saveEmployees(req.params.shopCode, updated)
     res.json({ ok: true })
   } catch {
     res.status(500).json({ error: 'Server error' })

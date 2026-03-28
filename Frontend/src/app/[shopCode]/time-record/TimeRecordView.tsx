@@ -5,7 +5,7 @@ import Link from 'next/link'
 import { useParams } from 'next/navigation'
 import type { Employee, TimeRecord, DeliveryTrip, DeliveryRate, Position } from '@/lib/types'
 import { DEFAULT_DELIVERY_RATES, calcDeliveryFee } from '@/lib/config'
-import { getWeekTimeRecords, getTimeRecordData, saveTimeRecords, saveEmployee } from './actions'
+import { getWeekTimeRecords, getTimeRecordData, saveTimeRecords, saveEmployee, getWeekSchedule } from './actions'
 import { getDeliveryRates, getDeliveryFee } from '../config/actions'
 import { saveRevenueEntry } from '../revenue/actions'
 import { saveAuditLog } from './actions'
@@ -75,6 +75,12 @@ export default function TimeRecordView() {
   const [staffEmps, setStaffEmps] = useState<Employee[]>([])
   const [weekLoading, setWeekLoading] = useState(true)
   const [weekSaving, setWeekSaving] = useState(false)
+  const [weekSaved, setWeekSaved] = useState(false)
+  const [weekEditing, setWeekEditing] = useState(false)
+  const [weekAuditModal, setWeekAuditModal] = useState<{ editorName: string; note: string } | null>(null)
+  // null = no schedule for this week (show all, allow all cells)
+  // Map<empId, days[]> = schedule loaded — filter employees and lock unchecked cells
+  const [weekScheduleMap, setWeekScheduleMap] = useState<Map<string, (string | null)[]> | null>(null)
 
   // ── Delivery rates & fee ──
   const [deliveryRates, setDeliveryRates] = useState<DeliveryRate[]>(DEFAULT_DELIVERY_RATES)
@@ -103,27 +109,46 @@ export default function TimeRecordView() {
   const [newEmp, setNewEmp] = useState<NewEmp>(EMPTY_NEW_EMP)
   const [addSaving, setAddSaving] = useState(false)
 
-  // ── Load weekly data ──
+  // ── Load weekly data + schedule ──
   useEffect(() => {
     setWeekLoading(true)
-    getWeekTimeRecords(shopCode, isoDate(weekStart))
-      .then(({ employees, timeRecords, weekDates: wd }) => {
-        const staff = employees.filter((e) => e.positions.includes('Front') || e.positions.includes('Back'))
-        setStaffEmps(staff)
-        setWeekDates(wd)
-        const map: WeekAttendMap = {}
-        wd.forEach((d) => {
-          map[d] = {}
-          staff.forEach((e) => {
-            const r = timeRecords.find((r) => r.date === d && r.employeeId === e.id)
-            map[d][e.id] = {
-              morning: r?.morning ?? 0,
-              evening: r?.evening ?? 0,
-            }
-          })
+    const weekStr = isoDate(weekStart)
+    Promise.all([
+      getWeekTimeRecords(shopCode, weekStr),
+      getWeekSchedule(shopCode),
+    ]).then(([{ employees, timeRecords, weekDates: wd }, { schedules }]) => {
+      // Build schedule map for this week
+      const sched = schedules.find((s) => s.weekStart === weekStr)
+      const schedMap: Map<string, (string | null)[]> | null = sched
+        ? new Map(sched.entries.map((e) => [e.employeeId, e.days]))
+        : null
+
+      // Filter staff: if schedule exists, only show employees who have entries in it
+      // Also hide fired employees on current/future weeks
+      const isPastWeek = new Date(weekStr + 'T00:00:00') < getMonday(new Date())
+      const allStaff = employees.filter((e) =>
+        (e.positions.includes('Front') || e.positions.includes('Back')) &&
+        (isPastWeek || !e.fired)
+      )
+      const staff = schedMap
+        ? allStaff.filter((e) => schedMap.has(e.id))
+        : allStaff
+
+      setStaffEmps(staff)
+      setWeekScheduleMap(schedMap)
+      setWeekDates(wd)
+      const map: WeekAttendMap = {}
+      wd.forEach((d) => {
+        map[d] = {}
+        staff.forEach((e) => {
+          const r = timeRecords.find((r) => r.date === d && r.employeeId === e.id)
+          map[d][e.id] = { morning: r?.morning ?? 0, evening: r?.evening ?? 0 }
         })
-        setWeekAttend(map)
       })
+      setWeekAttend(map)
+      setWeekSaved(timeRecords.some((r) => r.morning > 0 || r.evening > 0))
+      setWeekEditing(false)
+    })
       .catch(console.error)
       .finally(() => setWeekLoading(false))
   }, [shopCode, weekStart])
@@ -133,7 +158,8 @@ export default function TimeRecordView() {
     setHomeLoading(true)
     getTimeRecordData(shopCode, date)
       .then(({ employees, deliveryTrips }) => {
-        const home = employees.filter((e) => e.positions.includes('Home'))
+        const isToday = date >= today()
+        const home = employees.filter((e) => e.positions.includes('Home') && (!isToday || !e.fired))
         setHomeEmps(home)
         const t: TripMap = {}
         const cod: Record<string, number> = {}
@@ -166,6 +192,15 @@ export default function TimeRecordView() {
       .finally(() => setHomeLoading(false))
   }, [shopCode, date])
 
+  // Returns true if employee is scheduled for this day+shift (or no schedule saved)
+  function isScheduledSlot(empId: string, dayIdx: number, shift: 'morning' | 'evening'): boolean {
+    if (!weekScheduleMap) return true  // no schedule → allow all
+    const days = weekScheduleMap.get(empId)
+    if (!days) return false
+    const slotIdx = dayIdx * 2 + (shift === 'morning' ? 0 : 1)
+    return days[slotIdx] !== null && days[slotIdx] !== undefined
+  }
+
   // ── Weekly handlers ──
   function setShift(date: string, empId: string, shift: 'morning' | 'evening', val: number) {
     setWeekAttend((p) => ({
@@ -174,8 +209,11 @@ export default function TimeRecordView() {
     }))
   }
 
-  async function handleSaveWeek() {
+  async function doSaveWeek(editorName: string, note: string) {
+    setWeekAuditModal(null)
     setWeekSaving(true)
+    const weekStr = isoDate(weekStart)
+    const isEdit = weekSaved
     try {
       const records: TimeRecord[] = weekDates.flatMap((d) =>
         staffEmps.map((e) => {
@@ -183,13 +221,34 @@ export default function TimeRecordView() {
           return { date: d, employeeId: e.id, morning: a.morning, evening: a.evening }
         }),
       )
-      await saveTimeRecords(shopCode, isoDate(weekStart), records, [])
-      alert(tr.save)
+      await saveTimeRecords(shopCode, weekStr, records, [])
+      const roleName = session.role.charAt(0).toUpperCase() + session.role.slice(1)
+      await saveAuditLog(shopCode, {
+        editorName: isEdit ? editorName : roleName,
+        note: isEdit ? note : '',
+        employeeName: 'weekly',
+        shift: weekStr,
+        changes: isEdit
+          ? `Edit weekly time records: week ${weekStr}`
+          : `Save weekly time records: week ${weekStr}`,
+      })
+      setWeekSaved(true)
+      setWeekEditing(false)
     } catch (err) {
-      console.error('[handleSaveWeek]', err)
+      console.error('[doSaveWeek]', err)
       alert(tr.save_fail)
     } finally {
       setWeekSaving(false)
+    }
+  }
+
+  function handleSaveWeekClick() {
+    if (weekSaved) {
+      // Edit — require audit modal
+      setWeekAuditModal({ editorName: '', note: '' })
+    } else {
+      // First save — auto-log with role
+      doSaveWeek('', '')
     }
   }
 
@@ -344,7 +403,10 @@ export default function TimeRecordView() {
     }
   }
 
-  const isPast = weekStart < getMonday(new Date())
+  const todayMonday = getMonday(new Date())
+  const isPast = weekStart < todayMonday
+  const isFuture = weekStart > todayMonday
+  const weekLocked = weekSaved && !weekEditing
   const isToday = date === today()
 
   // ─── Render ──────────────────────────────────────────────────────────────────
@@ -375,7 +437,7 @@ export default function TimeRecordView() {
         {/* Week Nav */}
         <div className="flex items-center justify-between bg-white rounded-xl border border-gray-100 shadow-sm px-4 py-3">
           <button
-            onClick={() => setWeekStart((p) => addWeeks(p, -1))}
+            onClick={() => { setWeekStart((p) => addWeeks(p, -1)); setWeekEditing(false) }}
             className="text-gray-500 hover:text-gray-800 w-8 h-8 flex items-center justify-center rounded cursor-pointer"
           >
             ◀
@@ -383,9 +445,10 @@ export default function TimeRecordView() {
           <div className="text-center">
             <div className="text-sm font-semibold text-gray-700" suppressHydrationWarning>{weekLabel(weekStart, locale)}</div>
             {isPast && <div className="text-xs text-gray-400 mt-0.5">{tr.read_only}</div>}
+            {isFuture && <div className="text-xs text-orange-400 mt-0.5">ยังไม่ถึงสัปดาห์นี้</div>}
           </div>
           <button
-            onClick={() => setWeekStart((p) => addWeeks(p, 1))}
+            onClick={() => { setWeekStart((p) => addWeeks(p, 1)); setWeekEditing(false) }}
             className="text-gray-500 hover:text-gray-800 w-8 h-8 flex items-center justify-center rounded cursor-pointer"
           >
             ▶
@@ -430,16 +493,18 @@ export default function TimeRecordView() {
                             <td className="px-3 py-2 text-xs font-medium text-gray-700 whitespace-nowrap">
                               {emp.name}
                             </td>
-                            {weekDates.map((d) => {
+                            {weekDates.map((d, dayIdx) => {
                               const a = weekAttend[d]?.[emp.id] ?? { morning: 0, evening: 0 }
                               return (
                                 <React.Fragment key={d}>
-                                  {(['morning', 'evening'] as const).map((shift) => (
+                                  {(['morning', 'evening'] as const).map((shift) => {
+                                    const scheduled = isScheduledSlot(emp.id, dayIdx, shift)
+                                    return (
                                     <td key={shift} className="text-center px-0.5 py-1.5">
                                       <input
                                         type="number"
                                         min="0"
-                                        disabled={isPast}
+                                        disabled={isPast || weekLocked || isFuture || !scheduled}
                                         value={a[shift] || ''}
                                         onChange={(e) => setShift(d, emp.id, shift, Number(e.target.value))}
                                         placeholder="0"
@@ -450,7 +515,7 @@ export default function TimeRecordView() {
                                         }`}
                                       />
                                     </td>
-                                  ))}
+                                  )})}
                                 </React.Fragment>
                               )
                             })}
@@ -488,14 +553,23 @@ export default function TimeRecordView() {
               <div className="text-center py-8 text-gray-400 text-sm">{tr.no_front_back}</div>
             )}
 
-            {!isPast && staffEmps.length > 0 && (
-              <button
-                onClick={handleSaveWeek}
-                disabled={weekSaving}
-                className="w-full py-3 bg-brand-gold text-white rounded-xl font-semibold text-sm hover:bg-brand-gold-dark disabled:opacity-50 transition-colors cursor-pointer"
-              >
-                {weekSaving ? tr.saving : tr.save_weekly}
-              </button>
+            {!isPast && !isFuture && staffEmps.length > 0 && (
+              weekLocked ? (
+                <button
+                  onClick={() => setWeekEditing(true)}
+                  className="w-full py-3 bg-brand-gold text-white rounded-xl font-semibold text-sm hover:bg-brand-gold-dark transition-colors cursor-pointer"
+                >
+                  ✏️ {tr.edit ?? 'Edit'}
+                </button>
+              ) : (
+                <button
+                  onClick={handleSaveWeekClick}
+                  disabled={weekSaving}
+                  className="w-full py-3 bg-brand-gold text-white rounded-xl font-semibold text-sm hover:bg-brand-gold-dark disabled:opacity-50 transition-colors cursor-pointer"
+                >
+                  {weekSaving ? tr.saving : tr.save_weekly}
+                </button>
+              )
             )}
           </>
         )}
@@ -667,6 +741,56 @@ export default function TimeRecordView() {
           </>
         )}
       </div>
+
+      {/* ═══ Week Audit Modal ═══════════════════════════════════════════════ */}
+      {weekAuditModal && (
+        <div className="fixed inset-0 bg-black/40 flex items-end justify-center z-50 p-4">
+          <div className="bg-white rounded-2xl w-full max-w-sm p-6 space-y-4">
+            <h3 className="font-bold text-gray-900">บันทึกการแก้ไข</h3>
+            <div className="text-xs text-gray-500 bg-gray-50 rounded-lg px-3 py-2">
+              Edit weekly time records: week of {isoDate(weekStart)}
+            </div>
+            <div className="space-y-3">
+              <div>
+                <label className="text-xs text-gray-500 block mb-1">ชื่อผู้แก้ไข *</label>
+                <input
+                  type="text"
+                  autoFocus
+                  value={weekAuditModal.editorName}
+                  onChange={(e) => setWeekAuditModal((p) => p && ({ ...p, editorName: e.target.value }))}
+                  placeholder="กรอกชื่อ"
+                  className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-gold"
+                />
+              </div>
+              <div>
+                <label className="text-xs text-gray-500 block mb-1">หมายเหตุ</label>
+                <input
+                  type="text"
+                  value={weekAuditModal.note}
+                  onChange={(e) => setWeekAuditModal((p) => p && ({ ...p, note: e.target.value }))}
+                  placeholder="เหตุผลการแก้ไข (ถ้ามี)"
+                  className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-gold"
+                />
+              </div>
+            </div>
+            <div className="flex gap-2 pt-1">
+              <button
+                onClick={() => setWeekAuditModal(null)}
+                className="flex-1 py-2.5 border border-brand-accent rounded-xl text-sm text-gray-600 cursor-pointer"
+              >
+                {tr.cancel}
+              </button>
+              <button
+                onClick={() => doSaveWeek(weekAuditModal.editorName, weekAuditModal.note)}
+                disabled={!weekAuditModal.editorName.trim()}
+                className="flex-1 py-2.5 bg-brand-gold text-white rounded-xl text-sm font-semibold disabled:opacity-50 cursor-pointer"
+              >
+                {tr.save}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* ═══ Audit Modal ════════════════════════════════════════════════════ */}
       {auditModal && (

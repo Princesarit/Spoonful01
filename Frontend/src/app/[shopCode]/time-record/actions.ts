@@ -1,7 +1,7 @@
 'use server'
 
 import { getSession } from '@/lib/session'
-import type { Employee, TimeRecord, DeliveryTrip } from '@/lib/types'
+import type { Employee, TimeRecord, DeliveryTrip, WeekSchedule } from '@/lib/types'
 
 const BACKEND_URL = (process.env.BACKEND_URL ?? 'http://localhost:4000').replace(/\/$/, '')
 
@@ -53,7 +53,18 @@ export async function getWeekTimeRecords(shopCode: string, weekStart: string) {
   }
 }
 
-export async function saveEmployee(shopCode: string, employee: import('@/lib/types').Employee) {
+export async function getWeekSchedule(shopCode: string) {
+  const session = await getSession()
+  if (!session || session.shopCode !== shopCode) throw new Error('Unauthorized')
+  const res = await fetch(`${BACKEND_URL}/${shopCode}/schedules`, {
+    headers: authHeader(session.token),
+    cache: 'no-store',
+  })
+  if (!res.ok) return { employees: [] as Employee[], schedules: [] as WeekSchedule[] }
+  return res.json() as Promise<{ employees: Employee[]; schedules: WeekSchedule[] }>
+}
+
+export async function saveEmployee(shopCode: string, employee: Employee) {
   const session = await getSession()
   if (!session || session.shopCode !== shopCode || (session.role !== 'owner' && session.role !== 'manager'))
     throw new Error('Unauthorized')

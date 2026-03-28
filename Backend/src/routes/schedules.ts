@@ -10,7 +10,7 @@ const router = Router({ mergeParams: true })
 router.get('/', requireShopAuth, async (req: AuthRequest, res: Response) => {
   try {
     const [employees, schedules] = await Promise.all([
-      listEmployees(req.params.shopCode),
+      listEmployees(req.params.shopCode, true),  // include fired for historical display
       listSchedules(req.params.shopCode),
     ])
     res.json({ employees, schedules })

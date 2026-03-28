@@ -82,12 +82,17 @@ export default function ScheduleView({
   const [newEmp, setNewEmp] = useState<NewEmp>({
     name: '',
     positions: ['Front'],
-    defaultDays: [true, true, true, true, true, false, false],
+    defaultDays: [true, true, true, true, true, true, true],
   })
 
   const weekStr = isoDate(weekStart)
   const isPast = weekStart < todayMonday
+  const isFutureWeek = weekStart > todayMonday
   const weekSaved = schedules.some((s) => s.weekStart === weekStr)
+  const prevWeekStr = isoDate(addWeeks(weekStart, -1))
+  const prevWeekSaved = schedules.some((s) => s.weekStart === prevWeekStr)
+  // Future weeks require the previous week to be saved first
+  const canSaveThisWeek = !isFutureWeek || prevWeekSaved
   const isLocked = !isPast && weekSaved && !isEditing
   const weekDates = Array.from({ length: 7 }, (_, i) => {
     const d = new Date(weekStart)
@@ -184,6 +189,11 @@ export default function ScheduleView({
 
   async function handleAddEmployee() {
     if (!newEmp.name.trim() || newEmp.positions.length === 0) return
+    const trimmed = newEmp.name.trim().toLowerCase()
+    if (employees.some((e) => !e.fired && e.name.toLowerCase() === trimmed)) {
+      alert('มีพนักงานชื่อนี้อยู่แล้ว')
+      return
+    }
     const emp: Employee = {
       id: Date.now().toString(),
       name: newEmp.name.trim(),
@@ -213,10 +223,10 @@ export default function ScheduleView({
         )
         return [...prev, { weekStart: weekStr, entries: allEntries }]
       })
-      setNewEmp({ name: '', positions: ['Front'], defaultDays: [true, true, true, true, true, false, false] })
+      setNewEmp({ name: '', positions: ['Front'], defaultDays: [true, true, true, true, true, true, true] })
       setShowAdd(false)
-    } catch {
-      alert(tr.add_emp_fail)
+    } catch (err) {
+      alert(err instanceof Error && err.message === 'duplicate' ? 'ชื่อนี้มีอยู่แล้ว' : tr.add_emp_fail)
     }
   }
 
@@ -226,11 +236,18 @@ export default function ScheduleView({
       label: `Remove from schedule: ${emp?.name ?? empId}`,
       editorName: '', note: '',
       onConfirm: async (editorName, note) => {
-        // Remove from local state
-        const updatedEmployees = employees.filter((e) => e.id !== empId)
-        setEmployees(updatedEmployees)
-        // Save schedule without this employee (does NOT delete from Employees page)
-        const updatedEntries = updatedEmployees.map((e) => ({ employeeId: e.id, days: getEntry(e.id) }))
+        // Remove employee's entry from current week's schedule only
+        // Keep employees state intact so other weeks still show them
+        setSchedules((prev) => {
+          const si = prev.findIndex((s) => s.weekStart === weekStr)
+          if (si < 0) return prev
+          const updated = { ...prev[si], entries: prev[si].entries.filter((e) => e.employeeId !== empId) }
+          return [...prev.slice(0, si), updated, ...prev.slice(si + 1)]
+        })
+        // Save current week without this employee
+        const updatedEntries = employees
+          .filter((e) => e.id !== empId)
+          .map((e) => ({ employeeId: e.id, days: getEntry(e.id) }))
         try {
           await saveWeekSchedule(shopCode, { weekStart: weekStr, entries: updatedEntries })
         } catch {
@@ -287,7 +304,13 @@ export default function ScheduleView({
         const savedSched = schedules.find((s) => s.weekStart === weekStr)
         const posEmps = employees.filter((e) => {
           if (!e.positions.includes(pos)) return false
+          // Past week with no saved schedule → nothing to show
+          if (isPast && !weekSaved) return false
+          // Hide fired employees on current/future weeks
+          if (!isPast && e.fired) return false
+          // No schedule saved yet (current/future week) → show all
           if (!weekSaved || !savedSched) return true
+          // Schedule exists → only show employees with entries in it
           return savedSched.entries.some((entry) => entry.employeeId === e.id)
         })
         if (!posEmps.length) return null
@@ -315,7 +338,7 @@ export default function ScheduleView({
                         </div>
                       </th>
                     ))}
-                    {(role === 'manager' || role === 'owner') && <th className="w-6" />}
+                    {(role === 'manager' || role === 'owner') && !isPast && <th className="w-6" />}
                   </tr>
                 </thead>
                 <tbody>
@@ -352,7 +375,7 @@ export default function ScheduleView({
                             })}
                           </Fragment>
                         ))}
-                        {(role === 'manager' || role === 'owner') && (
+                        {(role === 'manager' || role === 'owner') && !isPast && (
                           <td className="px-1">
                             <button
                               onClick={() => handleDelete(emp.id)}
@@ -372,7 +395,7 @@ export default function ScheduleView({
         )
       })}
 
-      {employees.length === 0 && (
+      {employees.filter((e) => !e.fired).length === 0 && (
         <div className="text-center py-16 text-gray-400 text-sm">
           {(role === 'manager' || role === 'owner') ? tr.no_emp_owner : tr.no_emp_staff}
         </div>
@@ -386,6 +409,10 @@ export default function ScheduleView({
           >
             ✏️ {tr.edit ?? 'Edit'}
           </button>
+        ) : !canSaveThisWeek ? (
+          <div className="w-full py-3 bg-gray-100 text-gray-400 rounded-xl font-semibold text-sm text-center">
+            บันทึก Week {prevWeekStr} ก่อน
+          </div>
         ) : (
           <button
             onClick={handleSave}

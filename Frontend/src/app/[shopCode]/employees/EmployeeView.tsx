@@ -80,6 +80,7 @@ export default function EmployeeView({
   const [editorName, setEditorName] = useState('')
   const [editNote, setEditNote] = useState('')
   const [saving, setSaving] = useState(false)
+  const [nameError, setNameError] = useState('')
   const [deleteAudit, setDeleteAudit] = useState<{ emp: Employee; editorName: string; note: string } | null>(null)
 
   const isOwner = role === 'manager' || role === 'owner'
@@ -93,6 +94,7 @@ export default function EmployeeView({
   function openAdd() {
     setEditing(null)
     setForm(EMPTY_FORM)
+    setNameError('')
     setShowForm(true)
   }
 
@@ -101,6 +103,7 @@ export default function EmployeeView({
     setForm({ name: emp.name, phone: emp.phone ?? '', positions: [...emp.positions], defaultDays: [...emp.defaultDays] })
     setEditorName('')
     setEditNote('')
+    setNameError('')
     setShowForm(true)
   }
 
@@ -114,6 +117,16 @@ export default function EmployeeView({
   async function handleSave() {
     if (!form.name.trim() || form.positions.length === 0) return
     if (editing && !editorName.trim()) return  // require name for edits
+    // Duplicate name check (case-insensitive, exclude self when editing)
+    const trimmed = form.name.trim().toLowerCase()
+    const isDuplicate = employees.some(
+      (e) => e.name.toLowerCase() === trimmed && e.id !== (editing?.id ?? '')
+    )
+    if (isDuplicate) {
+      setNameError('มีพนักงานชื่อนี้อยู่แล้ว')
+      return
+    }
+    setNameError('')
     setSaving(true)
     const id = editing?.id || uuidv4()
     const emp: Employee = {
@@ -346,11 +359,12 @@ export default function EmployeeView({
                 <input
                   type="text"
                   value={form.name}
-                  onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
-                  className="w-full px-3 py-2 border border-brand-accent rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-brand-gold"
+                  onChange={(e) => { setForm((f) => ({ ...f, name: e.target.value })); setNameError('') }}
+                  className={`w-full px-3 py-2 border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-brand-gold ${nameError ? 'border-red-400' : 'border-brand-accent'}`}
                   placeholder={tr.name_placeholder}
                   autoFocus
                 />
+                {nameError && <p className="text-xs text-red-500 mt-1">{nameError}</p>}
               </div>
 
               <div>

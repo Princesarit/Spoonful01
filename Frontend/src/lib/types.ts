@@ -26,6 +26,7 @@ export interface Employee {
   phone?: string
   dailyWage?: number      // kept optional for backward compat
   defaultDays: boolean[]  // [Mon, Tue, Wed, Thu, Fri, Sat, Sun]
+  fired?: boolean         // soft-delete: true = ไล่ออก, ยังเก็บข้อมูลประวัติ
 }
 
 export interface WeekSchedule {

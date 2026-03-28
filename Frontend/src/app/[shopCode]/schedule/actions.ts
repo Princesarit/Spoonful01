@@ -43,6 +43,7 @@ export async function saveEmployee(shopCode: string, employee: Employee) {
     headers: { 'Content-Type': 'application/json', ...authHeader(session.token) },
     body: JSON.stringify(employee),
   })
+  if (res.status === 409) throw new Error('duplicate')
   if (!res.ok) throw new Error('Failed to save employee')
 }
 

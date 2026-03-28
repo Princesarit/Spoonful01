@@ -2,7 +2,7 @@
  * Database layer — wraps Google Sheets
  */
 
-import { getSheetData, setSheetData, applyRowColors } from './sheets'
+import { getSheetData, getSheetDataRaw, setSheetData, setSheetDataRaw, applyRowColors, applyTimeRecordFormatting } from './sheets'
 import type {
   Employee,
   WeekSchedule,
@@ -91,12 +91,12 @@ export async function saveShops(shops: StoredShop[]): Promise<void> {
 
 // ─── Employees ────────────────────────────────────────────────────────────────
 
-const EMP_HEADERS = ['id', 'employeeId', 'positions', 'name', 'phone', 'defaultDays']
+const EMP_HEADERS = ['id', 'employeeId', 'positions', 'name', 'phone', 'defaultDays', 'fired']
 
-export async function listEmployees(shopCode: string): Promise<Employee[]> {
+export async function listEmployees(shopCode: string, includeAll = false): Promise<Employee[]> {
   const { sid, tab } = await getShopDb(shopCode)
   const rows = await getSheetData(tab('employees'), sid)
-  return rows
+  const all = rows
     .map((r) => {
       let positions: Employee['positions']
       const raw = r.positions || r.position || 'Front'
@@ -113,8 +113,10 @@ export async function listEmployees(shopCode: string): Promise<Employee[]> {
         phone: r.phone || undefined,
         dailyWage: r.dailyWage ? Number(r.dailyWage) : undefined,
         defaultDays: JSON.parse(r.defaultDays || '[]') as boolean[],
+        fired: r.fired === 'true' ? true : undefined,
       }
     })
+    .filter((e) => includeAll || !e.fired)
     .sort((a, b) => {
       const key = (p: Employee['positions']) => {
         if (p.includes('Manager')) return 0
@@ -127,11 +129,29 @@ export async function listEmployees(shopCode: string): Promise<Employee[]> {
       const diff = key(a.positions) - key(b.positions)
       return diff !== 0 ? diff : a.name.localeCompare(b.name, 'th')
     })
+  // Deduplicate active employees by name (case-insensitive) — fired employees always kept
+  const seen = new Set<string>()
+  return all.filter((e) => {
+    if (e.fired) return true  // always keep fired employees
+    const key = e.name.trim().toLowerCase()
+    if (seen.has(key)) return false
+    seen.add(key)
+    return true
+  })
 }
 
 export async function saveEmployees(shopCode: string, employees: Employee[]): Promise<void> {
   const { sid, tab } = await getShopDb(shopCode)
-  const sorted = [...employees].sort((a, b) => {
+  // Deduplicate active employees by name (case-insensitive) — fired employees always kept
+  const seen = new Set<string>()
+  const deduped = employees.filter((e) => {
+    if (e.fired) return true  // always keep fired employees
+    const key = e.name.trim().toLowerCase()
+    if (seen.has(key)) return false
+    seen.add(key)
+    return true
+  })
+  const sorted = [...deduped].sort((a, b) => {
     const key = (p: Employee['positions']) => {
       if (p.includes('Manager')) return 0
       if (p.length > 1) return 1
@@ -150,6 +170,7 @@ export async function saveEmployees(shopCode: string, employees: Employee[]): Pr
     e.name,
     e.phone ?? '',
     JSON.stringify(e.defaultDays),
+    e.fired ? 'true' : '',
   ])
   await setSheetData(tab('employees'), EMP_HEADERS, rows, sid)
 
@@ -320,12 +341,63 @@ export async function saveSchedules(shopCode: string, schedules: WeekSchedule[])
 }
 
 // ─── Time Records ─────────────────────────────────────────────────────────────
-// Stored in separate tabs: front_time_records, back_time_records
-// Format: date, employeeId, name, morning, evening, total
+// Stored in pivot format: weekly blocks, DATE row + NAME row + employee rows
+// AM columns yellow, PM columns blue
 
-const TR_HEADERS = ['date', 'employeeId', 'name', 'morning', 'evening', 'total']
+const TR_DAY_NAMES = ['MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT', 'SUN']
 
-async function readTimeRecordsTab(tabName: string, sid: string): Promise<TimeRecord[]> {
+function getWeekMonday(dateStr: string): string {
+  const d = new Date(dateStr + 'T00:00:00')
+  const day = d.getDay()
+  d.setDate(d.getDate() + (day === 0 ? -6 : 1 - day))
+  return d.toISOString().slice(0, 10)
+}
+
+// Read pivot format (front_time_records / back_time_records)
+async function readPivotTimeRecordsTab(
+  tabName: string,
+  sid: string,
+  employees: Employee[],
+): Promise<TimeRecord[]> {
+  try {
+    const raw = await getSheetDataRaw(tabName, sid)
+    const records: TimeRecord[] = []
+    let i = 0
+    while (i < raw.length) {
+      const row = raw[i]
+      if (!row || row[0] !== 'DATE') { i++; continue }
+      const dateRow = row
+      const nameRow = raw[i + 1]
+      if (!nameRow || nameRow[0] !== 'NAME') { i += 2; continue }
+      // Extract 7 dates (each date appears twice: AM col, PM col)
+      const dates: string[] = []
+      for (let col = 1; col <= 14; col += 2) dates.push(dateRow[col] ?? '')
+      i += 2
+      // Employee rows until blank or next DATE block
+      while (i < raw.length) {
+        const empRow = raw[i]
+        if (!empRow || !empRow[0] || empRow[0] === 'DATE') break
+        const emp = employees.find((e) => e.name === empRow[0])
+        if (emp) {
+          for (let dayIdx = 0; dayIdx < 7; dayIdx++) {
+            const date = dates[dayIdx]
+            if (!date || !/^\d{4}-\d{2}-\d{2}$/.test(date)) continue
+            const morning = Number(empRow[dayIdx * 2 + 1]) || 0
+            const evening = Number(empRow[dayIdx * 2 + 2]) || 0
+            if (morning > 0 || evening > 0) records.push({ date, employeeId: emp.id, morning, evening })
+          }
+        }
+        i++
+      }
+    }
+    return records
+  } catch {
+    return []
+  }
+}
+
+// Read legacy flat format (time_records tab — backward compat only)
+async function readFlatTimeRecordsTab(tabName: string, sid: string): Promise<TimeRecord[]> {
   try {
     const rows = await getSheetData(tabName, sid)
     return rows
@@ -347,24 +419,86 @@ async function writeTimeRecordsTab(
   records: TimeRecord[],
   employees: Employee[],
 ): Promise<void> {
-  const rows = records
-    .filter((r) => r.morning > 0 || r.evening > 0)
-    .map((r) => {
-      const emp = employees.find((e) => e.id === r.employeeId)
-      const name = emp?.name ?? ''
-      const total = r.morning + r.evening
-      return [r.date, r.employeeId, name, String(r.morning), String(r.evening), String(total)]
+  const filtered = records.filter((r) => r.morning > 0 || r.evening > 0)
+
+  // Group by week
+  const weekMap = new Map<string, TimeRecord[]>()
+  for (const r of filtered) {
+    const monday = getWeekMonday(r.date)
+    if (!weekMap.has(monday)) weekMap.set(monday, [])
+    weekMap.get(monday)!.push(r)
+  }
+  const weeks = Array.from(weekMap.keys()).sort()
+
+  const allRows: (string | number)[][] = []
+  const nameRowIndices: number[] = []
+  const empRowRanges: Array<{ start: number; end: number }> = []
+
+  for (let wi = 0; wi < weeks.length; wi++) {
+    const monday = weeks[wi]
+    const weekRecords = weekMap.get(monday)!
+    const dates = Array.from({ length: 7 }, (_, i) => {
+      const d = new Date(monday + 'T00:00:00')
+      d.setDate(d.getDate() + i)
+      return d.toISOString().slice(0, 10)
     })
-  await setSheetData(tabName, TR_HEADERS, rows, sid)
+
+    // DATE row: DATE | date0 | date0 | date1 | date1 | ... | TOTAL
+    const dateRow: (string | number)[] = ['DATE']
+    for (const date of dates) dateRow.push(date, date)
+    dateRow.push('TOTAL')
+    allRows.push(dateRow)
+
+    // NAME row: NAME | MON_AM | MON_PM | ... | SUN_AM | SUN_PM | TOTAL
+    const nameRow: string[] = ['NAME']
+    for (const day of TR_DAY_NAMES) nameRow.push(`${day}_AM`, `${day}_PM`)
+    nameRow.push('TOTAL')
+    nameRowIndices.push(allRows.length)   // 0-indexed position in allRows
+    allRows.push(nameRow)
+
+    // Employee rows (sorted by name)
+    const empIds = [...new Set(weekRecords.map((r) => r.employeeId))]
+    empIds.sort((a, b) => {
+      const na = employees.find((e) => e.id === a)?.name ?? a
+      const nb = employees.find((e) => e.id === b)?.name ?? b
+      return na.localeCompare(nb)
+    })
+    const empStart = allRows.length
+    for (const empId of empIds) {
+      const name = employees.find((e) => e.id === empId)?.name ?? empId
+      const row: (string | number)[] = [name]
+      let total = 0
+      for (const date of dates) {
+        const rec = weekRecords.find((r) => r.date === date && r.employeeId === empId)
+        const m = rec?.morning ?? 0
+        const e = rec?.evening ?? 0
+        total += m + e
+        row.push(m, e)
+      }
+      row.push(total)
+      allRows.push(row)
+    }
+    if (allRows.length > empStart) empRowRanges.push({ start: empStart, end: allRows.length })
+
+    // 3 blank rows between weeks
+    if (wi < weeks.length - 1) allRows.push([], [], [])
+  }
+
+  // Write: clear then update
+  await setSheetDataRaw(tabName, allRows, sid)
+
+  // Apply formatting: clear stale colors, AM=yellow, PM=blue on NAME rows,
+  // NUMBER format on employee data rows (prevents 0 displaying as date)
+  await applyTimeRecordFormatting(tabName, sid, nameRowIndices, empRowRanges, allRows.length)
 }
 
 export async function listTimeRecords(shopCode: string): Promise<TimeRecord[]> {
   const { sid, tab } = await getShopDb(shopCode)
-  // Also try old single tab for backward compatibility
+  const employees = await listEmployees(shopCode)
   const [front, back, old] = await Promise.all([
-    readTimeRecordsTab(tab('front_time_records'), sid),
-    readTimeRecordsTab(tab('back_time_records'), sid),
-    readTimeRecordsTab(tab('time_records'), sid),
+    readPivotTimeRecordsTab(tab('front_time_records'), sid, employees),
+    readPivotTimeRecordsTab(tab('back_time_records'), sid, employees),
+    readFlatTimeRecordsTab(tab('time_records'), sid),
   ])
   // Merge: new tabs take priority, old tab fills in missing
   const merged = [...front, ...back]

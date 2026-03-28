@@ -18,7 +18,7 @@ router.get('/', requireShopAuth, async (req: AuthRequest, res: Response) => {
     const { date } = req.query as { date?: string }
     const shopCode = req.params.shopCode
     const [employees, allRecords, allTrips] = await Promise.all([
-      listEmployees(shopCode),
+      listEmployees(shopCode, true),  // include fired for historical display
       listTimeRecords(shopCode),
       listDeliveryTrips(shopCode),
     ])

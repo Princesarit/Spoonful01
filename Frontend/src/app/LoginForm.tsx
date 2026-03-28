@@ -203,7 +203,7 @@ export default function LoginForm({ shops: initialShops }: { shops: ShopConfig[]
         <div className="text-center mb-8">
           <div className="mb-8 -mt-24 flex justify-center">
             <Image
-              src="/title.png"
+              src="/Title.png"
               alt="Spoonful Thai Cuisine"
               width={280}
               height={80}
@@ -213,7 +213,7 @@ export default function LoginForm({ shops: initialShops }: { shops: ShopConfig[]
           </div>
           <div className="flex justify-center mb-3">
             <Image
-              src="/logo.jpg"
+              src="/LOGO.png"
               alt="Spoonful Thai Cuisine"
               width={88}
               height={88}
