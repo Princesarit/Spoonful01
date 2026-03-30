@@ -54,7 +54,9 @@ const EMPTY_FORM = {
   name: '',
   phone: '',
   positions: ['Front'] as Position[],
-  defaultDays: [true, true, true, true, true, false, false],
+  defaultDays: [true, true, true, true, true, true, true],
+  hourlyWage: '',
+  deliveryFeePerTrip: '',
 }
 
 export default function EmployeeView({
@@ -100,7 +102,7 @@ export default function EmployeeView({
 
   function openEdit(emp: Employee) {
     setEditing(emp)
-    setForm({ name: emp.name, phone: emp.phone ?? '', positions: [...emp.positions], defaultDays: [...emp.defaultDays] })
+    setForm({ name: emp.name, phone: emp.phone ?? '', positions: [...emp.positions], defaultDays: [...emp.defaultDays], hourlyWage: emp.hourlyWage?.toString() ?? '', deliveryFeePerTrip: emp.deliveryFeePerTrip?.toString() ?? '' })
     setEditorName('')
     setEditNote('')
     setNameError('')
@@ -134,6 +136,8 @@ export default function EmployeeView({
       name: form.name.trim(),
       positions: form.positions,
       phone: form.phone.trim() || undefined,
+      hourlyWage: form.hourlyWage ? Number(form.hourlyWage) : undefined,
+      deliveryFeePerTrip: form.deliveryFeePerTrip ? Number(form.deliveryFeePerTrip) : undefined,
       defaultDays: form.defaultDays,
     }
     const result = await saveEmployeeAction(shopCode, emp)
@@ -150,6 +154,10 @@ export default function EmployeeView({
           changes.push(`positions: ${editing.positions.join(',')}→${emp.positions.join(',')}`)
         if (JSON.stringify(editing.defaultDays) !== JSON.stringify(emp.defaultDays))
           changes.push('defaultDays changed')
+        if ((editing.hourlyWage ?? 0) !== (emp.hourlyWage ?? 0))
+          changes.push(`hourlyWage: ${editing.hourlyWage ?? 0}→${emp.hourlyWage ?? 0}`)
+        if ((editing.deliveryFeePerTrip ?? 0) !== (emp.deliveryFeePerTrip ?? 0))
+          changes.push(`deliveryFeePerTrip: ${editing.deliveryFeePerTrip ?? 0}→${emp.deliveryFeePerTrip ?? 0}`)
         saveAuditLog(shopCode, {
           editorName, note: editNote, employeeName: emp.name, shift: emp.positions.join(', '),
           changes: changes.length > 0 ? changes.join(' | ') : 'No changes',
@@ -268,6 +276,20 @@ export default function EmployeeView({
                 {emp.phone && (
                   <div className="text-xs text-gray-400 mb-1.5">Tel: {emp.phone}</div>
                 )}
+                {isOwner && (emp.hourlyWage || emp.deliveryFeePerTrip) && (
+                  <div className="flex gap-2 mb-1.5">
+                    {emp.hourlyWage && (
+                      <span className="text-xs text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded-full">
+                        ฿{emp.hourlyWage.toLocaleString()}/ชม.
+                      </span>
+                    )}
+                    {emp.deliveryFeePerTrip && emp.positions.includes('Home') && (
+                      <span className="text-xs text-blue-600 bg-blue-50 px-2 py-0.5 rounded-full">
+                        🚚 ฿{emp.deliveryFeePerTrip}/รอบ
+                      </span>
+                    )}
+                  </div>
+                )}
                 <div className="flex gap-1">
                   {DAYS.map((d, i) => (
                     <span
@@ -378,6 +400,41 @@ export default function EmployeeView({
                   placeholder={tr.phone_placeholder}
                 />
               </div>
+
+              <div>
+                <label className="text-xs text-brand-accent block mb-1">
+                  {lang === 'en' ? 'Wage per Hour (฿)' : 'ค่าแรง/ชั่วโมง (฿)'}
+                </label>
+                <input
+                  type="number"
+                  inputMode="numeric"
+                  min="0"
+                  value={form.hourlyWage}
+                  onChange={(e) => setForm((f) => ({ ...f, hourlyWage: e.target.value }))}
+                  className="w-full px-3 py-2 border border-brand-accent rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-brand-gold"
+                  placeholder="0"
+                />
+              </div>
+
+              {form.positions.includes('Home') && (
+                <div>
+                  <label className="text-xs text-brand-accent block mb-1">
+                    {lang === 'en' ? 'Delivery Fee per Trip (฿)' : 'ค่า Delivery ต่อรอบ (฿)'}
+                  </label>
+                  <input
+                    type="number"
+                    inputMode="numeric"
+                    min="0"
+                    value={form.deliveryFeePerTrip}
+                    onChange={(e) => setForm((f) => ({ ...f, deliveryFeePerTrip: e.target.value }))}
+                    className="w-full px-3 py-2 border border-brand-accent rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-brand-gold"
+                    placeholder={lang === 'en' ? 'Leave blank to use rate table' : 'เว้นว่างถ้าใช้ rate table'}
+                  />
+                  <p className="text-[10px] text-gray-400 mt-0.5">
+                    {lang === 'en' ? 'If set, overrides distance-based fee for this employee' : 'ถ้ากรอก จะใช้ค่านี้แทนการคำนวณตามระยะทาง'}
+                  </p>
+                </div>
+              )}
 
               <div>
                 <label className="text-xs text-brand-accent block mb-1">{tr.position_label}</label>

@@ -91,7 +91,7 @@ export async function saveShops(shops: StoredShop[]): Promise<void> {
 
 // ─── Employees ────────────────────────────────────────────────────────────────
 
-const EMP_HEADERS = ['id', 'employeeId', 'positions', 'name', 'phone', 'defaultDays', 'fired']
+const EMP_HEADERS = ['id', 'employeeId', 'positions', 'name', 'phone', 'hourlyWage', 'deliveryFeePerTrip', 'defaultDays', 'fired']
 
 export async function listEmployees(shopCode: string, includeAll = false): Promise<Employee[]> {
   const { sid, tab } = await getShopDb(shopCode)
@@ -111,7 +111,8 @@ export async function listEmployees(shopCode: string, includeAll = false): Promi
         name: r.name,
         positions,
         phone: r.phone || undefined,
-        dailyWage: r.dailyWage ? Number(r.dailyWage) : undefined,
+        hourlyWage: r.hourlyWage ? Number(r.hourlyWage) : undefined,
+        deliveryFeePerTrip: r.deliveryFeePerTrip ? Number(r.deliveryFeePerTrip) : undefined,
         defaultDays: JSON.parse(r.defaultDays || '[]') as boolean[],
         fired: r.fired === 'true' ? true : undefined,
       }
@@ -169,6 +170,8 @@ export async function saveEmployees(shopCode: string, employees: Employee[]): Pr
     JSON.stringify(e.positions),
     e.name,
     e.phone ?? '',
+    e.hourlyWage ?? '',
+    e.deliveryFeePerTrip ?? '',
     JSON.stringify(e.defaultDays),
     e.fired ? 'true' : '',
   ])

@@ -24,7 +24,8 @@ export interface Employee {
   name: string
   positions: Position[]   // replaces position (supports multi-position)
   phone?: string
-  dailyWage?: number      // kept optional for backward compat
+  hourlyWage?: number      // kept optional for backward compat
+  deliveryFeePerTrip?: number  // flat fee per delivery trip; overrides distance-based calc
   defaultDays: boolean[]  // [Mon, Tue, Wed, Thu, Fri, Sat, Sun]
   fired?: boolean         // soft-delete: true = ไล่ออก, ยังเก็บข้อมูลประวัติ
 }

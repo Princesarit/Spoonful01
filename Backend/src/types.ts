@@ -22,7 +22,8 @@ export interface Employee {
   name: string
   positions: Position[]
   phone?: string
-  dailyWage?: number
+  hourlyWage?: number
+  deliveryFeePerTrip?: number  // flat fee per delivery trip (overrides distance-based calc)
   defaultDays: boolean[]
   fired?: boolean   // soft-delete flag
 }

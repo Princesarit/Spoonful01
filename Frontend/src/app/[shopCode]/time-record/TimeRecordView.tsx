@@ -56,7 +56,7 @@ type NewEmp = { name: string; positions: Position[]; defaultDays: boolean[] }
 const EMPTY_NEW_EMP: NewEmp = {
   name: '',
   positions: ['Front'],
-  defaultDays: [true, true, true, true, true, false, false],
+  defaultDays: [true, true, true, true, true, true, true],
 }
 
 // ─── Component ────────────────────────────────────────────────────────────────
@@ -324,7 +324,10 @@ export default function TimeRecordView() {
   }
 
   function updateTrip(empId: string, tripId: string, km: number) {
-    const fee = calcDeliveryFee(km, deliveryRates)
+    const emp = homeEmps.find((e) => e.id === empId)
+    const fee = emp?.deliveryFeePerTrip != null
+      ? emp.deliveryFeePerTrip
+      : calcDeliveryFee(km, deliveryRates)
     setTrips((p) => ({
       ...p,
       [empId]: p[empId].map((t) => (t.id === tripId ? { ...t, distance: km, fee } : t)),
@@ -621,10 +624,13 @@ export default function TimeRecordView() {
                   <div key={emp.id} className="border-b border-gray-50 last:border-0">
                     <div className="px-4 py-2.5 flex items-center justify-between">
                       <div>
-                        <div className="flex items-center gap-1.5">
+                        <div className="flex items-center gap-1.5 flex-wrap">
                           <span className="text-xs font-semibold text-gray-700">{emp.name}</span>
                           {emp.defaultDays[0] && <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-orange-100 text-orange-600">Morning</span>}
                           {emp.defaultDays[1] && <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-blue-100 text-blue-600">Evening</span>}
+                          {emp.deliveryFeePerTrip != null && (
+                            <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-green-100 text-green-700">฿{emp.deliveryFeePerTrip}/รอบ</span>
+                          )}
                         </div>
                         <div className="text-xs text-gray-400">
                           {tr.total_col}: ${(trips[emp.id] ?? []).reduce((s, t) => s + t.fee, 0).toFixed(2)}
