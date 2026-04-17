@@ -1,6 +1,6 @@
 export type ShopCode = string
 export type Role = 'staff' | 'manager' | 'owner'
-export type Position = 'Front' | 'Back' | 'Home' | 'Manager'
+export type Position = 'Front' | 'Kitchen' | 'Home' | 'Manager'
 export type PaymentMethod = 'Cash' | 'Credit Card' | 'Online Banking'
 
 export interface Session {
@@ -55,16 +55,29 @@ export interface DeliveryPlatform {
   name: string
 }
 
+export interface MealRevenue {
+  eftpos: number
+  lfyOnline: number
+  lfyCards: number
+  lfyCash: number
+  uberOnline: number
+  doorDash: number
+  cashLeftInBag: number
+  totalSale: number
+}
+
 export interface RevenueEntry {
   id: string
   date: string
-  name: string
-  netSales: number
-  paidOnline: number
-  card: number
-  cash: number
-  platforms: Record<string, number>
+  lfyBills: number
+  uberBills: number
+  doorDashBills: number
+  lunch: MealRevenue
+  dinner: MealRevenue
   note?: string
+  lunchRecorderName?: string   // staff who filled in lunch
+  dinnerRecorderName?: string  // staff who filled in dinner
+  deleted?: boolean            // soft-delete: true = ถูกลบแล้ว ยังเก็บไว้ใน Sheet
 }
 
 export interface ExpenseEntry {

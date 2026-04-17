@@ -10,6 +10,7 @@ export default async function SummaryPage({
   const { shopCode } = await params
   const session = await getSession()
   if (!session || session.shopCode !== shopCode) redirect('/')
+  if (session.role !== 'owner') redirect(`/${shopCode}`)
 
   return <SummaryView />
 }

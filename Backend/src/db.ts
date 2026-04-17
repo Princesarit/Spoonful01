@@ -2,13 +2,15 @@
  * Database layer — wraps Google Sheets
  */
 
-import { getSheetData, getSheetDataRaw, setSheetData, setSheetDataRaw, applyRowColors, applyTimeRecordFormatting } from './sheets'
+import { getSheetData, getSheetDataRaw, setSheetData, setSheetDataRaw, applyRowColors, applyTimeRecordFormatting, setSheetDataUserEntered, applyColorRules, applyFormattingRules, getSheetIdByName, batchUpdateSheet } from './sheets'
+import type { ColorRuleBlock, SheetFormatRule } from './sheets'
 import type {
   Employee,
   WeekSchedule,
   TimeRecord,
   DeliveryTrip,
   DeliveryPlatform,
+  MealRevenue,
   RevenueEntry,
   ExpenseEntry,
   DailyNote,
@@ -102,9 +104,12 @@ export async function listEmployees(shopCode: string, includeAll = false): Promi
       const raw = r.positions || r.position || 'Front'
       try {
         const parsed = JSON.parse(raw)
-        positions = Array.isArray(parsed) ? parsed : [parsed]
+        const arr: string[] = Array.isArray(parsed) ? parsed : [parsed]
+        // Backward compat: migrate old 'Back' → 'Kitchen'
+        positions = arr.map((p) => p === 'Back' ? 'Kitchen' : p) as Employee['positions']
       } catch {
-        positions = [raw as Employee['positions'][number]]
+        const p = raw === 'Back' ? 'Kitchen' : raw
+        positions = [p as Employee['positions'][number]]
       }
       return {
         id: r.id,
@@ -123,7 +128,7 @@ export async function listEmployees(shopCode: string, includeAll = false): Promi
         if (p.includes('Manager')) return 0
         if (p.length > 1) return 1
         if (p.includes('Front')) return 2
-        if (p.includes('Back')) return 3
+        if (p.includes('Kitchen')) return 3
         if (p.includes('Home')) return 4
         return 5
       }
@@ -157,7 +162,7 @@ export async function saveEmployees(shopCode: string, employees: Employee[]): Pr
       if (p.includes('Manager')) return 0
       if (p.length > 1) return 1
       if (p.includes('Front')) return 2
-      if (p.includes('Back')) return 3
+      if (p.includes('Kitchen')) return 3
       if (p.includes('Home')) return 4
       return 5
     }
@@ -216,16 +221,16 @@ function weekScheduleToPivotRows(ws: WeekSchedule, employees: Employee[]): strin
           return emp ? { emp, pos } : null
         })
         .filter(Boolean) as { emp: Employee; pos: string }[]
-      const front = scheduled.filter((s) => s.pos === 'Front').map((s) => s.emp.name).join(', ')
-      const back = scheduled.filter((s) => s.pos === 'Back').map((s) => s.emp.name).join(', ')
-      const home = scheduled.filter((s) => s.pos === 'Home').map((s) => s.emp.name).join(', ')
-      const totalFront = scheduled.filter((s) => s.pos === 'Front').length
-      const totalBack = scheduled.filter((s) => s.pos === 'Back').length
-      const totalHome = scheduled.filter((s) => s.pos === 'Home').length
+      const front   = scheduled.filter((s) => s.pos === 'Front').map((s) => s.emp.name).join(', ')
+      const kitchen = scheduled.filter((s) => s.pos === 'Kitchen').map((s) => s.emp.name).join(', ')
+      const home    = scheduled.filter((s) => s.pos === 'Home').map((s) => s.emp.name).join(', ')
+      const totalFront   = scheduled.filter((s) => s.pos === 'Front').length
+      const totalKitchen = scheduled.filter((s) => s.pos === 'Kitchen').length
+      const totalHome    = scheduled.filter((s) => s.pos === 'Home').length
       const total = scheduled.length
       // Skip empty rows (no one scheduled)
       if (total === 0) continue
-      rows.push([date, weekday, shiftLabel, front, back, home, String(totalFront), String(totalBack), String(totalHome), String(total)])
+      rows.push([date, weekday, shiftLabel, front, kitchen, home, String(totalFront), String(totalKitchen), String(totalHome), String(total)])
     }
   }
   return rows
@@ -254,7 +259,7 @@ function pivotRowsToWeekSchedules(rows: Record<string, string>[], employees: Emp
     // Mark employees with their position for this slot
     const posCols: { pos: string; names: string[] }[] = [
       { pos: 'Front', names: (r.front ?? '').split(',').map((n) => n.trim()).filter(Boolean) },
-      { pos: 'Back',  names: (r.back  ?? '').split(',').map((n) => n.trim()).filter(Boolean) },
+      { pos: 'Kitchen', names: (r.back ?? '').split(',').map((n) => n.trim()).filter(Boolean) },
       { pos: 'Home',  names: (r.home  ?? '').split(',').map((n) => n.trim()).filter(Boolean) },
     ]
     for (const entry of ws.entries) {
@@ -287,8 +292,11 @@ export async function listSchedules(shopCode: string): Promise<WeekSchedule[]> {
         try {
           const raw = JSON.parse(r.entries || '[]') as { employeeId: string; days: (boolean | string | null)[] }[]
           const entries = raw.map((e) => {
-            // Convert boolean days to null (can't know which position from old format)
-            const days = e.days.map((d) => (typeof d === 'string' ? d : null))
+            // Convert boolean days to null; migrate 'Back' → 'Kitchen'
+            const days = e.days.map((d) => {
+              if (typeof d !== 'string') return null
+              return d === 'Back' ? 'Kitchen' : d
+            })
             return { employeeId: e.employeeId, days }
           })
           return { weekStart: r.weekStart, entries }
@@ -516,7 +524,7 @@ export async function saveTimeRecords(shopCode: string, records: TimeRecord[]): 
   const { sid, tab } = await getShopDb(shopCode)
   const employees = await listEmployees(shopCode)
   const frontEmpIds = new Set(employees.filter((e) => e.positions.includes('Front')).map((e) => e.id))
-  const backEmpIds = new Set(employees.filter((e) => e.positions.includes('Back')).map((e) => e.id))
+  const backEmpIds = new Set(employees.filter((e) => e.positions.includes('Kitchen')).map((e) => e.id))
   const frontRecords = records.filter((r) => frontEmpIds.has(r.employeeId))
   const backRecords = records.filter((r) => backEmpIds.has(r.employeeId))
   // Sequential writes to avoid Google Sheets tab-creation conflict
@@ -643,30 +651,219 @@ export async function savePlatforms(shopCode: string, platforms: DeliveryPlatfor
 
 // ─── Revenue ──────────────────────────────────────────────────────────────────
 
-const REV_HEADERS = ['id', 'date', 'name', 'netSales', 'paidOnline', 'card', 'cash', 'platforms', 'note']
+// Individual columns for lunch and dinner (no JSON blobs)
+const REV_HEADERS = [
+  'id', 'date', 'lfyBills', 'uberBills', 'doorDashBills',
+  'l_eftpos', 'l_lfyOnline', 'l_lfyCards', 'l_lfyCash', 'l_uberOnline', 'l_doorDash', 'l_cashLeftInBag', 'l_totalSale',
+  'd_eftpos', 'd_lfyOnline', 'd_lfyCards', 'd_lfyCash', 'd_uberOnline', 'd_doorDash', 'd_cashLeftInBag', 'd_totalSale',
+  'note', 'lunchRecorderName', 'dinnerRecorderName', 'deleted',
+]
+
+function emptyMeal(): MealRevenue {
+  return { eftpos: 0, lfyOnline: 0, lfyCards: 0, lfyCash: 0, uberOnline: 0, doorDash: 0, cashLeftInBag: 0, totalSale: 0 }
+}
+
+function rowToMeal(r: Record<string, string>, prefix: string): MealRevenue {
+  return {
+    eftpos:       Number(r[`${prefix}_eftpos`])       || 0,
+    lfyOnline:    Number(r[`${prefix}_lfyOnline`])    || 0,
+    lfyCards:     Number(r[`${prefix}_lfyCards`])     || 0,
+    lfyCash:      Number(r[`${prefix}_lfyCash`])      || 0,
+    uberOnline:   Number(r[`${prefix}_uberOnline`])   || 0,
+    doorDash:     Number(r[`${prefix}_doorDash`])     || 0,
+    cashLeftInBag:Number(r[`${prefix}_cashLeftInBag`])|| 0,
+    totalSale:    Number(r[`${prefix}_totalSale`])    || 0,
+  }
+}
 
 export async function listRevenue(shopCode: string): Promise<RevenueEntry[]> {
   const { sid, tab } = await getShopDb(shopCode)
   const rows = await getSheetData(tab('revenue'), sid)
-  return rows.map((r) => ({
-    id: r.id,
-    date: r.date,
-    name: r.name,
-    netSales: Number(r.netSales),
-    paidOnline: Number(r.paidOnline),
-    card: Number(r.card),
-    cash: Number(r.cash),
-    platforms: JSON.parse(r.platforms || '{}') as Record<string, number>,
-    note: r.note || undefined,
-  }))
+  return rows.map((r) => {
+    // New flat format: individual l_* and d_* columns
+    if ('l_eftpos' in r) {
+      return {
+        id: r.id,
+        date: r.date,
+        lfyBills:     Number(r.lfyBills)     || 0,
+        uberBills:    Number(r.uberBills)    || 0,
+        doorDashBills:Number(r.doorDashBills)|| 0,
+        lunch:  rowToMeal(r, 'l'),
+        dinner: rowToMeal(r, 'd'),
+        note: r.note || undefined,
+        lunchRecorderName: r.lunchRecorderName || undefined,
+        dinnerRecorderName: r.dinnerRecorderName || undefined,
+        deleted: r.deleted === 'true' || undefined,
+      }
+    }
+    // JSON format (previous version): lunch/dinner stored as JSON string
+    if (r.lunch !== undefined) {
+      return {
+        id: r.id,
+        date: r.date,
+        lfyBills:     Number(r.lfyBills)     || 0,
+        uberBills:    Number(r.uberBills)    || 0,
+        doorDashBills:Number(r.doorDashBills)|| 0,
+        lunch:  JSON.parse(r.lunch  || 'null') as MealRevenue || emptyMeal(),
+        dinner: JSON.parse(r.dinner || 'null') as MealRevenue || emptyMeal(),
+        note: r.note || undefined,
+      }
+    }
+    // Legacy format (very old: netSales, card columns)
+    return {
+      id: r.id,
+      date: r.date,
+      lfyBills: 0, uberBills: 0, doorDashBills: 0,
+      lunch:  { ...emptyMeal(), totalSale: Number(r.netSales) || 0, eftpos: Number(r.card) || 0 },
+      dinner: emptyMeal(),
+      note: r.note || undefined,
+    }
+  }).filter((e) => !e.deleted)
+}
+
+/** Same as listRevenue but includes soft-deleted entries — used internally by delete route */
+export async function listRevenueAll(shopCode: string): Promise<RevenueEntry[]> {
+  const { sid, tab } = await getShopDb(shopCode)
+  const rows = await getSheetData(tab('revenue'), sid)
+  return rows.map((r) => {
+    if ('l_eftpos' in r) {
+      return {
+        id: r.id, date: r.date,
+        lfyBills: Number(r.lfyBills) || 0,
+        uberBills: Number(r.uberBills) || 0,
+        doorDashBills: Number(r.doorDashBills) || 0,
+        lunch: rowToMeal(r, 'l'),
+        dinner: rowToMeal(r, 'd'),
+        note: r.note || undefined,
+        lunchRecorderName: r.lunchRecorderName || undefined,
+        dinnerRecorderName: r.dinnerRecorderName || undefined,
+        deleted: r.deleted === 'true' || undefined,
+      }
+    }
+    if (r.lunch !== undefined) {
+      return {
+        id: r.id, date: r.date,
+        lfyBills: Number(r.lfyBills) || 0,
+        uberBills: Number(r.uberBills) || 0,
+        doorDashBills: Number(r.doorDashBills) || 0,
+        lunch: JSON.parse(r.lunch || 'null') as MealRevenue || emptyMeal(),
+        dinner: JSON.parse(r.dinner || 'null') as MealRevenue || emptyMeal(),
+        note: r.note || undefined,
+      }
+    }
+    return {
+      id: r.id, date: r.date,
+      lfyBills: 0, uberBills: 0, doorDashBills: 0,
+      lunch: { ...emptyMeal(), totalSale: Number(r.netSales) || 0, eftpos: Number(r.card) || 0 },
+      dinner: emptyMeal(),
+      note: r.note || undefined,
+    }
+  })
+}
+
+function mealToRow(m: MealRevenue): (string | number)[] {
+  return [m.eftpos, m.lfyOnline, m.lfyCards, m.lfyCash, m.uberOnline, m.doorDash, m.cashLeftInBag, m.totalSale]
+}
+
+/**
+ * Load revenue entries, migrating the sheet schema if lunchRecorderName/dinnerRecorderName
+ * columns are missing (sheet created before this feature was added).
+ * Returns [entries] — use this instead of listRevenue in the GET route.
+ */
+export async function migrateRevenueSchema(shopCode: string): Promise<[RevenueEntry[]]> {
+  const { sid, tab } = await getShopDb(shopCode)
+  const rawRows = await getSheetData(tab('revenue'), sid)
+
+  // If sheet is empty or already has recorder name columns, just return parsed entries (excluding deleted)
+  if (rawRows.length === 0 || 'lunchRecorderName' in rawRows[0]) {
+    return [rawRows.map((r) => {
+      if ('l_eftpos' in r) {
+        return {
+          id: r.id, date: r.date,
+          lfyBills: Number(r.lfyBills) || 0,
+          uberBills: Number(r.uberBills) || 0,
+          doorDashBills: Number(r.doorDashBills) || 0,
+          lunch: rowToMeal(r, 'l'),
+          dinner: rowToMeal(r, 'd'),
+          note: r.note || undefined,
+          lunchRecorderName: r.lunchRecorderName || undefined,
+          dinnerRecorderName: r.dinnerRecorderName || undefined,
+          deleted: r.deleted === 'true' || undefined,
+        }
+      }
+      if ('lunch' in r) {
+        return {
+          id: r.id, date: r.date,
+          lfyBills: Number(r.lfyBills) || 0,
+          uberBills: Number(r.uberBills) || 0,
+          doorDashBills: Number(r.doorDashBills) || 0,
+          lunch: JSON.parse(r.lunch || 'null') as MealRevenue || emptyMeal(),
+          dinner: JSON.parse(r.dinner || 'null') as MealRevenue || emptyMeal(),
+          note: r.note || undefined,
+        }
+      }
+      return {
+        id: r.id, date: r.date,
+        lfyBills: 0, uberBills: 0, doorDashBills: 0,
+        lunch: { ...emptyMeal(), totalSale: Number(r.netSales) || 0, eftpos: Number(r.card) || 0 },
+        dinner: emptyMeal(),
+        note: r.note || undefined,
+      }
+    }).filter((e) => !e.deleted)]
+  }
+
+  // Schema migration: sheet is missing recorder name columns — rewrite with new REV_HEADERS
+  console.log(`[migrateRevenueSchema] Adding lunchRecorderName/dinnerRecorderName columns for shop ${shopCode}`)
+  const entries = await listRevenue(shopCode)  // parses current data
+  await saveRevenue(shopCode, entries)          // rewrites sheet with new headers
+  return [entries]
 }
 
 export async function saveRevenue(shopCode: string, entries: RevenueEntry[]): Promise<void> {
   const { sid, tab } = await getShopDb(shopCode)
+  const sheetName = tab('revenue')
   const rows = entries.map((e) => [
-    e.id, e.date, e.name, e.netSales, e.paidOnline, e.card, e.cash, JSON.stringify(e.platforms), e.note ?? '',
+    e.id, e.date, e.lfyBills, e.uberBills, e.doorDashBills,
+    ...mealToRow(e.lunch), ...mealToRow(e.dinner),
+    e.note ?? '', e.lunchRecorderName ?? '', e.dinnerRecorderName ?? '', e.deleted ? 'true' : '',
   ])
-  await setSheetData(tab('revenue'), REV_HEADERS, rows, sid)
+  await setSheetData(sheetName, REV_HEADERS, rows, sid)
+
+  // Apply formatting — non-fatal: if formatting fails, data is already written correctly
+  try {
+    const LUNCH_YELLOW   = { red: 1,     green: 0.949, blue: 0.8   }  // #FFF2CC
+    const DINNER_BLUE    = { red: 0.678, green: 0.847, blue: 0.933 }  // #ADD8E6
+    const HEADER_BG      = { red: 0.851, green: 0.918, blue: 0.827 }  // #D9EAD3
+    const DELETED_RED    = { red: 0.918, green: 0.298, blue: 0.298  }  // #EA4C4C — สีแดง
+    const totalRows = rows.length + 1
+
+    // Highlight deleted rows — row 0 = header, row i+1 = entries[i]
+    const deletedRules = entries
+      .map((e, i) => ({ deleted: e.deleted, row: i + 1 }))
+      .filter(({ deleted }) => deleted)
+      .map(({ row }) => ({
+        startRow: row, endRow: row + 1,
+        startCol: 0, endCol: REV_HEADERS.length,
+        backgroundColor: DELETED_RED,
+      }))
+
+    await applyFormattingRules(sheetName, sid, [
+      // Header row: green + bold
+      { startRow: 0, endRow: 1, startCol: 0, endCol: REV_HEADERS.length, backgroundColor: HEADER_BG, bold: true },
+      // Lunch section header cells: yellow
+      { startRow: 0, endRow: 1, startCol: 5, endCol: 13, backgroundColor: LUNCH_YELLOW },
+      // Dinner section header cells: blue
+      { startRow: 0, endRow: 1, startCol: 13, endCol: 21, backgroundColor: DINNER_BLUE },
+      // AUD format for meal amounts (cols 5-20)
+      ...(totalRows > 1 ? [{ startRow: 1, endRow: totalRows, startCol: 5, endCol: 21, numberFormat: AUD_FORMAT }] : []),
+      // Integer format for bill counts (cols 2-4)
+      ...(totalRows > 1 ? [{ startRow: 1, endRow: totalRows, startCol: 2, endCol: 5, numberFormat: INT_FORMAT }] : []),
+      // Deleted rows: orange/curry highlight (applied last so it overrides row colors)
+      ...deletedRules,
+    ])
+  } catch (err) {
+    console.warn('[saveRevenue] formatting failed (data was saved):', err)
+  }
 }
 
 // ─── Expenses ─────────────────────────────────────────────────────────────────
@@ -859,4 +1056,1019 @@ export async function syncAllEmployeesToMaster(): Promise<void> {
     }
   }
   await setSheetData('Employees', MASTER_EMP_HEADERS, allRows)
+}
+
+// ─── Google Sheet Report Sync ─────────────────────────────────────────────────
+
+const DAY_ABBR = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
+
+// Build a SUM formula for the given 0-based column index
+function sumF(col: number, r1: number, r2: number): string {
+  return `=SUM(${colLetter(col)}${r1}:${colLetter(col)}${r2})`
+}
+
+// Color constants (Google Sheets uses 0-1 float)
+const C_GREEN        = { red: 0.573, green: 0.816, blue: 0.314 }  // #92D050 — Total Sale
+const C_YELLOW       = { red: 1,     green: 1,     blue: 0     }  // #FFFF00 — Cash in Bag
+const C_ORANGE       = { red: 1,     green: 0.753, blue: 0     }  // #FFC000 — SUM/Total rows
+const C_HEADER       = { red: 1,     green: 0.949, blue: 0.8   }  // #FFF2CC — header row
+
+function getWeekDates(monday: string): string[] {
+  return Array.from({ length: 7 }, (_, i) => addDays(monday, i))
+}
+
+// ── Income 2026 (dynamic columns based on delivery rate tiers) ────────────────
+// Row 0: group headers (LUNCH/DINNER labels, km bucket labels)
+// Row 1: column sub-headers
+// Data rows: 7 days per week + 1 SUM row (no blank rows between weeks)
+//
+// Column groups (with N = number of delivery rate tiers):
+//   A(0)-B(1)          : Day name, Date
+//   C(2)-E(4)          : Bills — LFY, Uber Eat, DoorDash
+//   F(5)-F(5+N)        : Home Delivery — N tier columns + Total
+//   (5+N+1)-(5+N+9)    : LUNCH — 9 fields (Eftpos..Cash Sale)
+//   (5+N+10)           : gap (DINNER label)
+//   (5+N+11)-(5+N+19)  : DINNER — 9 fields
+//   (5+N+20)           : gap
+//   (5+N+21)-(5+N+36)  : Combined daily totals + Running
+//   (5+N+37)-(5+N+38)  : gap
+//   (5+N+39)-(5+N+51)  : Simplified view
+const INCOME_SHEET = 'Income 2026'
+
+/** Convert 0-based column index to A1 column letter (A, B, ..., Z, AA, ...) */
+function colLetter(n: number): string {
+  let s = ''
+  let c = n
+  while (c >= 0) {
+    s = String.fromCharCode(65 + (c % 26)) + s
+    c = Math.floor(c / 26) - 1
+  }
+  return s
+}
+
+/** Build dynamic column layout for the Income sheet based on number of delivery tiers. */
+function incomeLayout(nTiers: number) {
+  const d = 5            // first delivery tier column (F)
+  const j = d + nTiers + 1  // first lunch column (J when nTiers=3)
+  return {
+    nTiers,
+    totalCols: j + 51,
+    // Delivery
+    delFirst:  d,
+    delLast:   d + nTiers - 1,
+    delTotal:  d + nTiers,
+    // Lunch (9 cols)
+    lEftpos:  j,    lLfyOnl:  j+1,  lLfyCard: j+2,
+    lLfyCash: j+3,  lUber:    j+4,  lDD:      j+5,
+    lCashBag: j+6,  lTotal:   j+7,  lCash:    j+8,
+    gap1:     j+9,
+    // Dinner (9 cols)
+    dEftpos:  j+10, dLfyOnl:  j+11, dLfyCard: j+12,
+    dLfyCash: j+13, dUber:    j+14, dDD:      j+15,
+    dCashBag: j+16, dTotal:   j+17, dCash:    j+18,
+    gap2:     j+19,
+    // Combined (16 cols)
+    cEftpos:  j+20, cLfyOnl:  j+21, cUber:    j+22, cDD:      j+23,
+    cCash:    j+24, cLunch:   j+25, cDinner:  j+26, cEftpos2: j+27,
+    cLfy:     j+28, cUber2:   j+29, cDin2:    j+30, cCash2:   j+31,
+    cTotal:   j+32, cCashBag: j+33, surcharge:j+34, running:  j+35,
+    gap3:     j+36, gap4:     j+37,
+    // Simplified (13 cols)
+    sDay:     j+38, sDate:    j+39,
+    sLEff:    j+40, sLCash:   j+41, sDEff:    j+42, sDCash:   j+43,
+    sLTot:    j+44, sDTot:    j+45, sEffTot:  j+46, sCashTot: j+47,
+    sTotal:   j+48, sCashBag: j+49, sRunning: j+50,
+  }
+}
+
+type IncomeLayout = ReturnType<typeof incomeLayout>
+
+function makeIncomeHdr0(lo: IncomeLayout, deliveryRates: import('./types').DeliveryRate[]): (string | number | null)[] {
+  const r = new Array(lo.totalCols).fill('') as (string | number | null)[]
+  // Delivery tier labels
+  deliveryRates.forEach((rate, i) => {
+    const prevMax = i === 0 ? 0 : deliveryRates[i - 1].maxKm
+    r[lo.delFirst + i] = i === 0
+      ? `≤${rate.maxKm}km`
+      : rate.maxKm >= 9999 ? `>${prevMax}km` : `>${prevMax}–${rate.maxKm}km`
+  })
+  r[lo.delTotal] = 'total'
+  r[lo.lEftpos]  = 'LUNCH'
+  r[lo.gap1]     = 'DINNER'
+  return r
+}
+
+function makeIncomeHdr1(lo: IncomeLayout): (string | number | null)[] {
+  const r = new Array(lo.totalCols).fill('') as (string | number | null)[]
+  r[2] = 'LFY';  r[3] = 'Uber Eat';  r[4] = 'DoorDash'
+  r[lo.delFirst] = 'Home Delivery'
+  // Lunch
+  r[lo.lEftpos]  = 'Eftpos';              r[lo.lLfyOnl]  = 'Local for You paid online'
+  r[lo.lLfyCard] = 'Local for You Cards'; r[lo.lLfyCash] = 'Local for You Cash'
+  r[lo.lUber]    = 'Uber Eat Paid online'; r[lo.lDD]     = 'DoorDash'
+  r[lo.lCashBag] = 'Cash left in Bag';   r[lo.lTotal]   = 'Total Sale'; r[lo.lCash] = 'Cash Sale'
+  // Dinner
+  r[lo.dEftpos]  = 'Eftpos';              r[lo.dLfyOnl]  = 'Local for You paid online'
+  r[lo.dLfyCard] = 'Local for You Cards'; r[lo.dLfyCash] = 'Local for You Cash'
+  r[lo.dUber]    = 'Uber Eat Paid online'; r[lo.dDD]     = 'DoorDash'
+  r[lo.dCashBag] = 'Cash left in bag';   r[lo.dTotal]   = 'Total Sale'; r[lo.dCash] = 'Cash Sale'
+  // Combined
+  r[lo.cEftpos]  = 'Total Eftpos';         r[lo.cLfyOnl]  = 'Daily online Local for You'
+  r[lo.cUber]    = 'Daily online Uber Eat'; r[lo.cDD]     = 'Daily Online DoorDash'
+  r[lo.cCash]    = 'Total Cash';            r[lo.cLunch]  = 'Total Lunch'; r[lo.cDinner] = 'Total Dinner'
+  r[lo.cEftpos2] = 'Total Eftpos + Credit'; r[lo.cLfy]   = 'Total Local for You'
+  r[lo.cUber2]   = 'Total Uber Eat';        r[lo.cDin2]  = 'Total DoorDash'
+  r[lo.cCash2]   = 'Total Cash';            r[lo.cTotal] = 'Total'; r[lo.cCashBag] = 'Total Cash left in bag'
+  // Simplified
+  r[lo.sLEff]    = 'Eftpos';  r[lo.sLCash]   = 'Cash'
+  r[lo.sDEff]    = 'Eftpos';  r[lo.sDCash]   = 'Cash'
+  r[lo.sLTot]    = 'Total Lunch';  r[lo.sDTot]    = 'Total Dinner'
+  r[lo.sEffTot]  = 'Total Eftpos + Uber + online order'
+  r[lo.sCashTot] = 'Total Cash';  r[lo.sTotal]   = 'Total'; r[lo.sCashBag] = 'Total - Expense = Cash in the Bag'
+  return r
+}
+
+// Number/date formats
+const AUD_FORMAT  = { type: 'NUMBER', pattern: '[$-C09]#,##0.00' }
+const DATE_FORMAT = { type: 'DATE',   pattern: 'dd/mm/yyyy' }
+const INT_FORMAT  = { type: 'NUMBER', pattern: '0' }
+
+// Color for Sunday AR red text
+const IC_RED = { red: 0.8, green: 0, blue: 0 }
+
+async function applyIncomeFullFormat(
+  sid: string,
+  lo: IncomeLayout,
+  totalRows: number,
+  sumRowIndices: number[],
+): Promise<void> {
+  const sheetId = await getSheetIdByName(sid, INCOME_SHEET)
+  if (sheetId === undefined) return
+
+  const BLACK = { red: 0, green: 0, blue: 0 }
+  const SOLID = { style: 'SOLID',       color: BLACK }
+  const THICK = { style: 'SOLID_THICK', color: BLACK }
+
+  // Full color palette from Seed shop Income 2026 analysis
+  const C_WHITE   = { red: 1,     green: 1,     blue: 1     }
+  // C_HEADER removed — Row 0/1 now use section-specific colors
+  const C_LGRAY   = { red: 0.941, green: 0.941, blue: 0.941 }  // near-white — lunch/dinner data
+  const C_MGRAY   = { red: 0.851, green: 0.851, blue: 0.851 }  // medium gray — combined, cDin2, cCashBag
+  const C_DGRAY   = { red: 0.800, green: 0.800, blue: 0.800 }  // dark gray — delTotal, surcharge, SUM rows
+  const C_VDGRAY  = { red: 0.600, green: 0.600, blue: 0.600 }  // very dark gray — dCash
+  const C_XDGRAY  = { red: 0.400, green: 0.400, blue: 0.400 }  // extra dark gray — cEftpos2
+  const C_LCASH   = { red: 0.718, green: 0.718, blue: 0.718 }  // lCash gray
+  const C_LGREEN  = { red: 0.714, green: 0.843, blue: 0.659 }  // light green — bills, cUber2
+  const C_LLGREEN = { red: 0.851, green: 0.918, blue: 0.831 }  // lighter green — delivery tiers
+  const C_MGREEN  = { red: 0.576, green: 0.769, blue: 0.490 }  // medium green — cLunch, cDinner
+  const C_LBLUE   = { red: 0.812, green: 0.886, blue: 0.953 }  // light blue — gap1, cLfy, cTotal, sTotal, sCashBag
+  const C_MBLUE   = { red: 0.624, green: 0.769, blue: 0.910 }  // medium blue — cCash2
+  const C_AMBER   = { red: 1.000, green: 0.753, blue: 0.000 }  // amber/orange — running total
+  const C_LORANGE = { red: 0.980, green: 0.800, blue: 0.612 }  // light orange — sLTot, sEffTot
+  const C_PORANGE = { red: 0.988, green: 0.898, blue: 0.800 }  // pale orange — sDTot, sCashTot
+  const C_YELLOW  = { red: 1,     green: 1,     blue: 0     }  // yellow — SUM running
+
+  const requests: object[] = []
+
+  const bg = (sr: number, er: number, sc: number, ec: number, color: object) =>
+    requests.push({ repeatCell: { range: { sheetId, startRowIndex: sr, endRowIndex: er, startColumnIndex: sc, endColumnIndex: ec }, cell: { userEnteredFormat: { backgroundColor: color } }, fields: 'userEnteredFormat.backgroundColor' } })
+
+  const bold = (sr: number, er: number, sc: number, ec: number) =>
+    requests.push({ repeatCell: { range: { sheetId, startRowIndex: sr, endRowIndex: er, startColumnIndex: sc, endColumnIndex: ec }, cell: { userEnteredFormat: { textFormat: { bold: true } } }, fields: 'userEnteredFormat.textFormat.bold' } })
+
+  const bdr = (sr: number, er: number, sc: number, ec: number, sides: Record<string, object>) =>
+    requests.push({ updateBorders: { range: { sheetId, startRowIndex: sr, endRowIndex: er, startColumnIndex: sc, endColumnIndex: ec }, ...sides } })
+
+  const mrg = (sr: number, er: number, sc: number, ec: number) =>
+    requests.push({ mergeCells: { range: { sheetId, startRowIndex: sr, endRowIndex: er, startColumnIndex: sc, endColumnIndex: ec }, mergeType: 'MERGE_ALL' } })
+
+  const cw = (col: number, width: number) =>
+    requests.push({ updateDimensionProperties: { range: { sheetId, dimension: 'COLUMNS', startIndex: col, endIndex: col + 1 }, properties: { pixelSize: width }, fields: 'pixelSize' } })
+
+  const fgw = (sr: number, er: number, sc: number, ec: number) =>
+    requests.push({ repeatCell: { range: { sheetId, startRowIndex: sr, endRowIndex: er, startColumnIndex: sc, endColumnIndex: ec }, cell: { userEnteredFormat: { textFormat: { foregroundColor: { red: 1, green: 1, blue: 1 } } } }, fields: 'userEnteredFormat.textFormat.foregroundColor' } })
+
+  const C_HDR_WARM = { red: 1, green: 0.945, blue: 0.8 }   // warm yellow for DoorDash header cols
+
+  // 1. Global white reset
+  bg(0, totalRows, 0, lo.totalCols, C_WHITE)
+
+  // 2. Row 0 (hdr0): section-based colors matching Test sheet
+  bg(0, 1, 0, 2, C_MGRAY)                             // A,B: medium gray
+  bg(0, 1, 2, lo.lEftpos, C_VDGRAY)                  // C-L (bills+delivery): dark gray
+  bg(0, 1, lo.lEftpos, lo.gap1, C_XDGRAY)            // LUNCH merged: extra dark
+  bg(0, 1, lo.gap1, lo.gap2, C_VDGRAY)               // DINNER merged: dark gray
+  bg(0, 1, lo.cEftpos, lo.surcharge, C_LBLUE)         // Combined merged: light blue
+  bg(0, 1, lo.surcharge, lo.surcharge + 1, C_DGRAY)  // AU: gray
+  bg(0, 1, lo.running, lo.totalCols, C_MGRAY)         // AV onwards: medium gray
+  bold(0, 1, lo.lEftpos, lo.gap1)                     // LUNCH label: bold
+  fgw(0, 1, lo.lEftpos, lo.gap1)                      // LUNCH label: white text
+  fgw(0, 1, lo.gap1, lo.gap2)                         // DINNER label: white text
+
+  // Row 1 (hdr1): per-column header colors matching Test sheet
+  bg(1, 2, 0, 2, C_MGRAY)                             // A, B
+  bg(1, 2, 2, lo.lEftpos, C_VDGRAY)                  // C-L (bills + Home Delivery merged)
+  // Lunch columns
+  bg(1, 2, lo.lEftpos,  lo.lEftpos  + 1, C_LCASH)   // M: Eftpos
+  bg(1, 2, lo.lLfyOnl,  lo.lLfyCash + 1, C_LBLUE)   // N-P: LFY (light blue)
+  bg(1, 2, lo.lUber,    lo.lUber    + 1, C_LGREEN)   // Q: Uber
+  bg(1, 2, lo.lDD,      lo.lDD      + 1, C_HDR_WARM) // R: DoorDash (warm)
+  bg(1, 2, lo.lCashBag, lo.lCashBag + 1, C_YELLOW)   // S: Cash in Bag (yellow)
+  bg(1, 2, lo.lTotal,   lo.lTotal   + 1, C_VDGRAY)   // T: Total Sale (dark)
+  bg(1, 2, lo.lCash,    lo.lCash    + 1, C_LCASH)    // U: Cash Sale
+  bg(1, 2, lo.gap1,     lo.gap1     + 1, C_LBLUE)    // V: separator
+  // Dinner columns (mirrors lunch)
+  bg(1, 2, lo.dEftpos,  lo.dEftpos  + 1, C_LCASH)   // W: Eftpos
+  bg(1, 2, lo.dLfyOnl,  lo.dLfyCash + 1, C_LBLUE)   // X-Z: LFY
+  bg(1, 2, lo.dUber,    lo.dUber    + 1, C_LGREEN)   // AA: Uber
+  bg(1, 2, lo.dDD,      lo.dDD      + 1, C_HDR_WARM) // AB: DoorDash
+  bg(1, 2, lo.dCashBag, lo.dCashBag + 1, C_YELLOW)   // AC: Cash in Bag (yellow)
+  bg(1, 2, lo.dTotal,   lo.dTotal   + 1, C_LCASH)    // AD: Total Sale
+  bg(1, 2, lo.dCash,    lo.dCash    + 1, C_VDGRAY)   // AE: Cash Sale (dark)
+  // Combined section
+  bg(1, 2, lo.cEftpos,  lo.cEftpos  + 1, C_DGRAY)   // AG
+  bg(1, 2, lo.cLfyOnl,  lo.cLfyOnl  + 1, { red: 0.788, green: 0.855, blue: 0.973 })  // AH
+  bg(1, 2, lo.cUber,    lo.cUber    + 1, C_LLGREEN)  // AI
+  bg(1, 2, lo.cDD,      lo.cDD      + 1, C_HDR_WARM) // AJ
+  bg(1, 2, lo.cCash,    lo.cCash    + 1, C_LCASH)    // AK
+  bg(1, 2, lo.cLunch,   lo.cDinner  + 1, C_DGRAY)    // AL-AM: Lunch/Dinner
+  bg(1, 2, lo.cEftpos2, lo.cEftpos2 + 1, C_LCASH)   // AN
+  bg(1, 2, lo.cLfy,     lo.cLfy     + 1, C_LBLUE)    // AO
+  bg(1, 2, lo.cUber2,   lo.cUber2   + 1, C_LGREEN)   // AP
+  bg(1, 2, lo.cDin2,    lo.cDin2    + 1, { red: 1, green: 0.949, blue: 0.8 })  // AQ
+  bg(1, 2, lo.cCash2,   lo.cCash2   + 1, C_DGRAY)    // AR
+  bg(1, 2, lo.cTotal,   lo.cTotal   + 1, C_DGRAY)    // AS
+  bg(1, 2, lo.cCashBag, lo.cCashBag + 1, C_YELLOW)   // AT: yellow
+  bg(1, 2, lo.surcharge,lo.surcharge+ 1, C_DGRAY)    // AU
+  bg(1, 2, lo.running,  lo.running  + 1, C_AMBER)    // AV: amber
+  // Simplified section header
+  bg(1, 2, lo.sDay,    lo.sDate    + 1, C_MGRAY)     // AY-AZ
+  bg(1, 2, lo.sLEff,   lo.sDCash   + 1, C_LLGREEN)  // BA-BD: light green
+  bg(1, 2, lo.sLTot,   lo.sDTot    + 1, C_MGRAY)    // BE-BF: gray
+  bg(1, 2, lo.sEffTot, lo.sTotal   + 1, C_LLGREEN)  // BG-BI: light green
+  bg(1, 2, lo.sCashBag,lo.sCashBag + 1, C_MGRAY)    // BJ: gray
+
+  // 3. Per-column colors for all data+SUM rows (rows 2 onward)
+  const d = 2
+  bg(d, totalRows, 2, 5, C_LGREEN)                           // C-E: bills
+  bg(d, totalRows, lo.delFirst, lo.delLast + 1, C_LLGREEN)  // delivery tiers
+  bg(d, totalRows, lo.delTotal, lo.delTotal + 1, C_DGRAY)   // del total
+  bg(d, totalRows, lo.lEftpos, lo.lTotal + 1, C_LGRAY)      // lunch data (lEftpos..lTotal)
+  bg(d, totalRows, lo.lCash, lo.lCash + 1, C_LCASH)         // lCash
+  bg(d, totalRows, lo.gap1, lo.gap1 + 1, C_LBLUE)           // gap1 separator
+  bg(d, totalRows, lo.dEftpos, lo.dTotal + 1, C_LGRAY)      // dinner data (dEftpos..dTotal)
+  bg(d, totalRows, lo.dCash, lo.dCash + 1, C_VDGRAY)        // dCash
+  bg(d, totalRows, lo.cEftpos, lo.cCash + 1, C_MGRAY)       // combined main (cEftpos..cCash)
+  bg(d, totalRows, lo.cLunch, lo.cDinner + 1, C_MGREEN)     // cLunch, cDinner
+  bg(d, totalRows, lo.cEftpos2, lo.cEftpos2 + 1, C_XDGRAY) // cEftpos2
+  fgw(d, totalRows, lo.cEftpos2, lo.cEftpos2 + 1)           // cEftpos2: white text
+  bg(d, totalRows, lo.cLfy, lo.cLfy + 1, C_LBLUE)           // cLfy
+  bg(d, totalRows, lo.cUber2, lo.cUber2 + 1, C_LGREEN)      // cUber2
+  bg(d, totalRows, lo.cDin2, lo.cDin2 + 1, C_MGRAY)         // cDin2
+  bg(d, totalRows, lo.cCash2, lo.cCash2 + 1, C_MBLUE)       // cCash2
+  bg(d, totalRows, lo.cTotal, lo.cTotal + 1, C_LBLUE)        // cTotal
+  bg(d, totalRows, lo.cCashBag, lo.cCashBag + 1, C_MGRAY)   // cCashBag
+  bg(d, totalRows, lo.surcharge, lo.surcharge + 1, C_DGRAY) // surcharge
+  bg(d, totalRows, lo.running, lo.running + 1, C_AMBER)      // running (amber)
+  bg(d, totalRows, lo.sLTot, lo.sLTot + 1, C_LORANGE)       // sLTot
+  bg(d, totalRows, lo.sDTot, lo.sDTot + 1, C_PORANGE)       // sDTot
+  bg(d, totalRows, lo.sEffTot, lo.sEffTot + 1, C_LORANGE)   // sEffTot
+  bg(d, totalRows, lo.sCashTot, lo.sCashTot + 1, C_PORANGE) // sCashTot
+  bg(d, totalRows, lo.sTotal, lo.sTotal + 1, C_LBLUE)        // sTotal
+  bg(d, totalRows, lo.sCashBag, lo.sCashBag + 1, C_LBLUE)   // sCashBag
+
+  // 4. SUM rows: mostly dark gray, with specific overrides from Test sheet
+  for (const si of sumRowIndices) {
+    bg(si, si + 1, 0, lo.totalCols, C_DGRAY)                       // base: dark gray
+    bg(si, si + 1, 2, 5, C_VDGRAY)                                 // C-E bills: darker
+    bg(si, si + 1, lo.delTotal, lo.delTotal + 1, C_VDGRAY)         // L del total: darker
+    bg(si, si + 1, lo.gap1, lo.gap1 + 1, C_LBLUE)                  // V gap1: keep light blue
+    bg(si, si + 1, lo.cCash2, lo.cCashBag + 1, C_MGRAY)           // AR-AT: slightly lighter
+    bg(si, si + 1, lo.running, lo.running + 1, C_YELLOW)           // AV: yellow
+    bg(si, si + 1, lo.sDay, lo.totalCols, C_MGRAY)                 // simplified: medium gray
+    bold(si, si + 1, 0, lo.totalCols)
+  }
+
+  // 5. Unmerge header area first (safe re-format)
+  requests.push({ unmergeCells: { range: { sheetId, startRowIndex: 0, endRowIndex: 2, startColumnIndex: 0, endColumnIndex: lo.totalCols } } })
+
+  // 6. Merge cells
+  mrg(0, 1, lo.lEftpos, lo.gap1)          // LUNCH header
+  mrg(0, 1, lo.dEftpos, lo.gap2)          // DINNER header
+  mrg(0, 1, lo.cEftpos, lo.surcharge)     // Combined header
+  mrg(1, 2, lo.delFirst, lo.delTotal + 1) // Home Delivery (row 1)
+
+  // 7. Column widths (from Seed sheet)
+  cw(2, 58); cw(3, 60); cw(4, 67)                          // C,D,E bills
+  for (let i = 0; i < lo.nTiers; i++) cw(lo.delFirst + i, 54) // delivery tiers
+  cw(lo.delTotal, 77)                                       // del total
+  cw(lo.lEftpos, 80);   cw(lo.lLfyOnl, 103)
+  cw(lo.lLfyCard, 124); cw(lo.lLfyCash, 119); cw(lo.lUber, 129)
+  cw(lo.gap1, 58)                                           // gap/separator
+  cw(lo.dLfyOnl, 153);  cw(lo.dLfyCard, 124); cw(lo.dLfyCash, 119); cw(lo.dUber, 129)
+  cw(lo.gap2, 67)                                           // gap/separator
+  cw(lo.cEftpos2, 127); cw(lo.cLfy, 116)
+  cw(lo.cCash2, 94);    cw(lo.cCashBag, 131); cw(lo.surcharge, 94)
+  cw(lo.gap3, 81);      cw(lo.gap4, 84)
+  cw(lo.sEffTot, 118);  cw(lo.sCashBag, 128)
+
+  // 8. Borders
+  // A-L: full grid
+  bdr(0, totalRows, 0, lo.delTotal + 1, { top: SOLID, bottom: SOLID, left: SOLID, right: SOLID, innerHorizontal: SOLID, innerVertical: SOLID })
+  // SOLID right separators
+  bdr(2, totalRows, lo.lCash,  lo.lCash  + 1, { right: SOLID })
+  bdr(2, totalRows, lo.gap1,   lo.gap1   + 1, { right: SOLID })
+  bdr(2, totalRows, lo.dCash,  lo.dCash  + 1, { right: SOLID })
+  bdr(2, totalRows, lo.sDate,  lo.sDate  + 1, { right: SOLID })
+  // THICK structural borders
+  bdr(2, totalRows, lo.cEftpos,  lo.cEftpos  + 1, { left:  THICK })
+  bdr(2, totalRows, lo.cCashBag, lo.cCashBag + 1, { right: THICK })
+  // AY-AZ: grid borders
+  bdr(2, totalRows, lo.sDay, lo.sDate + 1, { top: SOLID, bottom: SOLID, left: SOLID, right: SOLID, innerHorizontal: SOLID, innerVertical: SOLID })
+
+  await batchUpdateSheet(sid, requests)
+}
+
+export async function syncIncomeSheet(shopCode: string): Promise<void> {
+  const { sid } = await getShopDb(shopCode)
+  const [revenue, deliveryTrips, deliveryRates] = await Promise.all([
+    listRevenue(shopCode),
+    listDeliveryTrips(shopCode),
+    listDeliveryRates(shopCode),
+  ])
+  if (revenue.length === 0) return
+
+  // Fall back to 3 legacy tiers if none configured
+  const rates = deliveryRates.length > 0 ? deliveryRates : [
+    { maxKm: 4, fee: 0 }, { maxKm: 6, fee: 0 }, { maxKm: 9999, fee: 0 },
+  ]
+  const lo = incomeLayout(rates.length)
+
+  const weekMap = new Map<string, RevenueEntry[]>()
+  for (const e of revenue) {
+    const mon = getMondayStr(e.date)
+    if (!weekMap.has(mon)) weekMap.set(mon, [])
+    weekMap.get(mon)!.push(e)
+  }
+  const sortedWeeks = [...weekMap.keys()].sort()
+
+  // Two header rows (row 0 and row 1 in the sheet, 0-indexed)
+  const rows: (string | number | null)[][] = [makeIncomeHdr0(lo, rates), makeIncomeHdr1(lo)]
+  const fmtRules: SheetFormatRule[] = []
+  const sumRowIndices: number[] = []
+
+  for (let wi = 0; wi < sortedWeeks.length; wi++) {
+    const monday = sortedWeeks[wi]
+    const weekDates = getWeekDates(monday)
+    const weekEntries = weekMap.get(monday)!
+    const s1 = rows.length + 1   // 1-based first data row of this week
+
+    // Per-week tracking (running totals reset each week)
+    let prevDataRn: number | null = null  // row number of the previous day (1-based)
+    let friRn: number | null = null       // Friday row for Sunday AR formula
+
+    for (let di = 0; di < 7; di++) {
+      const date = weekDates[di]
+      const rn = rows.length + 1   // 1-based sheet row number
+      const entry = weekEntries.find((e) => e.date === date)
+
+      const l    = entry?.lunch    ?? emptyMeal()
+      const d    = entry?.dinner   ?? emptyMeal()
+      const lfyB = entry?.lfyBills ?? 0
+      const ubrB = entry?.uberBills ?? 0
+      const ddB  = entry?.doorDashBills ?? 0
+
+      const dayTrips = deliveryTrips.filter((t) => t.date === date)
+
+      // SUM row will be at s1+7 — needed for Sunday AR formula
+      const sumRn = s1 + 7
+
+      // AR (Uber surcharge): Thu=rate, Fri=text, Sun=formula referencing Fri AR - weekly Uber sum
+      let ar: string | number = ''
+      if (di === 3) ar = 0.283
+      else if (di === 4) ar = 'Uber Real Pay'
+      else if (di === 6 && friRn !== null) {
+        ar = `=${colLetter(lo.surcharge)}${friRn}-${colLetter(lo.cUber2)}${sumRn}`
+      }
+
+      // AS (running total — per-week, resets each Monday):
+      //   Mon: blank  |  Tue/Wed: rolling 2-day (prevDay + today)
+      //   Thu-Sun: cumulative (AS_prev + AP_curr)
+      let as: string | number = ''
+      if ((di === 1 || di === 2) && prevDataRn !== null) {
+        as = `=${colLetter(lo.cTotal)}${prevDataRn}+${colLetter(lo.cTotal)}${rn}`
+      } else if (di >= 3 && prevDataRn !== null) {
+        as = `=${colLetter(lo.running)}${prevDataRn}+${colLetter(lo.cTotal)}${rn}`
+      }
+
+      // Simplified running total (per-week):
+      //   Mon: blank  |  Tue: Mon_sTotal + Tue_sTotal  |  Wed-Sun: sRunning_prev + sTotal_curr
+      let bh: string | number = ''
+      if (di === 1 && prevDataRn !== null) {
+        bh = `=${colLetter(lo.sTotal)}${prevDataRn}+${colLetter(lo.sTotal)}${rn}`
+      } else if (di >= 2 && prevDataRn !== null) {
+        bh = `=${colLetter(lo.sRunning)}${prevDataRn}+${colLetter(lo.sTotal)}${rn}`
+      }
+
+      const [yr, mo, dy] = date.split('-').map(Number)
+      const row: (string | number | null)[] = new Array(lo.totalCols).fill('')
+
+      // A(0)-B(1) Day / Date
+      row[0] = DAY_ABBR[di]
+      row[1] = `=DATE(${yr},${mo},${dy})`
+
+      // C(2)-E(4) Bills
+      row[2] = lfyB; row[3] = ubrB; row[4] = ddB
+
+      // Delivery tier columns (dynamic)
+      for (let ti = 0; ti < rates.length; ti++) {
+        const prevMax = ti === 0 ? 0 : rates[ti - 1].maxKm
+        row[lo.delFirst + ti] = dayTrips.filter((t) =>
+          ti === 0 ? t.distance <= rates[ti].maxKm : t.distance > prevMax && t.distance <= rates[ti].maxKm
+        ).length
+      }
+      row[lo.delTotal] = `=SUM(${colLetter(lo.delFirst)}${rn}:${colLetter(lo.delLast)}${rn})`
+
+      // Lunch
+      row[lo.lEftpos]  = l.eftpos;        row[lo.lLfyOnl]  = l.lfyOnline
+      row[lo.lLfyCard] = l.lfyCards;      row[lo.lLfyCash] = l.lfyCash
+      row[lo.lUber]    = l.uberOnline;    row[lo.lDD]      = l.doorDash
+      row[lo.lCashBag] = l.cashLeftInBag; row[lo.lTotal]   = l.totalSale
+      row[lo.lCash]    = `=${colLetter(lo.lTotal)}${rn}-${colLetter(lo.lEftpos)}${rn}-${colLetter(lo.lLfyOnl)}${rn}-${colLetter(lo.lUber)}${rn}-${colLetter(lo.lDD)}${rn}`
+
+      // Dinner
+      row[lo.dEftpos]  = d.eftpos;        row[lo.dLfyOnl]  = d.lfyOnline
+      row[lo.dLfyCard] = d.lfyCards;      row[lo.dLfyCash] = d.lfyCash
+      row[lo.dUber]    = d.uberOnline;    row[lo.dDD]      = d.doorDash
+      row[lo.dCashBag] = d.cashLeftInBag; row[lo.dTotal]   = d.totalSale
+      row[lo.dCash]    = `=${colLetter(lo.dTotal)}${rn}-${colLetter(lo.dEftpos)}${rn}-${colLetter(lo.dLfyOnl)}${rn}-${colLetter(lo.dUber)}${rn}-${colLetter(lo.dDD)}${rn}`
+
+      // Combined
+      row[lo.cEftpos]  = `=${colLetter(lo.dEftpos)}${rn}+${colLetter(lo.lEftpos)}${rn}`
+      row[lo.cLfyOnl]  = `=${colLetter(lo.lLfyOnl)}${rn}+${colLetter(lo.dLfyOnl)}${rn}`
+      row[lo.cUber]    = `=${colLetter(lo.lUber)}${rn}+${colLetter(lo.dUber)}${rn}`
+      row[lo.cDD]      = `=${colLetter(lo.lDD)}${rn}+${colLetter(lo.dDD)}${rn}`
+      row[lo.cCash]    = `=${colLetter(lo.lCash)}${rn}+${colLetter(lo.dCash)}${rn}`
+      row[lo.cLunch]   = `=${colLetter(lo.lTotal)}${rn}`
+      row[lo.cDinner]  = `=${colLetter(lo.dTotal)}${rn}`
+      row[lo.cEftpos2] = `=${colLetter(lo.cEftpos)}${rn}`
+      row[lo.cLfy]     = `=${colLetter(lo.lLfyOnl)}${rn}+${colLetter(lo.lLfyCard)}${rn}+${colLetter(lo.lLfyCash)}${rn}+${colLetter(lo.dLfyOnl)}${rn}+${colLetter(lo.dLfyCard)}${rn}+${colLetter(lo.dLfyCash)}${rn}`
+      row[lo.cUber2]   = `=${colLetter(lo.lUber)}${rn}+${colLetter(lo.dUber)}${rn}`
+      row[lo.cDin2]    = `=${colLetter(lo.cDinner)}${rn}`
+      row[lo.cCash2]   = `=${colLetter(lo.lCash)}${rn}+${colLetter(lo.dCash)}${rn}`
+      row[lo.cTotal]   = `=${colLetter(lo.cLunch)}${rn}+${colLetter(lo.cDinner)}${rn}`
+      row[lo.cCashBag] = `=${colLetter(lo.lCashBag)}${rn}+${colLetter(lo.dCashBag)}${rn}`
+      row[lo.surcharge] = ar
+      row[lo.running]   = as
+
+      // Simplified view
+      row[lo.sDay]     = DAY_ABBR[di]
+      row[lo.sDate]    = `=${colLetter(1)}${rn}`
+      row[lo.sLEff]    = `=${colLetter(lo.lEftpos)}${rn}+${colLetter(lo.lLfyOnl)}${rn}+${colLetter(lo.lUber)}${rn}`
+      row[lo.sLCash]   = `=${colLetter(lo.lCash)}${rn}`
+      row[lo.sDEff]    = `=${colLetter(lo.dEftpos)}${rn}+${colLetter(lo.dLfyOnl)}${rn}+${colLetter(lo.dUber)}${rn}`
+      row[lo.sDCash]   = `=${colLetter(lo.dCash)}${rn}`
+      row[lo.sLTot]    = `=${colLetter(lo.sLEff)}${rn}+${colLetter(lo.sLCash)}${rn}`
+      row[lo.sDTot]    = `=${colLetter(lo.sDEff)}${rn}+${colLetter(lo.sDCash)}${rn}`
+      row[lo.sEffTot]  = `=${colLetter(lo.sLEff)}${rn}+${colLetter(lo.sDEff)}${rn}`
+      row[lo.sCashTot] = `=${colLetter(lo.sLCash)}${rn}+${colLetter(lo.sDCash)}${rn}`
+      row[lo.sTotal]   = `=${colLetter(lo.sEffTot)}${rn}+${colLetter(lo.sCashTot)}${rn}`
+      row[lo.sCashBag] = `=${colLetter(lo.cCashBag)}${rn}`
+      row[lo.sRunning] = bh
+
+      rows.push(row)
+
+      if (di === 6) {
+        // Sunday AR: red text
+        const r0 = rows.length - 1
+        fmtRules.push({ startRow: r0, endRow: r0 + 1, startCol: lo.surcharge, endCol: lo.surcharge + 1, foregroundColor: IC_RED })
+      }
+
+      if (di === 4) friRn = rn
+      prevDataRn = rn
+    }
+
+    // ── SUM row ──────────────────────────────────────────────────────────────
+    const sr    = rows.length + 1   // 1-based row number of SUM row
+    const s2    = s1 + 6            // 1-based last data row (Sunday)
+    const sunRn = s2                // Sunday row = s1 + 6
+
+    const sumRow: (string | number | null)[] = new Array(lo.totalCols).fill('')
+    sumRow[0]       = 'Sum'
+    sumRow[lo.sDay] = 'Sum'
+
+    // Dynamic sumCols covering all numeric columns
+    const sumCols: number[] = [2, 3, 4]
+    for (let i = lo.delFirst;  i <= lo.delTotal;  i++) sumCols.push(i)
+    for (let i = lo.lEftpos;   i <= lo.lCash;     i++) sumCols.push(i)
+    for (let i = lo.dEftpos;   i <= lo.dCash;     i++) sumCols.push(i)
+    for (let i = lo.cEftpos;   i <= lo.running;   i++) sumCols.push(i)
+    for (let i = lo.sLEff;     i <= lo.sCashBag;  i++) sumCols.push(i)
+
+    for (const c of sumCols) sumRow[c] = sumF(c, s1, s2)
+    // AR in SUM row = Sunday's AR value
+    sumRow[lo.surcharge] = `=${colLetter(lo.surcharge)}${sunRn}`
+    // AS in SUM row = AP_sum + AR_sum (yellow)
+    sumRow[lo.running] = `=${colLetter(lo.cTotal)}${sr}+${colLetter(lo.surcharge)}${sr}`
+
+    rows.push(sumRow)
+    sumRowIndices.push(rows.length - 1)
+  }
+
+  // ── Global number formats ─────────────────────────────────────────────────
+  const totalRows = rows.length
+  // Integer: C through delivery total (bills + delivery counts)
+  fmtRules.push({ startRow: 2, endRow: totalRows, startCol: 2, endCol: lo.delTotal + 1, numberFormat: INT_FORMAT })
+  // AUD: Lunch, Dinner, Combined, Simplified
+  fmtRules.push({ startRow: 2, endRow: totalRows, startCol: lo.lEftpos, endCol: lo.lCash    + 1, numberFormat: AUD_FORMAT })
+  fmtRules.push({ startRow: 2, endRow: totalRows, startCol: lo.dEftpos, endCol: lo.dCash    + 1, numberFormat: AUD_FORMAT })
+  fmtRules.push({ startRow: 2, endRow: totalRows, startCol: lo.cEftpos, endCol: lo.running  + 1, numberFormat: AUD_FORMAT })
+  fmtRules.push({ startRow: 2, endRow: totalRows, startCol: lo.sLEff,   endCol: lo.sRunning + 1, numberFormat: AUD_FORMAT })
+  // Date: B (col 1) and sDate
+  fmtRules.push({ startRow: 2, endRow: totalRows, startCol: 1,          endCol: 2,               numberFormat: DATE_FORMAT })
+  fmtRules.push({ startRow: 2, endRow: totalRows, startCol: lo.sDate,   endCol: lo.sDate    + 1, numberFormat: DATE_FORMAT })
+
+  await setSheetDataUserEntered(INCOME_SHEET, rows, sid)
+  await applyFormattingRules(INCOME_SHEET, sid, fmtRules)
+  await applyIncomeFullFormat(sid, lo, rows.length, sumRowIndices)
+}
+
+// ── Wage 2026 ─────────────────────────────────────────────────────────────────
+// Layout per week block (matches Excel Beecroft_WeeklySales_RecordsSample):
+//   Row 1: "WAGE ADJUSTED" | | Monday | | Tue | | Wed | | Thu | | Fri | | Sat | | Sun
+//   Row 2: "Since {date}"  | Rate | {date} | | {date} | ...
+//   Row 3: (blank) | "4/4.5 hrs" | Lunch | Dinner | Lunch | Dinner | ... | extra | WAGE | TAX | CASH PAID | Remaining cash
+//   Employee rows: name | rate | mon_L | mon_D | tue_L | tue_D | ... | extra | =SUM(C:Q) | TAX | PAID | =R-S-T
+//   SUM row:       TOTAL | | =SUM(C) | =SUM(D) | ... | =SUM(R) | =SUM(S) | =SUM(T) | =SUM(U)
+//   Day total row: | | | Mon+Tue | | Tue+Wed | ... (Lunch+Dinner combined per day in Dinner col)
+//   Lunch Wage row: | | | | ... | | "Lunch Wage" | =C_sum+E_sum+...
+//   Dinner Wage row: | | | | ... | | "Dinner Wage" | =D_sum+F_sum+...
+//   Blank separator row
+//
+// Columns A(0)-U(20) = 21 columns
+//   A(0)=Name  B(1)=Rate  C(2)=MonL  D(3)=MonD  E(4)=TueL  F(5)=TueD
+//   G(6)=WedL  H(7)=WedD  I(8)=ThuL  J(9)=ThuD  K(10)=FriL  L(11)=FriD
+//   M(12)=SatL  N(13)=SatD  O(14)=SunL  P(15)=SunD  Q(16)=Extra
+//   R(17)=WAGE  S(18)=TAX  T(19)=CASH PAID  U(20)=Remaining
+const WAGE_SHEET = 'Wage 2026'
+const WAGE_COL_COUNT = 21
+
+export async function syncWageSheet(shopCode: string): Promise<void> {
+  const { sid } = await getShopDb(shopCode)
+  const [employees, timeRecords] = await Promise.all([
+    listEmployees(shopCode, true),
+    listTimeRecords(shopCode),
+  ])
+  const staffEmps = employees.filter((e) => !e.positions.includes('Home'))
+  if (staffEmps.length === 0) return
+
+  const weekMap = new Map<string, TimeRecord[]>()
+  for (const r of timeRecords) {
+    const mon = getMondayStr(r.date)
+    if (!weekMap.has(mon)) weekMap.set(mon, [])
+    weekMap.get(mon)!.push(r)
+  }
+  const sortedWeeks = [...weekMap.keys()].sort()
+  if (sortedWeeks.length === 0) return
+
+  const rows: (string | number | null)[][] = []
+  const fmtRules: SheetFormatRule[] = []
+
+  // Colors
+  const W_HEADER = { red: 0.851, green: 0.918, blue: 0.827 }  // light green (#D9EAD3)
+  const W_SUM    = { red: 1,     green: 0.753, blue: 0     }  // orange  (#FFC000)
+  const W_DAY    = { red: 1,     green: 0.949, blue: 0.8   }  // yellow  (#FFF2CC)
+  const W_WAGE   = { red: 0.573, green: 0.816, blue: 0.314 }  // green   (#92D050)
+
+  const DAY_NAMES = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']
+
+  for (const monday of sortedWeeks) {
+    const weekDates = getWeekDates(monday)
+
+    // ── Header row 1: "WAGE ADJUSTED" + day names ──
+    const hdr1: (string | number | null)[] = new Array(WAGE_COL_COUNT).fill('')
+    hdr1[0] = 'WAGE ADJUSTED'
+    for (let d = 0; d < 7; d++) hdr1[2 + d * 2] = DAY_NAMES[d]
+    rows.push(hdr1)
+
+    // ── Header row 2: "Since {date}" + Rate + dates ──
+    const hdr2: (string | number | null)[] = new Array(WAGE_COL_COUNT).fill('')
+    hdr2[0] = `Since ${monday}`
+    hdr2[1] = 'Rate'
+    for (let d = 0; d < 7; d++) hdr2[2 + d * 2] = weekDates[d]
+    rows.push(hdr2)
+
+    // ── Header row 3: shift sub-labels ──
+    const hdr3: (string | number | null)[] = new Array(WAGE_COL_COUNT).fill('')
+    hdr3[1] = '4/4.5 hrs'
+    for (let d = 0; d < 7; d++) {
+      hdr3[2 + d * 2]     = 'Lunch'
+      hdr3[2 + d * 2 + 1] = 'Dinner'
+    }
+    hdr3[16] = 'extra'
+    hdr3[17] = 'WAGE'
+    hdr3[18] = 'TAX'
+    hdr3[19] = 'CASH PAID'
+    hdr3[20] = 'Remaining cash'
+    rows.push(hdr3)
+
+    // Header color + bold
+    const hStart = rows.length - 3
+    fmtRules.push({ startRow: hStart, endRow: hStart + 3, startCol: 0, endCol: WAGE_COL_COUNT, backgroundColor: W_HEADER, bold: true })
+
+    // Date format for the date cells in header row 2
+    for (let d = 0; d < 7; d++) {
+      const col = 2 + d * 2
+      fmtRules.push({ startRow: hStart + 1, endRow: hStart + 2, startCol: col, endCol: col + 1, numberFormat: DATE_FORMAT })
+    }
+
+    // ── Employee rows ──────────────────────────────────────────────────────────
+    const weekRecords = weekMap.get(monday) ?? []
+    const empStart = rows.length + 1  // 1-based sheet row of first employee
+
+    for (const emp of staffEmps) {
+      const rn = rows.length + 1  // 1-based sheet row
+      const rate = emp.hourlyWage ?? 0
+      const empRow: (string | number | null)[] = new Array(WAGE_COL_COUNT).fill('')
+      empRow[0] = emp.name
+      empRow[1] = rate
+      for (let d = 0; d < 7; d++) {
+        const rec = weekRecords.find((r) => r.date === weekDates[d] && r.employeeId === emp.id)
+        if (rec) {
+          if (rec.morning > 0) empRow[2 + d * 2]     = rate  // Lunch
+          if (rec.evening > 0) empRow[2 + d * 2 + 1] = rate  // Dinner
+        }
+      }
+      empRow[17] = `=SUM(C${rn}:Q${rn})`     // WAGE
+      // S(18)=TAX, T(19)=PAID: left blank for manual entry
+      empRow[20] = `=R${rn}-S${rn}-T${rn}`   // Remaining
+      rows.push(empRow)
+    }
+
+    const empEnd = rows.length  // 1-based sheet row of last employee
+
+    // ── SUM row ──────────────────────────────────────────────────────────────
+    const sumRn = rows.length + 1
+    const sumRow: (string | number | null)[] = new Array(WAGE_COL_COUNT).fill('')
+    sumRow[0] = 'TOTAL'
+    for (let c = 2; c <= 20; c++) {
+      sumRow[c] = `=SUM(${colLetter(c)}${empStart}:${colLetter(c)}${empEnd})`
+    }
+    rows.push(sumRow)
+    const sumIdx = rows.length - 1
+
+    // ── Day totals row: Lunch+Dinner combined in the Dinner column ──────────
+    const totRow: (string | number | null)[] = new Array(WAGE_COL_COUNT).fill('')
+    for (let d = 0; d < 7; d++) {
+      const lC = colLetter(2 + d * 2)      // Lunch col letter
+      const dC = colLetter(3 + d * 2)      // Dinner col letter
+      totRow[3 + d * 2] = `=${lC}${sumRn}+${dC}${sumRn}`
+    }
+    totRow[18] = `=S${sumRn}+T${sumRn}`   // Tax + Paid total
+    rows.push(totRow)
+
+    // ── Lunch Wage summary ────────────────────────────────────────────────────
+    const lwRow: (string | number | null)[] = new Array(WAGE_COL_COUNT).fill('')
+    lwRow[17] = 'Lunch Wage'
+    const lunchSum = [0, 2, 4, 6, 8, 10, 12].map((d) => `${colLetter(2 + d)}${sumRn}`).join('+')
+    lwRow[18] = `=${lunchSum}`
+    rows.push(lwRow)
+
+    // ── Dinner Wage summary ───────────────────────────────────────────────────
+    const dwRow: (string | number | null)[] = new Array(WAGE_COL_COUNT).fill('')
+    dwRow[17] = 'Dinner Wage'
+    const dinnerSum = [0, 2, 4, 6, 8, 10, 12].map((d) => `${colLetter(3 + d)}${sumRn}`).join('+')
+    const extraRef   = `${colLetter(16)}${sumRn}`  // Q = extra
+    dwRow[18] = `=${dinnerSum}+${extraRef}`
+    rows.push(dwRow)
+
+    // ── Blank separator ───────────────────────────────────────────────────────
+    rows.push(new Array(WAGE_COL_COUNT).fill(''))
+
+    // ── Colors ────────────────────────────────────────────────────────────────
+    fmtRules.push({ startRow: sumIdx, endRow: sumIdx + 1, startCol: 0, endCol: WAGE_COL_COUNT, backgroundColor: W_SUM })
+    const totIdx = sumIdx + 1
+    fmtRules.push({ startRow: totIdx, endRow: totIdx + 1, startCol: 0, endCol: WAGE_COL_COUNT, backgroundColor: W_DAY })
+    // WAGE column (R=17) highlight in employee rows
+    fmtRules.push({ startRow: sumIdx - staffEmps.length, endRow: sumIdx + 1, startCol: 17, endCol: 18, backgroundColor: W_WAGE })
+  }
+
+  // ── Global number formats (applied across all rows) ──────────────────────
+  const totalRows = rows.length
+  // AUD: wage/money columns C-R(17) and U(20)
+  fmtRules.push({ startRow: 0, endRow: totalRows, startCol: 2, endCol: 18, numberFormat: AUD_FORMAT })
+  fmtRules.push({ startRow: 0, endRow: totalRows, startCol: 20, endCol: 21, numberFormat: AUD_FORMAT })
+
+  await setSheetDataUserEntered(WAGE_SHEET, rows, sid)
+  await applyFormattingRules(WAGE_SHEET, sid, fmtRules)
+}
+
+// ── Sum 2026 ──────────────────────────────────────────────────────────────────
+// Per-week layout matching Excel (left: daily revenue + wage; right: expenses)
+//
+// Left side cols A(0)-K(10):
+//   A(0)=blank  B(1)=DayName/Label  C(2)=Date/Value
+//   D(3)=LunchCredit  E(4)=LunchCash  F(5)=DinnerCredit  G(6)=DinnerCash
+//   H(7)=TotalCredit  I(8)=TotalCash  J(9)=GrandTotal  K(10)=blank
+//
+// Right side cols L(11)-Q(16):
+//   L(11)=DayAbbr  M(12)=Date  N(13)=Description  O(14)=blank  P(15)=Amount  Q(16)=Notes
+//
+// Total: 17 columns (A-Q)
+const SUM_SHEET = 'Sum 2026'
+const SUM_COL_COUNT = 17
+
+export async function syncSumSheet(shopCode: string): Promise<void> {
+  const { sid } = await getShopDb(shopCode)
+  const [employees, timeRecords, deliveryTrips, revenue, expenses] = await Promise.all([
+    listEmployees(shopCode, true),
+    listTimeRecords(shopCode),
+    listDeliveryTrips(shopCode),
+    listRevenue(shopCode),
+    listExpenses(shopCode),
+  ])
+
+  const staffEmps = employees.filter((e) => !e.positions.includes('Home'))
+
+  const weekSet = new Set<string>()
+  for (const e of revenue)  weekSet.add(getMondayStr(e.date))
+  for (const e of expenses) weekSet.add(getMondayStr(e.date))
+  for (const r of timeRecords) weekSet.add(getMondayStr(r.date))
+  const sortedWeeks = [...weekSet].sort()
+  if (sortedWeeks.length === 0) return
+
+  const rows: (string | number | null)[][] = []
+  const fmtRules: SheetFormatRule[] = []
+
+  const S_HEADER = { red: 0.851, green: 0.918, blue: 0.827 }  // #D9EAD3 light green
+  const S_SUM    = { red: 1,     green: 0.753, blue: 0     }  // #FFC000 orange
+  const S_WAGE   = { red: 0.886, green: 0.937, blue: 0.855 }  // #E2F0DA very light green
+  const DAY_NAMES_FULL = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']
+
+  function emptyLeft():  (string | number | null)[] { return new Array(11).fill('') }
+  function emptyRight(): (string | number | null)[] { return new Array(6).fill('') }
+  function mergeRow(left: (string | number | null)[], right: (string | number | null)[]): (string | number | null)[] {
+    return [...left, ...right]
+  }
+
+  for (const monday of sortedWeeks) {
+    const weekDates = getWeekDates(monday)
+    const sunday = weekDates[6]
+    const wRev   = revenue.filter((e) => weekDates.includes(e.date))
+    const wExp   = expenses.filter((e) => weekDates.includes(e.date)).sort((a, b) => a.date.localeCompare(b.date))
+    const wRec   = timeRecords.filter((r) => weekDates.includes(r.date))
+    const wTrips = deliveryTrips.filter((t) => weekDates.includes(t.date))
+    const blockStart = rows.length  // 0-based index of first row in this week's block
+
+    // ── Build expense entries for right side ──────────────────────────────────
+    // One 6-wide entry per expense, starting at block offset 2 (Mon revenue row)
+    const expEntries: (string | number | null)[][] = []
+    let lastExpDate = ''
+    for (const exp of wExp) {
+      const right = emptyRight()
+      const isFirstOfDay = exp.date !== lastExpDate
+      if (isFirstOfDay) {
+        right[0] = DAY_ABBR[weekDates.indexOf(exp.date)]  // L: day abbr
+        right[1] = exp.date                                // M: date
+        lastExpDate = exp.date
+      }
+      right[2] = exp.supplier || exp.description           // N: description
+      right[4] = exp.total                                  // P: amount
+      if (exp.description && exp.supplier) right[5] = exp.description  // Q: notes
+      expEntries.push(right)
+    }
+    // Total expenses entry
+    const expTotalEntry = emptyRight()
+    expTotalEntry[3] = 'Total Expenses'
+    expTotalEntry[4] = wExp.reduce((s, e) => s + e.total, 0)
+    expEntries.push(expTotalEntry)
+
+    const expOffset = 2  // expense entries start at block offset 2 (Monday revenue row)
+
+    // Helper: get right-side entry for a given block row offset
+    function rightFor(blockOffset: number): (string | number | null)[] {
+      const idx = blockOffset - expOffset
+      return idx >= 0 && idx < expEntries.length ? expEntries[idx] : emptyRight()
+    }
+
+    // ── Header row 0: section labels ──────────────────────────────────────────
+    const hdr0Left = emptyLeft()
+    hdr0Left[3] = 'Lunch'
+    hdr0Left[5] = 'Dinner'
+    hdr0Left[7] = 'Total'
+    const hdr0Right = emptyRight()
+    hdr0Right[0] = `EXPENSES ${monday} to ${sunday}`
+    rows.push(mergeRow(hdr0Left, hdr0Right))
+
+    // ── Header row 1: sub-labels ──────────────────────────────────────────────
+    const hdr1Left = emptyLeft()
+    hdr1Left[3] = 'Credit'
+    hdr1Left[4] = 'Cash'
+    hdr1Left[5] = 'Credit'
+    hdr1Left[6] = 'Cash'
+    hdr1Left[7] = 'Credit'
+    hdr1Left[8] = 'Cash'
+    hdr1Left[9] = 'Grand Total'
+    const hdr1Right = emptyRight()
+    hdr1Right[4] = '$'  // P column
+    rows.push(mergeRow(hdr1Left, hdr1Right))
+
+    // Header format
+    fmtRules.push({ startRow: blockStart, endRow: blockStart + 2, startCol: 0, endCol: SUM_COL_COUNT, backgroundColor: S_HEADER, bold: true })
+
+    // ── Revenue rows (Mon-Sun, block offsets 2-8) ─────────────────────────────
+    const revStart1 = rows.length + 1  // 1-based sheet row of Mon revenue
+    const mealCash = (m: MealRevenue) => m.totalSale - m.eftpos - m.lfyOnline - m.uberOnline - m.doorDash
+    for (let d = 0; d < 7; d++) {
+      const date = weekDates[d]
+      const rev  = wRev.find((r) => r.date === date)
+      const lCredit = rev ? rev.lunch.eftpos : ''
+      const lCash   = rev ? mealCash(rev.lunch) : ''
+      const dCredit = rev ? rev.dinner.eftpos : ''
+      const dCash   = rev ? mealCash(rev.dinner) : ''
+      const tCredit = rev ? (rev.lunch.eftpos + rev.dinner.eftpos) : ''
+      const tCash   = rev ? (mealCash(rev.lunch) + mealCash(rev.dinner)) : ''
+      const gTotal  = rev ? (rev.lunch.totalSale + rev.dinner.totalSale) : ''
+      const left = emptyLeft()
+      left[1] = DAY_NAMES_FULL[d]
+      left[2] = date
+      left[3] = lCredit
+      left[4] = lCash
+      left[5] = dCredit
+      left[6] = dCash
+      left[7] = tCredit
+      left[8] = tCash
+      left[9] = gTotal
+      rows.push(mergeRow(left, rightFor(2 + d)))
+    }
+    const revEnd1 = rows.length  // 1-based sheet row of Sun revenue
+
+    // ── Revenue total row (block offset 9) ────────────────────────────────────
+    const revSumLeft = emptyLeft()
+    for (let c = 3; c <= 9; c++) {
+      revSumLeft[c] = `=SUM(${colLetter(c)}${revStart1}:${colLetter(c)}${revEnd1})`
+    }
+    rows.push(mergeRow(revSumLeft, rightFor(9)))
+    const revSumIdx = rows.length - 1  // 0-based index of rev sum row
+    fmtRules.push({ startRow: revSumIdx, endRow: revSumIdx + 1, startCol: 0, endCol: 11, backgroundColor: S_SUM })
+
+    // ── Blank row (block offset 10) ───────────────────────────────────────────
+    rows.push(mergeRow(emptyLeft(), rightFor(10)))
+
+    // ── Week date label (block offset 11) ─────────────────────────────────────
+    const labelLeft = emptyLeft()
+    labelLeft[1] = `${monday} To ${sunday}`
+    rows.push(mergeRow(labelLeft, rightFor(11)))
+
+    // ── Wage column headers (block offset 12) ─────────────────────────────────
+    const wageHdrLeft = emptyLeft()
+    wageHdrLeft[2] = 'WAGE'
+    wageHdrLeft[3] = 'TAX'
+    wageHdrLeft[4] = 'PAID'
+    rows.push(mergeRow(wageHdrLeft, rightFor(12)))
+
+    // ── Employee wage rows (block offset 13+) ─────────────────────────────────
+    const empWageStart1 = rows.length + 1  // 1-based sheet row of first employee
+    let blockEmpOffset = 13
+    for (const emp of staffEmps) {
+      const rate = emp.hourlyWage ?? 0
+      const empRecs = wRec.filter((r) => r.employeeId === emp.id)
+      const totalWage = empRecs.reduce((s, r) => s + (r.morning > 0 ? rate : 0) + (r.evening > 0 ? rate : 0), 0)
+      const left = emptyLeft()
+      left[1] = emp.name
+      left[2] = totalWage > 0 ? totalWage : ''
+      rows.push(mergeRow(left, rightFor(blockEmpOffset)))
+      blockEmpOffset++
+    }
+    // Delivery fee row (if any)
+    const deliveryFee = wTrips.reduce((s, t) => s + t.fee, 0)
+    if (deliveryFee > 0) {
+      const left = emptyLeft()
+      left[1] = 'Delivery'
+      left[2] = deliveryFee
+      rows.push(mergeRow(left, rightFor(blockEmpOffset)))
+      blockEmpOffset++
+    }
+    const empWageEnd1 = rows.length  // 1-based sheet row of last employee/delivery
+
+    // ── Total Wage row ────────────────────────────────────────────────────────
+    const totalWageRn = rows.length + 1
+    const twLeft = emptyLeft()
+    twLeft[1] = 'Total Wage'
+    twLeft[2] = `=SUM(C${empWageStart1}:C${empWageEnd1})`
+    rows.push(mergeRow(twLeft, rightFor(blockEmpOffset++)))
+
+    // ── TAX/PAID row ──────────────────────────────────────────────────────────
+    const taxPaidRn = rows.length + 1
+    const tpLeft = emptyLeft()
+    tpLeft[1] = 'TAX/PAID'
+    tpLeft[2] = `=SUM(D${empWageStart1}:E${empWageEnd1})`
+    rows.push(mergeRow(tpLeft, rightFor(blockEmpOffset++)))
+
+    // ── Wage (CASH) row ───────────────────────────────────────────────────────
+    const wcLeft = emptyLeft()
+    wcLeft[1] = 'Wage (CASH)'
+    wcLeft[2] = `=C${totalWageRn}-C${taxPaidRn}`
+    rows.push(mergeRow(wcLeft, rightFor(blockEmpOffset++)))
+
+    // Color wage summary rows
+    const wcIdx = rows.length - 1
+    fmtRules.push({ startRow: wcIdx - 2, endRow: wcIdx + 1, startCol: 0, endCol: 11, backgroundColor: S_WAGE })
+
+    // ── Flush any remaining expense entries not yet shown ─────────────────────
+    const neededForExp = expOffset + expEntries.length
+    while (rows.length - blockStart < neededForExp) {
+      const idx = rows.length - blockStart
+      rows.push(mergeRow(emptyLeft(), rightFor(idx)))
+    }
+
+    // ── Blank separator between weeks ─────────────────────────────────────────
+    rows.push(new Array(SUM_COL_COUNT).fill(''))
+  }
+
+  // ── Global formats ────────────────────────────────────────────────────────
+  const totalRows = rows.length
+  // Revenue columns D-J (3-9): AUD
+  fmtRules.push({ startRow: 0, endRow: totalRows, startCol: 3, endCol: 10, numberFormat: AUD_FORMAT })
+  // Wage column C (2): AUD
+  fmtRules.push({ startRow: 0, endRow: totalRows, startCol: 2, endCol: 3, numberFormat: AUD_FORMAT })
+  // Expense amount column P (15): AUD
+  fmtRules.push({ startRow: 0, endRow: totalRows, startCol: 15, endCol: 16, numberFormat: AUD_FORMAT })
+  // Date columns C (2) left and M (12) right:
+  // NOTE: C also holds wage amounts, so skip date format for C to avoid conflicts.
+  // Apply date format only to M (12) expense dates
+  fmtRules.push({ startRow: 0, endRow: totalRows, startCol: 12, endCol: 13, numberFormat: DATE_FORMAT })
+
+  await setSheetDataUserEntered(SUM_SHEET, rows, sid)
+  await applyFormattingRules(SUM_SHEET, sid, fmtRules)
+}
+
+// ── OverAll ───────────────────────────────────────────────────────────────────
+// Weekly summary matching Excel: Weekly | Income | Expense | Wage | Extra+Surcharge
+// Columns A-F (6 columns)
+const OVERALL_SHEET = 'OverAll'
+const OVERALL_HEADERS = ['Weekly', 'Income', 'Expense', 'Wage', 'Delivery Fee', 'Cash Leave']
+
+export async function syncOverAllSheet(shopCode: string): Promise<void> {
+  const { sid } = await getShopDb(shopCode)
+  const [employees, timeRecords, deliveryTrips, revenue, expenses] = await Promise.all([
+    listEmployees(shopCode, true),
+    listTimeRecords(shopCode),
+    listDeliveryTrips(shopCode),
+    listRevenue(shopCode),
+    listExpenses(shopCode),
+  ])
+
+  const weekSet = new Set<string>()
+  for (const e of revenue)  weekSet.add(getMondayStr(e.date))
+  for (const e of expenses) weekSet.add(getMondayStr(e.date))
+  for (const r of timeRecords) weekSet.add(getMondayStr(r.date))
+  const sortedWeeks = [...weekSet].sort()
+  if (sortedWeeks.length === 0) return
+
+  const rows: (string | number | null)[][] = [OVERALL_HEADERS]
+  const fmtRules: SheetFormatRule[] = []
+  fmtRules.push({ startRow: 0, endRow: 1, startCol: 0, endCol: OVERALL_HEADERS.length, backgroundColor: C_ORANGE, bold: true })
+
+  for (const monday of sortedWeeks) {
+    const weekDates = getWeekDates(monday)
+    const sunday    = weekDates[6]
+    const wRev   = revenue.filter((e) => weekDates.includes(e.date))
+    const wExp   = expenses.filter((e) => weekDates.includes(e.date))
+    const wRec   = timeRecords.filter((r) => weekDates.includes(r.date))
+    const wTrips = deliveryTrips.filter((t) => weekDates.includes(t.date))
+
+    const totalSale   = wRev.reduce((s, e) => s + e.lunch.totalSale + e.dinner.totalSale, 0)
+    const totalExp    = wExp.reduce((s, e) => s + e.total, 0)
+    const staffWage   = employees.filter((e) => !e.positions.includes('Home')).reduce((sum, emp) => {
+      const rate = emp.hourlyWage ?? 0
+      return sum + wRec.filter((r) => r.employeeId === emp.id)
+        .reduce((s, r) => s + (r.morning > 0 ? rate : 0) + (r.evening > 0 ? rate : 0), 0)
+    }, 0)
+    const deliveryFee = wTrips.reduce((s, t) => s + t.fee, 0)
+    const cashRevenue = wRev.reduce((s, e) => {
+      const cs = (m: MealRevenue) => m.totalSale - m.eftpos - m.lfyOnline - m.uberOnline - m.doorDash
+      return s + cs(e.lunch) + cs(e.dinner)
+    }, 0)
+    const cashExp     = wExp.filter((e) => e.paymentMethod === 'Cash').reduce((s, e) => s + e.total, 0)
+    const cashLeave   = cashRevenue - cashExp - staffWage - deliveryFee
+
+    rows.push([`${monday} - ${sunday}`, totalSale, totalExp, staffWage, deliveryFee, cashLeave])
+  }
+
+  // AUD format all numeric columns B-F
+  const totalRows = rows.length
+  fmtRules.push({ startRow: 1, endRow: totalRows, startCol: 1, endCol: 6, numberFormat: AUD_FORMAT })
+
+  await setSheetDataUserEntered(OVERALL_SHEET, rows, sid)
+  await applyFormattingRules(OVERALL_SHEET, sid, fmtRules)
+}
+
+// ── Sync all report sheets ────────────────────────────────────────────────────
+
+export async function syncAllReportSheets(shopCode: string): Promise<void> {
+  await syncIncomeSheet(shopCode)
+  await syncWageSheet(shopCode)
+  await syncSumSheet(shopCode)
+  await syncOverAllSheet(shopCode)
 }

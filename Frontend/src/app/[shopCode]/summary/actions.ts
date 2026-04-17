@@ -28,6 +28,21 @@ export async function getSummaryData(shopCode: string, month: string) {
   }>
 }
 
+export async function syncReportSheets(shopCode: string) {
+  const session = await getSession()
+  if (!session || session.shopCode !== shopCode) throw new Error('Unauthorized')
+
+  const res = await fetch(`${BACKEND_URL}/${shopCode}/sheets/sync`, {
+    method: 'POST',
+    headers: authHeader(session.token),
+  })
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}))
+    throw new Error(body.error ?? 'Sync failed')
+  }
+  return res.json() as Promise<{ ok: boolean; message: string }>
+}
+
 export async function saveDailyNote(shopCode: string, date: string, note: string) {
   const session = await getSession()
   if (!session || session.shopCode !== shopCode) throw new Error('Unauthorized')

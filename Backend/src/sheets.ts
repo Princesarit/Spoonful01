@@ -41,11 +41,21 @@ async function getSheetTitles(spreadsheetId: string): Promise<Set<string>> {
 async function ensureSheet(sheetName: string, spreadsheetId: string): Promise<void> {
   const titles = await getSheetTitles(spreadsheetId)
   if (titles.has(sheetName)) return
-  await sheetsApi.spreadsheets.batchUpdate({
-    spreadsheetId,
-    requestBody: { requests: [{ addSheet: { properties: { title: sheetName } } }] },
-  })
-  titles.add(sheetName)
+  try {
+    await sheetsApi.spreadsheets.batchUpdate({
+      spreadsheetId,
+      requestBody: { requests: [{ addSheet: { properties: { title: sheetName } } }] },
+    })
+    titles.add(sheetName)
+  } catch {
+    // Tab may already exist (created externally) — refresh cache and verify
+    sheetTitleCacheMap.delete(spreadsheetId)
+    const refreshed = await getSheetTitles(spreadsheetId)
+    if (!refreshed.has(sheetName)) {
+      throw new Error(`Failed to create sheet tab: ${sheetName}`)
+    }
+    // Tab exists now, proceed normally
+  }
 }
 
 /**
@@ -104,6 +114,125 @@ export async function setSheetDataRaw(
       range: `${sheetName}!A1`,
       valueInputOption: 'RAW',
       requestBody: { values: rows },
+    })
+  }
+}
+
+/**
+ * เขียนข้อมูลดิบลง sheet ด้วย USER_ENTERED (รองรับ formula เช่น =SUM(...))
+ */
+export async function setSheetDataUserEntered(
+  sheetName: string,
+  rows: (string | number | null)[][],
+  spreadsheetId = config.spreadsheetId,
+): Promise<void> {
+  await ensureSheet(sheetName, spreadsheetId)
+  await sheetsApi.spreadsheets.values.clear({ spreadsheetId, range: sheetName })
+  if (rows.length > 0) {
+    await sheetsApi.spreadsheets.values.update({
+      spreadsheetId,
+      range: `${sheetName}!A1`,
+      valueInputOption: 'USER_ENTERED',
+      requestBody: { values: rows },
+    })
+  }
+}
+
+export type ColorRGB = { red: number; green: number; blue: number }
+export type ColorRuleBlock = {
+  startRow: number; endRow: number; startCol: number; endCol: number; color: ColorRGB
+}
+
+export type SheetFormatRule = {
+  startRow: number; endRow: number; startCol: number; endCol: number
+  backgroundColor?: ColorRGB
+  foregroundColor?: ColorRGB
+  bold?: boolean
+  numberFormat?: { type: string; pattern: string }
+}
+
+/**
+ * Apply mixed formatting rules (background, text color, bold, number format) in batches
+ */
+export async function applyFormattingRules(
+  sheetName: string,
+  spreadsheetId: string,
+  rules: SheetFormatRule[],
+): Promise<void> {
+  if (rules.length === 0) return
+  const meta = await sheetsApi.spreadsheets.get({ spreadsheetId })
+  const sheet = meta.data.sheets?.find((s) => s.properties?.title === sheetName)
+  const sheetId = sheet?.properties?.sheetId
+  if (sheetId === undefined) return
+
+  const requests = rules.map(({ startRow, endRow, startCol, endCol, backgroundColor, foregroundColor, bold, numberFormat }) => {
+    const ueFormat: Record<string, unknown> = {}
+    const fields: string[] = []
+
+    if (backgroundColor) {
+      ueFormat.backgroundColor = backgroundColor
+      fields.push('userEnteredFormat.backgroundColor')
+    }
+    if (foregroundColor !== undefined || bold !== undefined) {
+      const tf: Record<string, unknown> = {}
+      if (foregroundColor !== undefined) {
+        tf.foregroundColor = foregroundColor
+        fields.push('userEnteredFormat.textFormat.foregroundColor')
+      }
+      if (bold !== undefined) {
+        tf.bold = bold
+        fields.push('userEnteredFormat.textFormat.bold')
+      }
+      ueFormat.textFormat = tf
+    }
+    if (numberFormat) {
+      ueFormat.numberFormat = numberFormat
+      fields.push('userEnteredFormat.numberFormat')
+    }
+
+    return {
+      repeatCell: {
+        range: { sheetId, startRowIndex: startRow, endRowIndex: endRow, startColumnIndex: startCol, endColumnIndex: endCol },
+        cell: { userEnteredFormat: ueFormat },
+        fields: fields.join(','),
+      },
+    }
+  })
+
+  for (let i = 0; i < requests.length; i += 100) {
+    await sheetsApi.spreadsheets.batchUpdate({
+      spreadsheetId,
+      requestBody: { requests: requests.slice(i, i + 100) },
+    })
+  }
+}
+
+/**
+ * Apply background color rules to a sheet in batches (to avoid API size limits)
+ */
+export async function applyColorRules(
+  sheetName: string,
+  spreadsheetId: string,
+  rules: ColorRuleBlock[],
+): Promise<void> {
+  if (rules.length === 0) return
+  const meta = await sheetsApi.spreadsheets.get({ spreadsheetId })
+  const sheet = meta.data.sheets?.find((s) => s.properties?.title === sheetName)
+  const sheetId = sheet?.properties?.sheetId
+  if (sheetId === undefined) return
+
+  const requests = rules.map(({ startRow, endRow, startCol, endCol, color }) => ({
+    repeatCell: {
+      range: { sheetId, startRowIndex: startRow, endRowIndex: endRow, startColumnIndex: startCol, endColumnIndex: endCol },
+      cell: { userEnteredFormat: { backgroundColor: color } },
+      fields: 'userEnteredFormat.backgroundColor',
+    },
+  }))
+
+  for (let i = 0; i < requests.length; i += 100) {
+    await sheetsApi.spreadsheets.batchUpdate({
+      spreadsheetId,
+      requestBody: { requests: requests.slice(i, i + 100) },
     })
   }
 }
@@ -264,6 +393,34 @@ export async function applyRowColors(
     await sheetsApi.spreadsheets.batchUpdate({
       spreadsheetId,
       requestBody: { requests },
+    })
+  }
+}
+
+/**
+ * Get the numeric sheetId for a named tab
+ */
+export async function getSheetIdByName(
+  spreadsheetId: string,
+  sheetName: string,
+): Promise<number | undefined> {
+  const meta = await sheetsApi.spreadsheets.get({ spreadsheetId })
+  const sheet = meta.data.sheets?.find((s) => s.properties?.title === sheetName)
+  return sheet?.properties?.sheetId ?? undefined
+}
+
+/**
+ * Send arbitrary batchUpdate requests (merges, borders, column widths, etc.)
+ */
+export async function batchUpdateSheet(
+  spreadsheetId: string,
+  requests: object[],
+): Promise<void> {
+  if (requests.length === 0) return
+  for (let i = 0; i < requests.length; i += 100) {
+    await sheetsApi.spreadsheets.batchUpdate({
+      spreadsheetId,
+      requestBody: { requests: requests.slice(i, i + 100) },
     })
   }
 }

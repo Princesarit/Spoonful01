@@ -39,11 +39,11 @@ function weekLabel(monday: Date, locale: string): string {
   return `${monday.toLocaleDateString(locale, opts)} – ${sunday.toLocaleDateString(locale, { ...opts, year: 'numeric' })}`
 }
 
-const POSITIONS: Position[] = ['Front', 'Back', 'Home']
+const POSITIONS: Position[] = ['Front', 'Kitchen', 'Home']
 const POS_COLORS: Record<string, string> = {
   Manager: 'text-red-600 bg-red-50',
   Front: 'text-blue-600 bg-blue-50',
-  Back: 'text-brand-gold bg-brand-gold-light',
+  Kitchen: 'text-brand-gold bg-brand-gold-light',
   Home: 'text-green-600 bg-green-50',
 }
 

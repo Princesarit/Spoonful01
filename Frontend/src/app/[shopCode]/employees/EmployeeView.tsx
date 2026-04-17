@@ -8,7 +8,7 @@ import { v4 as uuidv4 } from 'uuid'
 import { useShop } from '@/components/ShopProvider'
 import { translations } from '@/lib/translations'
 
-const ALL_POSITIONS: Position[] = ['Manager', 'Front', 'Back', 'Home']
+const ALL_POSITIONS: Position[] = ['Manager', 'Front', 'Kitchen', 'Home']
 
 const DAYS_SHORT_TH = ['จ', 'อ', 'พ', 'พฤ', 'ศ', 'ส', 'อา']
 const DAYS_SHORT_EN = ['M', 'T', 'W', 'Th', 'F', 'Sa', 'Su']
@@ -16,21 +16,21 @@ const DAYS_SHORT_EN = ['M', 'T', 'W', 'Th', 'F', 'Sa', 'Su']
 const POS_TAG: Record<Position, string> = {
   Manager: 'text-red-600 bg-red-50 border border-red-200',
   Front:   'text-blue-600 bg-blue-50',
-  Back:    'text-amber-600 bg-amber-50',
+  Kitchen: 'text-amber-600 bg-amber-50',
   Home:    'text-green-600 bg-green-50',
 }
 
 const POS_BTN_ON: Record<Position, string> = {
   Manager: 'border-red-500 bg-red-500 text-white',
   Front:   'border-blue-500 bg-blue-500 text-white',
-  Back:    'border-amber-500 bg-amber-500 text-white',
+  Kitchen: 'border-amber-500 bg-amber-500 text-white',
   Home:    'border-green-500 bg-green-500 text-white',
 }
 
 const POS_FILTER_ON: Record<Position, string> = {
   Manager: 'bg-red-500 text-white border-red-500',
   Front:   'bg-blue-500 text-white border-blue-500',
-  Back:    'bg-amber-500 text-white border-amber-500',
+  Kitchen: 'bg-amber-500 text-white border-amber-500',
   Home:    'bg-green-500 text-white border-green-500',
 }
 
@@ -38,7 +38,7 @@ function sortKey(positions: Position[]): number {
   if (positions.includes('Manager')) return 0
   if (positions.length > 1)          return 1
   if (positions.includes('Front'))   return 2
-  if (positions.includes('Back'))    return 3
+  if (positions.includes('Kitchen')) return 3
   if (positions.includes('Home'))    return 4
   return 5
 }
@@ -82,6 +82,7 @@ export default function EmployeeView({
   const [editorName, setEditorName] = useState('')
   const [editNote, setEditNote] = useState('')
   const [saving, setSaving] = useState(false)
+  const [saveError, setSaveError] = useState('')
   const [nameError, setNameError] = useState('')
   const [deleteAudit, setDeleteAudit] = useState<{ emp: Employee; editorName: string; note: string } | null>(null)
 
@@ -97,6 +98,7 @@ export default function EmployeeView({
     setEditing(null)
     setForm(EMPTY_FORM)
     setNameError('')
+    setSaveError('')
     setShowForm(true)
   }
 
@@ -106,6 +108,7 @@ export default function EmployeeView({
     setEditorName('')
     setEditNote('')
     setNameError('')
+    setSaveError('')
     setShowForm(true)
   }
 
@@ -129,6 +132,7 @@ export default function EmployeeView({
       return
     }
     setNameError('')
+    setSaveError('')
     setSaving(true)
     const id = editing?.id || uuidv4()
     const emp: Employee = {
@@ -141,10 +145,16 @@ export default function EmployeeView({
       defaultDays: form.defaultDays,
     }
     const result = await saveEmployeeAction(shopCode, emp)
+    if ('error' in result) {
+      setSaveError(result.error as string)
+      setSaving(false)
+      return
+    }
     if ('ok' in result && result.ok) {
       setEmployees((prev) =>
         sortEmployees(editing ? prev.map((e) => (e.id === id ? emp : e)) : [...prev, emp]),
       )
+      if (!editing) setFilter('all')  // reset filter so new employee is visible
       if (editing) {
         // Build changes summary
         const changes: string[] = []
@@ -508,6 +518,10 @@ export default function EmployeeView({
                   />
                 </div>
               </div>
+            )}
+
+            {saveError && (
+              <div className="text-xs text-red-500 bg-red-50 rounded-lg px-3 py-2">{saveError}</div>
             )}
 
             <div className="flex gap-2 pt-1">

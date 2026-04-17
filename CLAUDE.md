@@ -87,6 +87,72 @@
 - **EmployeeView**: ไม่ต้องแก้ — `GET /employees` (ไม่มี `?all=true`) คืนแค่ active employees อยู่แล้ว
 - Dedup logic อัปเดต: fired employees ข้ามการ dedup (เก็บไว้เสมอ), dedup ทำเฉพาะ active employees
 
+### Expenses Page — Redesigned Form (`ExpenseView.tsx`)
+- Form ใหม่ตาม spec Task 4: Date + Day (auto) | Description/Name | Amount ($AUD) | Payment Method | Notes
+- `Day` auto-calculated จาก date (read-only, แสดงเป็น Mon/Tue/...)
+- `supplier` field = Description/Name ของร้านหรือรายการ (e.g. Woolworths, Home, BBQ ducks)
+- `description` field = Notes (optional)
+- `category` ยังคงอยู่ใน type แต่ default = 'General' ไม่แสดงใน form
+- Amount แสดงเป็น AUD `$X.XX` format
+- Payment Method: 3 icon buttons (💵 Cash / 💳 Credit Card / 🏦 Online Banking)
+- Save disabled ถ้า Description/Name ว่าง หรือ Amount = 0
+- List card แสดง: Day + Date | Name | Payment badge | Notes | Amount | Paid toggle
+
+### Time Record — Wage Summary (`TimeRecordView.tsx`)
+- Section ใหม่ "Wage Summary" อยู่ระหว่าง Weekly section กับ Daily Home Delivery
+- ใช้ข้อมูล `weekAttend` (morning/evening) เดียวกับ Weekly section
+- ตาราง: Name | Rate | จ/อ/พ/พฤ/ศ/ส/อา (แต่ละวัน L/D) | WAGE | TAX | PAID | Remaining
+- L = morning > 0 (สีเหลือง), D = evening > 0 (สีฟ้า)
+- WAGE คำนวณ: จำนวนกะที่มา × `employee.hourlyWage`
+- TAX และ PAID เป็น input ที่แก้ได้ (local state: `wageTax`, `wagePaid`)
+- Remaining = WAGE - TAX - PAID (สีแดงถ้าติดลบ, เขียวถ้าบวก)
+- แถว Total ด้านล่างรวมยอดทุกคน + นับจำนวนคนต่อกะต่อวัน
+
+### Time Record — Delivery Count Summary
+- **Delivery Count** section แสดงด้านบนของ Home Delivery section
+- คำนวณจาก `trips` state: 0-4km (≤4), 5-6km (5-6), >7km (≥7), Total
+- แสดงทันทีเมื่อกรอก km ของแต่ละ trip (real-time)
+- COD ไม่ถูก auto-save ไปหน้า Revenue อีกต่อไป (เก็บแค่ใน audit log)
+
+### Revenue Page — New Lunch/Dinner Model (`RevenueView.tsx`)
+- **RevenueEntry** ถูก redesign ใหม่ทั้งหมดให้แยก Lunch / Dinner
+- **MealRevenue** interface: `eftpos, lfyOnline, lfyCards, lfyCash, uberOnline, doorDash, cashLeftInBag, totalSale`
+- **Bill counts**: `lfyBills, uberBills, doorDashBills` (จำนวน bill ต่อ platform)
+- **cashSale** คำนวณ auto = `totalSale - eftpos - lfyOnline - uberOnline - doorDash`
+- Sheet column: `id, date, lfyBills, uberBills, doorDashBills, lunch (JSON), dinner (JSON), note`
+- Backward compat: อ่าน format เก่า (netSales, card) แล้ว map ไป lunch.totalSale + lunch.eftpos
+- Platform manager ถูกเอาออก (ใช้ LFY / Uber / DoorDash fixed แทน)
+- **SummaryView** อัปเดต `calcDay()` ให้ใช้ `lunch.totalSale + dinner.totalSale` แทน `netSales`
+
+### Google Sheet Report Sync (Task 5)
+- **Sync button** ใน SummaryView header — กด "Sync Sheets" เพื่อ sync ข้อมูลทั้งหมด
+- **Backend route**: `POST /:shopCode/sheets/sync` → `syncAllReportSheets(shopCode)`
+- **4 report sheets** สร้าง/อัปเดตอัตโนมัติ:
+
+#### Income 2026 (`syncIncomeSheet`)
+- Columns A-Y: Date | Day | LFY/Uber/DD Bills | Lunch (Eftpos/LFY Online/Cards/Cash/Uber/DD/CashInBag/TotalSale/CashSale) | Dinner (same) | Grand Total | Grand Cash Sale
+- `L:Cash Sale` = formula `=M-F-G-J-K` (auto), `D:Cash Sale` = `=V-O-P-S-T`
+- Color: L:Total Sale + D:Total Sale = **green** (#92D050), L:Cash in Bag + D:Cash in Bag = **yellow** (#FFFF00)
+- **SUM row** per week (orange #FFC000): `=SUM(Cs1:Cs2)` ทุก column
+- Week blocks: 7 data rows + 1 SUM row (no blank between weeks)
+
+#### Wage 2026 (`syncWageSheet`)
+- Columns: Week Start | Employee | Rate (฿) | Mon-Sun (shift count 0/1/2) | Total Shifts | WAGE
+- Total Shifts = `=SUM(D:J)`, WAGE = `=Rate × Total Shifts`
+- **TOTAL row** per week (orange): รวม shifts + WAGE ของทุกคน
+
+#### Sum 2026 (`syncSumSheet`)
+- One row per week: Week Start | Week End | Total Sale | Eftpos | Online Orders | Cash Revenue | Cash Expense | Non-Cash Expense | Staff Wage | Delivery Fee | Total Labor | Cash Leave
+- Cash Leave cell: green ถ้า ≥ 0, red ถ้า < 0
+- **GRAND TOTAL row** ด้านล่าง
+
+#### OverAll (`syncOverAllSheet`)
+- One row per month: Month | Total Sale | Online Orders | Total Eftpos | Cash Revenue | Cash/Non-Cash/Total Expense | Staff Wage | Delivery Fee | Total Labor | Cash Leave | Net Profit (est)
+
+#### sheets.ts additions
+- `setSheetDataUserEntered()` — เขียน sheet ด้วย `USER_ENTERED` (รองรับ formula)
+- `applyColorRules(rules[])` — apply background color แบบ batch (100 per request)
+
 ---
 
 ## Key Files
@@ -94,9 +160,10 @@
 | File | Purpose |
 |------|---------|
 | `Backend/src/db.ts` | All Google Sheets read/write logic |
-| `Backend/src/sheets.ts` | Sheets API client (`getSheetData`, `setSheetData`, `applyRowColors`, `applyTimeRecordFormatting`) |
+| `Backend/src/sheets.ts` | Sheets API client (`getSheetData`, `setSheetData`, `applyRowColors`, `applyTimeRecordFormatting`, `setSheetDataUserEntered`, `applyColorRules`) |
 | `Backend/src/routes/employees.ts` | Employee CRUD + duplicate check + soft delete |
 | `Backend/src/routes/config.ts` | Config + audit-log endpoint |
+| `Backend/src/routes/sheetSync.ts` | Report sheet sync endpoints (`POST /:shopCode/sheets/sync`) |
 | `Frontend/src/app/[shopCode]/schedule/ScheduleView.tsx` | Schedule grid + delete logic |
 | `Frontend/src/app/[shopCode]/employees/EmployeeView.tsx` | Employee list + add/edit/delete |
 | `Frontend/src/app/[shopCode]/time-record/TimeRecordView.tsx` | Per-employee time record save/edit |

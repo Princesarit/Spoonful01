@@ -7,7 +7,6 @@ import type { Employee, TimeRecord, DeliveryTrip, DeliveryRate, Position } from 
 import { DEFAULT_DELIVERY_RATES, calcDeliveryFee } from '@/lib/config'
 import { getWeekTimeRecords, getTimeRecordData, saveTimeRecords, saveEmployee, getWeekSchedule } from './actions'
 import { getDeliveryRates, getDeliveryFee } from '../config/actions'
-import { saveRevenueEntry } from '../revenue/actions'
 import { saveAuditLog } from './actions'
 import { useShop } from '@/components/ShopProvider'
 import { translations } from '@/lib/translations'
@@ -68,7 +67,7 @@ export default function TimeRecordView() {
   const DAYS_SHORT = lang === 'en' ? DAYS_SHORT_EN : DAYS_SHORT_TH
   const locale = lang === 'en' ? 'en-US' : 'th-TH'
 
-  // ── Weekly state (Front / Back) ──
+  // ── Weekly state (Front / Kitchen) ──
   const [weekStart, setWeekStart] = useState(() => getMonday(new Date()))
   const [weekDates, setWeekDates] = useState<string[]>([])
   const [weekAttend, setWeekAttend] = useState<WeekAttendMap>({})
@@ -81,6 +80,10 @@ export default function TimeRecordView() {
   // null = no schedule for this week (show all, allow all cells)
   // Map<empId, days[]> = schedule loaded — filter employees and lock unchecked cells
   const [weekScheduleMap, setWeekScheduleMap] = useState<Map<string, (string | null)[]> | null>(null)
+
+  // ── Wage adjustment (tax / cash paid per employee) ──
+  const [wageTax, setWageTax] = useState<Record<string, number>>({})
+  const [wagePaid, setWagePaid] = useState<Record<string, number>>({})
 
   // ── Delivery rates & fee ──
   const [deliveryRates, setDeliveryRates] = useState<DeliveryRate[]>(DEFAULT_DELIVERY_RATES)
@@ -127,7 +130,7 @@ export default function TimeRecordView() {
       // Also hide fired employees on current/future weeks
       const isPastWeek = new Date(weekStr + 'T00:00:00') < getMonday(new Date())
       const allStaff = employees.filter((e) =>
-        (e.positions.includes('Front') || e.positions.includes('Back')) &&
+        (e.positions.includes('Front') || e.positions.includes('Kitchen')) &&
         (isPastWeek || !e.fired)
       )
       const staff = schedMap
@@ -265,7 +268,7 @@ export default function TimeRecordView() {
     try {
       await saveEmployee(shopCode, emp)
       // update both lists
-      if (emp.positions.includes('Front') || emp.positions.includes('Back')) {
+      if (emp.positions.includes('Front') || emp.positions.includes('Kitchen')) {
         setStaffEmps((p) => [...p, emp])
         setWeekAttend((p) => {
           const updated = { ...p }
@@ -377,21 +380,7 @@ export default function TimeRecordView() {
         return empTrips.map((t, i) => ({ ...t, cod: i === 0 && cod > 0 ? cod : undefined }))
       })
       await saveTimeRecords(shopCode, date, [], allTrips)
-      // Save revenue entry for this employee's COD
-      const cod = codByEmp[emp.id] ?? 0
-      if (cod > 0) {
-        await saveRevenueEntry(shopCode, {
-          id: `cod_${date}_${emp.id}`,
-          date,
-          name: `Cash on Delivery (${emp.name})`,
-          netSales: cod,
-          paidOnline: 0,
-          card: 0,
-          cash: cod,
-          platforms: {},
-          note: noteByEmp[emp.id] || undefined,
-        })
-      }
+      // COD is tracked via audit log — no longer auto-saved to revenue
       // Save audit log with change summary
       const shift = emp.defaultDays[0] ? 'Morning' : emp.defaultDays[1] ? 'Evening' : ''
       const changes = buildChangeSummary(emp)
@@ -431,7 +420,7 @@ export default function TimeRecordView() {
         )}
       </div>
 
-      {/* ═══ WEEKLY — Front / Back ═══════════════════════════════════════════ */}
+      {/* ═══ WEEKLY — Front / Kitchen ═══════════════════════════════════════════ */}
       <div className="space-y-3">
         <div className="flex items-center justify-between">
           <h3 className="text-sm font-bold text-gray-700">{tr.front_back_weekly}</h3>
@@ -464,7 +453,7 @@ export default function TimeRecordView() {
           <>
             {[
               { label: 'Front', color: 'text-blue-600', emps: staffEmps.filter((e) => e.positions.includes('Front')) },
-              { label: 'Back',  color: 'text-brand-gold', emps: staffEmps.filter((e) => e.positions.includes('Back')) },
+              { label: 'Kitchen', color: 'text-brand-gold', emps: staffEmps.filter((e) => e.positions.includes('Kitchen')) },
             ].map(({ label, color, emps }) =>
               emps.length === 0 ? null : (
                 <div key={label} className="bg-white rounded-xl border border-gray-100 shadow-sm overflow-hidden">
@@ -578,6 +567,132 @@ export default function TimeRecordView() {
         )}
       </div>
 
+      {/* ═══ WAGE SUMMARY ════════════════════════════════════════════════════ */}
+      <div className="space-y-3">
+        <h3 className="text-sm font-bold text-gray-700">Wage Summary</h3>
+
+        {weekLoading ? (
+          <div className="text-center py-6 text-gray-400 text-sm">{tr.loading}</div>
+        ) : staffEmps.length === 0 ? (
+          <div className="text-center py-6 text-gray-400 text-sm">ไม่มีพนักงาน</div>
+        ) : (
+          <div className="bg-white rounded-xl border border-gray-100 shadow-sm overflow-hidden">
+            <div className="overflow-x-auto">
+              <table className="w-full text-xs">
+                <thead>
+                  <tr className="border-b border-gray-100 bg-gray-50">
+                    <th className="text-left px-3 py-2 font-medium text-gray-500 min-w-24">Name</th>
+                    <th className="text-center px-2 py-2 font-medium text-gray-500 min-w-14">Rate</th>
+                    {weekDates.map((d, i) => (
+                      <th key={d} colSpan={2} className="text-center px-1 py-2 font-medium text-gray-500">
+                        <div>{DAYS_SHORT[i]}</div>
+                        <div className="text-gray-300 text-[9px]">{new Date(d + 'T00:00:00').getDate()}</div>
+                        <div className="flex gap-0.5 justify-center mt-0.5">
+                          <span className="text-[9px] text-yellow-500 w-4 text-center">L</span>
+                          <span className="text-[9px] text-blue-400 w-4 text-center">D</span>
+                        </div>
+                      </th>
+                    ))}
+                    <th className="text-center px-2 py-2 font-medium text-gray-600 min-w-14">WAGE</th>
+                    <th className="text-center px-2 py-2 font-medium text-gray-500 min-w-14">TAX</th>
+                    <th className="text-center px-2 py-2 font-medium text-gray-500 min-w-16">PAID</th>
+                    <th className="text-center px-2 py-2 font-medium text-gray-500 min-w-16">Remaining</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {staffEmps.map((emp) => {
+                    const rate = emp.hourlyWage ?? 0
+                    const wage = weekDates.reduce((sum, d) => {
+                      const a = weekAttend[d]?.[emp.id] ?? { morning: 0, evening: 0 }
+                      return sum + (a.morning > 0 ? rate : 0) + (a.evening > 0 ? rate : 0)
+                    }, 0)
+                    const tax = wageTax[emp.id] ?? 0
+                    const paid = wagePaid[emp.id] ?? 0
+                    const remaining = wage - tax - paid
+                    return (
+                      <tr key={emp.id} className="border-b border-gray-50 last:border-0">
+                        <td className="px-3 py-2 font-medium text-gray-700 whitespace-nowrap">{emp.name}</td>
+                        <td className="text-center px-2 py-2 text-gray-500">{rate > 0 ? `$${rate}` : '—'}</td>
+                        {weekDates.map((d) => {
+                          const a = weekAttend[d]?.[emp.id] ?? { morning: 0, evening: 0 }
+                          return (
+                            <React.Fragment key={d}>
+                              <td className={`text-center px-1 py-2 ${a.morning > 0 ? 'bg-yellow-50 text-yellow-700 font-semibold' : 'text-gray-200'}`}>
+                                {a.morning > 0 ? '✓' : '·'}
+                              </td>
+                              <td className={`text-center px-1 py-2 ${a.evening > 0 ? 'bg-blue-50 text-blue-600 font-semibold' : 'text-gray-200'}`}>
+                                {a.evening > 0 ? '✓' : '·'}
+                              </td>
+                            </React.Fragment>
+                          )
+                        })}
+                        <td className="text-center px-2 py-2 font-bold text-gray-800">
+                          {wage > 0 ? `$${wage.toFixed(2)}` : '—'}
+                        </td>
+                        <td className="px-1 py-1">
+                          <input
+                            type="number"
+                            min="0"
+                            value={tax || ''}
+                            onChange={(e) => setWageTax((p) => ({ ...p, [emp.id]: parseFloat(e.target.value) || 0 }))}
+                            placeholder="0"
+                            className="w-14 border border-gray-200 rounded px-1.5 py-1 text-center focus:outline-none focus:ring-1 focus:ring-brand-gold"
+                          />
+                        </td>
+                        <td className="px-1 py-1">
+                          <input
+                            type="number"
+                            min="0"
+                            value={paid || ''}
+                            onChange={(e) => setWagePaid((p) => ({ ...p, [emp.id]: parseFloat(e.target.value) || 0 }))}
+                            placeholder="0"
+                            className="w-16 border border-gray-200 rounded px-1.5 py-1 text-center focus:outline-none focus:ring-1 focus:ring-brand-gold"
+                          />
+                        </td>
+                        <td className={`text-center px-2 py-2 font-semibold ${remaining < 0 ? 'text-red-500' : remaining > 0 ? 'text-green-600' : 'text-gray-400'}`}>
+                          {wage > 0 ? `$${remaining.toFixed(2)}` : '—'}
+                        </td>
+                      </tr>
+                    )
+                  })}
+                  {/* Totals row */}
+                  {(() => {
+                    const totalWage = staffEmps.reduce((s, emp) => {
+                      const rate = emp.hourlyWage ?? 0
+                      return s + weekDates.reduce((sum, d) => {
+                        const a = weekAttend[d]?.[emp.id] ?? { morning: 0, evening: 0 }
+                        return sum + (a.morning > 0 ? rate : 0) + (a.evening > 0 ? rate : 0)
+                      }, 0)
+                    }, 0)
+                    const totalTax = staffEmps.reduce((s, e) => s + (wageTax[e.id] ?? 0), 0)
+                    const totalPaid = staffEmps.reduce((s, e) => s + (wagePaid[e.id] ?? 0), 0)
+                    return (
+                      <tr className="border-t-2 border-gray-200 bg-gray-50 font-semibold">
+                        <td className="px-3 py-2 text-gray-600" colSpan={2}>Total</td>
+                        {weekDates.map((d) => {
+                          const lunch = staffEmps.filter((e) => (weekAttend[d]?.[e.id]?.morning ?? 0) > 0).length
+                          const dinner = staffEmps.filter((e) => (weekAttend[d]?.[e.id]?.evening ?? 0) > 0).length
+                          return (
+                            <React.Fragment key={d}>
+                              <td className="text-center px-1 py-2 text-yellow-600 bg-yellow-50 text-[10px]">{lunch > 0 ? lunch : ''}</td>
+                              <td className="text-center px-1 py-2 text-blue-500 bg-blue-50 text-[10px]">{dinner > 0 ? dinner : ''}</td>
+                            </React.Fragment>
+                          )
+                        })}
+                        <td className="text-center px-2 py-2 text-gray-800">${totalWage.toFixed(2)}</td>
+                        <td className="text-center px-2 py-2 text-gray-600">${totalTax.toFixed(2)}</td>
+                        <td className="text-center px-2 py-2 text-gray-600">${totalPaid.toFixed(2)}</td>
+                        <td className="text-center px-2 py-2 text-green-700">${(totalWage - totalTax - totalPaid).toFixed(2)}</td>
+                      </tr>
+                    )
+                  })()}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
+      </div>
+
       {/* ═══ DAILY — Home Delivery ════════════════════════════════════════════ */}
       <div className="space-y-3">
         <h3 className="text-sm font-bold text-gray-700">{tr.home_delivery_daily}</h3>
@@ -594,6 +709,52 @@ export default function TimeRecordView() {
             <p className="text-xs text-orange-500 mt-1">⚠ ดูได้อย่างเดียว (ไม่ใช่วันนี้)</p>
           )}
         </div>
+
+        {/* ── Delivery Count Summary ─────────────────────────────────────── */}
+        {!homeLoading && (() => {
+          const allTrips = Object.values(trips).flat().filter((t) => t.distance > 0)
+          const TIER_COLORS = [
+            'bg-green-50 text-green-700',
+            'bg-yellow-50 text-yellow-700',
+            'bg-orange-50 text-orange-700',
+            'bg-red-50 text-red-700',
+            'bg-purple-50 text-purple-700',
+            'bg-blue-50 text-blue-700',
+            'bg-teal-50 text-teal-700',
+          ]
+          const buckets = deliveryRates.map((r, i) => {
+            const prevMax = i === 0 ? 0 : deliveryRates[i - 1].maxKm
+            const label = i === 0
+              ? `≤${r.maxKm}km`
+              : r.maxKm >= 9999
+                ? `>${prevMax}km`
+                : `>${prevMax}–${r.maxKm}km`
+            const count = allTrips.filter((t) =>
+              i === 0 ? t.distance <= r.maxKm : t.distance > prevMax && t.distance <= r.maxKm
+            ).length
+            return { label, count, color: TIER_COLORS[i % TIER_COLORS.length] }
+          })
+          const total = buckets.reduce((s, b) => s + b.count, 0)
+          // choose grid cols: ≤3 tiers → cols = tiers+1, else → 4
+          const gridCols = buckets.length <= 3 ? `grid-cols-${buckets.length + 1}` : 'grid-cols-4'
+          return (
+            <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-4">
+              <div className="text-xs font-semibold text-gray-600 mb-3">Delivery Count</div>
+              <div className={`grid ${gridCols} gap-2 text-center`}>
+                {buckets.map(({ label, count, color }) => (
+                  <div key={label} className={`rounded-lg py-2 ${color}`}>
+                    <div className="text-lg font-bold">{count}</div>
+                    <div className="text-[10px] mt-0.5">{label}</div>
+                  </div>
+                ))}
+                <div className="rounded-lg py-2 bg-brand-gold-light text-brand-gold font-bold">
+                  <div className="text-lg">{total}</div>
+                  <div className="text-[10px] mt-0.5">Total</div>
+                </div>
+              </div>
+            </div>
+          )
+        })()}
 
         {homeLoading ? (
           <div className="text-center py-8 text-gray-400 text-sm">{tr.loading}</div>
@@ -866,7 +1027,7 @@ export default function TimeRecordView() {
             />
 
             <div className="flex gap-2">
-              {(['Front', 'Back', 'Home'] as const).map((pos) => (
+              {(['Front', 'Kitchen', 'Home'] as const).map((pos) => (
                 <button
                   key={pos}
                   type="button"

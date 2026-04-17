@@ -69,11 +69,12 @@ function ElevateModal({
   )
 }
 
+type Shift = 'am' | 'pm' | 'total'
+
 interface Stats {
-  totalSales: number
-  activeStaff: number
-  totalEmployees: number
-  ordersToday: number
+  lunchSales: number
+  dinnerSales: number
+  totalBills: number
 }
 
 export default function HomePage() {
@@ -84,46 +85,65 @@ export default function HomePage() {
   const [showManagerModal, setShowManagerModal] = useState(false)
   const [showOwnerModal, setShowOwnerModal] = useState(false)
   const [stats, setStats] = useState<Stats | null>(null)
-  const [staffShift, setStaffShift] = useState<'morning' | 'evening'>('morning')
-  const [staffCounts, setStaffCounts] = useState<{ morning: number; evening: number } | null>(null)
+  const [shift, setShift] = useState<Shift>('total')
+  const [staffCounts, setStaffCounts] = useState<{
+    morning: number; evening: number; total: number
+    amPos: { front: number; kitchen: number; home: number }
+    pmPos: { front: number; kitchen: number; home: number }
+    totalPos: { front: number; kitchen: number; home: number }
+  } | null>(null)
+
+  function nextShift() {
+    setShift((s) => s === 'am' ? 'pm' : s === 'pm' ? 'total' : 'am')
+  }
 
   useEffect(() => {
     const todayDate = today()
-    Promise.all([
-      getRevenueData(shopCode),
-      getTimeRecordData(shopCode, todayDate),
-    ]).then(([revData, trData]) => {
-      const todayEntries = revData.entries.filter((e) => e.date === todayDate)
-      const totalSales = todayEntries.reduce((s, e) => {
-        const platTotal = Object.values(e.platforms).reduce((a, v) => a + v, 0)
-        return s + e.netSales + e.paidOnline + platTotal
-      }, 0)
-      const activeStaff = trData.timeRecords.filter(
-        (r) => (r.morning ?? 0) > 0 || (r.evening ?? 0) > 0
-      ).length
+    getRevenueData(shopCode).then(({ entries }) => {
+      const todayEntries = entries.filter((e) => e.date === todayDate)
       setStats({
-        totalSales,
-        activeStaff,
-        totalEmployees: trData.employees.length,
-        ordersToday: todayEntries.length,
+        lunchSales: todayEntries.reduce((s, e) => s + e.lunch.totalSale, 0),
+        dinnerSales: todayEntries.reduce((s, e) => s + e.dinner.totalSale, 0),
+        totalBills: todayEntries.reduce((s, e) => s + e.lfyBills + e.uberBills + e.doorDashBills, 0),
       })
     }).catch(() => {})
 
-    getScheduleData(shopCode).then(({ schedules }) => {
+    getScheduleData(shopCode).then(({ employees, schedules }) => {
       const now = new Date()
-      const dayOfWeek = now.getDay() // 0=Sun
+      const dayOfWeek = now.getDay()
       const dayIdx = dayOfWeek === 0 ? 6 : dayOfWeek - 1 // Mon=0..Sun=6
-      // Find monday of current week (local time)
       const d = new Date(now)
       d.setDate(d.getDate() - (dayOfWeek === 0 ? 6 : dayOfWeek - 1))
       d.setHours(0, 0, 0, 0)
       const weekStr = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
       const currentSchedule = schedules.find((s) => s.weekStart === weekStr)
-      if (currentSchedule) {
-        const morning = currentSchedule.entries.filter((e) => e.days[dayIdx * 2] != null && e.days[dayIdx * 2] !== false).length
-        const evening = currentSchedule.entries.filter((e) => e.days[dayIdx * 2 + 1] != null && e.days[dayIdx * 2 + 1] !== false).length
-        setStaffCounts({ morning, evening })
+      if (!currentSchedule) return
+
+      const empMap = new Map(employees.map((e) => [e.id, e]))
+      const countPos = (entries: typeof currentSchedule.entries) => {
+        const ids = new Set(entries.map((e) => e.employeeId))
+        let front = 0, kitchen = 0, home = 0
+        ids.forEach((id) => {
+          const pos = empMap.get(id)?.positions ?? []
+          if (pos.includes('Front'))   front++
+          if (pos.includes('Kitchen')) kitchen++
+          if (pos.includes('Home'))    home++
+        })
+        return { front, kitchen, home }
       }
+
+      const amEntries  = currentSchedule.entries.filter((e) => e.days[dayIdx * 2] != null)
+      const pmEntries  = currentSchedule.entries.filter((e) => e.days[dayIdx * 2 + 1] != null)
+      const allEntries = currentSchedule.entries.filter((e) => e.days[dayIdx * 2] != null || e.days[dayIdx * 2 + 1] != null)
+
+      setStaffCounts({
+        morning: amEntries.length,
+        evening: pmEntries.length,
+        total:   allEntries.length,
+        amPos:    countPos(amEntries),
+        pmPos:    countPos(pmEntries),
+        totalPos: countPos(allEntries),
+      })
     }).catch(() => {})
   }, [shopCode])
 
@@ -134,6 +154,7 @@ export default function HomePage() {
       href: 'revenue',
       icon: '$',
       iconBg: 'bg-emerald-500',
+      ownerOnly: false,
     },
     {
       label: tr.nav_expense,
@@ -141,6 +162,7 @@ export default function HomePage() {
       href: 'expense',
       icon: '🧾',
       iconBg: 'bg-orange-500',
+      ownerOnly: false,
     },
     {
       label: tr.nav_summary,
@@ -148,6 +170,7 @@ export default function HomePage() {
       href: 'summary',
       icon: '📊',
       iconBg: 'bg-blue-500',
+      ownerOnly: true,
     },
     {
       label: tr.nav_employees,
@@ -155,6 +178,7 @@ export default function HomePage() {
       href: 'employees',
       icon: '👥',
       iconBg: 'bg-violet-500',
+      ownerOnly: false,
     },
     {
       label: tr.nav_time_record,
@@ -162,6 +186,7 @@ export default function HomePage() {
       href: 'time-record',
       icon: '⏰',
       iconBg: 'bg-pink-500',
+      ownerOnly: false,
     },
     {
       label: tr.nav_schedule,
@@ -169,6 +194,7 @@ export default function HomePage() {
       href: 'schedule',
       icon: '📅',
       iconBg: 'bg-teal-500',
+      ownerOnly: false,
     },
   ]
 
@@ -176,70 +202,113 @@ export default function HomePage() {
     <div className="space-y-5">
       {/* Stats cards */}
       <div className="grid grid-cols-3 gap-3">
-        <div className="bg-white rounded-2xl p-4 shadow-sm border border-gray-100">
+        {/* Today's Sales */}
+        {/* Today's Sales */}
+        <button
+          onClick={nextShift}
+          className="bg-white rounded-2xl p-4 shadow-sm border border-gray-100 text-left w-full active:scale-95 transition-all cursor-pointer"
+        >
           <div className="flex items-start justify-between mb-2">
             <span className="text-xs text-gray-500">{lang === 'th' ? 'ยอดวันนี้' : "Today's Sales"}</span>
-            <span className="text-green-500 text-sm">↗</span>
+            <span className={`text-xs px-1.5 py-0.5 rounded-full font-medium ${shift === 'am' ? 'bg-orange-100 text-orange-600' : shift === 'pm' ? 'bg-blue-100 text-blue-600' : 'bg-gray-100 text-gray-600'}`}>
+              {shift === 'am' ? 'AM' : shift === 'pm' ? 'PM' : 'Total'}
+            </span>
           </div>
           <div className="text-lg font-bold text-gray-900">
-            {stats ? `฿${stats.totalSales.toLocaleString()}` : '—'}
+            {stats
+              ? `฿${(shift === 'am' ? stats.lunchSales : shift === 'pm' ? stats.dinnerSales : stats.lunchSales + stats.dinnerSales).toLocaleString()}`
+              : '—'}
           </div>
           <div className="text-xs text-gray-400 mt-1">
-            {stats ? `${stats.ordersToday} ${lang === 'th' ? 'รายการ' : 'entries'}` : '...'}
+            {shift === 'am' ? 'Lunch' : shift === 'pm' ? 'Dinner' : 'All day'}
           </div>
-        </div>
+        </button>
 
+        {/* Active Staff */}
         <button
-          onClick={() => setStaffShift((s) => s === 'morning' ? 'evening' : 'morning')}
+          onClick={nextShift}
           className="bg-white rounded-2xl p-4 shadow-sm border border-gray-100 text-left w-full active:scale-95 transition-all cursor-pointer"
         >
           <div className="flex items-start justify-between mb-2">
             <span className="text-xs text-gray-500">{lang === 'th' ? 'พนักงาน' : 'Active Staff'}</span>
-            <span className={`text-xs px-1.5 py-0.5 rounded-full font-medium ${staffShift === 'morning' ? 'bg-orange-100 text-orange-600' : 'bg-blue-100 text-blue-600'}`}>
-              {staffShift === 'morning' ? (lang === 'th' ? 'เช้า' : 'AM') : (lang === 'th' ? 'บ่าย' : 'PM')}
+            <span className={`text-xs px-1.5 py-0.5 rounded-full font-medium ${shift === 'am' ? 'bg-orange-100 text-orange-600' : shift === 'pm' ? 'bg-blue-100 text-blue-600' : 'bg-gray-100 text-gray-600'}`}>
+              {shift === 'am' ? 'AM' : shift === 'pm' ? 'PM' : 'Total'}
             </span>
           </div>
           <div className="text-lg font-bold text-gray-900">
-            {staffCounts ? staffCounts[staffShift] : (stats ? stats.activeStaff : '—')}
-          </div>
-          <div className="text-xs text-gray-400 mt-1">
             {staffCounts
-              ? `${lang === 'th' ? 'กด เปลี่ยน เช้า/บ่าย' : 'tap to toggle AM/PM'}`
-              : '...'}
+              ? shift === 'am' ? staffCounts.morning : shift === 'pm' ? staffCounts.evening : staffCounts.total
+              : '—'}
           </div>
+          {staffCounts && (() => {
+            const pos = shift === 'am' ? staffCounts.amPos : shift === 'pm' ? staffCounts.pmPos : staffCounts.totalPos
+            return (
+              <div className="flex gap-1 mt-1.5 flex-wrap">
+                {pos.front   > 0 && <span className="text-[10px] bg-blue-50 text-blue-600 px-1.5 py-0.5 rounded-full font-medium">F·{pos.front}</span>}
+                {pos.kitchen > 0 && <span className="text-[10px] bg-amber-50 text-amber-600 px-1.5 py-0.5 rounded-full font-medium">K·{pos.kitchen}</span>}
+                {pos.home    > 0 && <span className="text-[10px] bg-green-50 text-green-600 px-1.5 py-0.5 rounded-full font-medium">H·{pos.home}</span>}
+              </div>
+            )
+          })()}
+          {!staffCounts && <div className="text-xs text-gray-400 mt-1">{lang === 'th' ? 'ตามตาราง' : 'from schedule'}</div>}
         </button>
 
-        <div className="bg-white rounded-2xl p-4 shadow-sm border border-gray-100">
+        {/* Orders Today */}
+        <button
+          onClick={nextShift}
+          className="bg-white rounded-2xl p-4 shadow-sm border border-gray-100 text-left w-full active:scale-95 transition-all cursor-pointer"
+        >
           <div className="flex items-start justify-between mb-2">
             <span className="text-xs text-gray-500">{lang === 'th' ? 'ออเดอร์' : 'Orders Today'}</span>
-            <span className="text-orange-400 text-sm">📋</span>
+            <span className={`text-xs px-1.5 py-0.5 rounded-full font-medium ${shift === 'am' ? 'bg-orange-100 text-orange-600' : shift === 'pm' ? 'bg-blue-100 text-blue-600' : 'bg-gray-100 text-gray-600'}`}>
+              {shift === 'am' ? 'AM' : shift === 'pm' ? 'PM' : 'Total'}
+            </span>
           </div>
           <div className="text-lg font-bold text-gray-900">
-            {stats ? stats.ordersToday : '—'}
+            {stats ? stats.totalBills : '—'}
           </div>
           <div className="text-xs text-gray-400 mt-1">
-            {lang === 'th' ? 'รายการวันนี้' : 'entries today'}
+            {lang === 'th' ? 'จำนวน Bill' : 'total bills'}
           </div>
-        </div>
+        </button>
       </div>
 
       {/* Nav grid */}
       <div className="grid grid-cols-3 gap-3">
-        {NAV_ITEMS.map((item) => (
+        {NAV_ITEMS.map((item) => {
+          const locked = item.ownerOnly && session.role !== 'owner'
+          const inner = (
+            <>
+              <div className={`w-10 h-10 rounded-xl ${item.iconBg} flex items-center justify-center text-white text-lg font-bold shadow-sm`}>
+                {item.icon}
+              </div>
+              <div>
+                <div className="text-sm font-bold text-gray-800 leading-tight">{item.label}</div>
+                <div className="text-xs text-gray-400 mt-0.5 leading-tight">{item.sub}</div>
+              </div>
+            </>
+          )
+          if (locked) {
+            return (
+              <div
+                key={item.href}
+                className="relative flex flex-col items-start gap-2 p-4 rounded-2xl bg-white border border-gray-100 shadow-sm cursor-not-allowed select-none"
+              >
+                {inner}
+                <span className="absolute top-2 right-2 text-sm">🔒</span>
+              </div>
+            )
+          }
+          return (
           <Link
             key={item.href}
             href={`/${shopCode}/${item.href}`}
             className="flex flex-col items-start gap-2 p-4 rounded-2xl bg-white border border-gray-100 shadow-sm hover:shadow-md active:scale-95 transition-all"
           >
-            <div className={`w-10 h-10 rounded-xl ${item.iconBg} flex items-center justify-center text-white text-lg font-bold shadow-sm`}>
-              {item.icon}
-            </div>
-            <div>
-              <div className="text-sm font-bold text-gray-800 leading-tight">{item.label}</div>
-              <div className="text-xs text-gray-400 mt-0.5 leading-tight">{item.sub}</div>
-            </div>
+            {inner}
           </Link>
-        ))}
+          )
+        })}
       </div>
 
       {/* Role action buttons */}

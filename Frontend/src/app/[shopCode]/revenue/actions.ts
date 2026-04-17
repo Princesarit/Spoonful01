@@ -44,6 +44,21 @@ export async function deleteRevenueEntry(shopCode: string, id: string) {
   if (!res.ok) throw new Error('Failed to delete revenue entry')
 }
 
+export async function saveAuditLog(
+  shopCode: string,
+  entry: { editorName: string; note: string; employeeName: string; shift: string; changes: string },
+): Promise<void> {
+  const session = await getSession()
+  if (!session || session.shopCode !== shopCode) return
+  try {
+    await fetch(`${BACKEND_URL}/${shopCode}/config/audit-log`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...authHeader(session.token) },
+      body: JSON.stringify(entry),
+    })
+  } catch { /* audit failure should not block the action */ }
+}
+
 export async function savePlatforms(shopCode: string, platforms: DeliveryPlatform[]) {
   const session = await getSession()
   if (!session || session.shopCode !== shopCode || session.role !== 'owner')

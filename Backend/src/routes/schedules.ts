@@ -23,7 +23,15 @@ router.get('/', requireShopAuth, async (req: AuthRequest, res: Response) => {
 // POST /:shopCode/schedules — upsert week schedule
 router.post('/', requireShopAuth, async (req: AuthRequest, res: Response) => {
   try {
-    const weekSchedule = req.body as WeekSchedule
+    const raw = req.body as WeekSchedule
+    // Migrate any legacy 'Back' position values → 'Kitchen'
+    const weekSchedule: WeekSchedule = {
+      ...raw,
+      entries: raw.entries.map((e) => ({
+        ...e,
+        days: e.days.map((d) => (d === 'Back' ? 'Kitchen' : d)),
+      })),
+    }
     const all = await listSchedules(req.params.shopCode)
     const newMs = new Date(weekSchedule.weekStart + 'T00:00:00Z').getTime()
     // Remove any existing schedule whose 7-day window overlaps (handles off-by-one weekStart from old bug)
