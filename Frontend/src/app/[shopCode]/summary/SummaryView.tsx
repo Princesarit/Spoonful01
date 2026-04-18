@@ -19,25 +19,11 @@ import { translations } from '@/lib/translations'
 type Pov = 'daily' | 'weekly' | 'monthly'
 type Shift = 'am' | 'pm' | 'total'
 
-const DAYS_SHORT_EN = ['M', 'T', 'W', 'Th', 'F', 'Sa', 'Su']
-const DAYS_SHORT_TH = ['จ', 'อ', 'พ', 'พฤ', 'ศ', 'ส', 'อา']
 
 function currentMonth(): string {
   return new Date().toISOString().slice(0, 7)
 }
 
-function getMondayStr(date: Date): string {
-  const d = new Date(date)
-  const day = d.getDay()
-  d.setDate(d.getDate() + (day === 0 ? -6 : 1 - day))
-  return d.toISOString().split('T')[0]
-}
-
-function addWeeks(weekStr: string, delta: number): string {
-  const d = new Date(weekStr + 'T00:00:00')
-  d.setDate(d.getDate() + delta * 7)
-  return d.toISOString().split('T')[0]
-}
 
 function addMonth(month: string, delta: number): string {
   const [y, m] = month.split('-').map(Number)
@@ -517,11 +503,6 @@ export default function SummaryView() {
   function nextShift() { setShift((s) => s === 'am' ? 'pm' : s === 'pm' ? 'total' : 'am') }
   const [loading, setLoading] = useState(true)
   const [syncing, setSyncing] = useState(false)
-  const [showWage, setShowWage] = useState(false)
-  const [wageWeekStart, setWageWeekStart] = useState(() => getMondayStr(new Date()))
-  const [wageTax, setWageTax] = useState<Record<string, number>>({})
-  const [wagePaid, setWagePaid] = useState<Record<string, number>>({})
-  const DAYS_SHORT = lang === 'en' ? DAYS_SHORT_EN : DAYS_SHORT_TH
   const [employees, setEmployees] = useState<Employee[]>([])
   const [timeRecords, setTimeRecords] = useState<TimeRecord[]>([])
   const [deliveryTrips, setDeliveryTrips] = useState<DeliveryTrip[]>([])
@@ -584,12 +565,12 @@ export default function SummaryView() {
           {tr.back}
         </Link>
         <h2 className="text-lg font-bold text-gray-800 flex-1">{tr.summary_title}</h2>
-        <button
-          onClick={() => setShowWage((v) => !v)}
-          className={`text-xs px-3 py-1.5 rounded-lg cursor-pointer border transition-colors ${showWage ? 'bg-brand-gold text-white border-brand-gold' : 'bg-white text-gray-600 border-gray-200 hover:border-gray-300'}`}
+        <Link
+          href={`/${shopCode}/wage`}
+          className="text-xs px-3 py-1.5 rounded-lg cursor-pointer border transition-colors bg-white text-gray-600 border-gray-200 hover:border-gray-300"
         >
           Wage
-        </button>
+        </Link>
         {session.role === 'owner' && (
           <button
             onClick={async () => {
@@ -778,146 +759,6 @@ export default function SummaryView() {
         </>
       )}
 
-      {/* ── Wage Summary ───────────────────────────────────────────────── */}
-      {showWage && (() => {
-        const staffEmps = employees.filter((e) => !e.positions.includes('Home') && !e.fired)
-        const wageWeekDates = Array.from({ length: 7 }, (_, i) => {
-          const d = new Date(wageWeekStart + 'T00:00:00')
-          d.setDate(d.getDate() + i)
-          return d.toISOString().split('T')[0]
-        })
-        const wageAttend: Record<string, Record<string, { morning: number; evening: number }>> = {}
-        for (const rec of timeRecords) {
-          if (!wageAttend[rec.date]) wageAttend[rec.date] = {}
-          wageAttend[rec.date][rec.employeeId] = { morning: rec.morning, evening: rec.evening }
-        }
-        const weekLabel = (() => {
-          const s = new Date(wageWeekStart + 'T00:00:00')
-          const e = new Date(wageWeekStart + 'T00:00:00')
-          e.setDate(e.getDate() + 6)
-          const fmtD = (d: Date) => `${d.getDate()}/${d.getMonth() + 1}`
-          return `${fmtD(s)} – ${fmtD(e)}`
-        })()
-        return (
-          <div className="space-y-3 mt-2">
-            <div className="flex items-center justify-between">
-              <h3 className="text-sm font-bold text-gray-700">Wage Summary</h3>
-              <div className="flex items-center gap-2">
-                <button onClick={() => setWageWeekStart((w) => addWeeks(w, -1))} className="w-7 h-7 flex items-center justify-center rounded text-gray-500 hover:bg-gray-100 cursor-pointer">◀</button>
-                <span className="text-xs text-gray-600 font-medium">{weekLabel}</span>
-                <button onClick={() => setWageWeekStart((w) => addWeeks(w, 1))} className="w-7 h-7 flex items-center justify-center rounded text-gray-500 hover:bg-gray-100 cursor-pointer">▶</button>
-              </div>
-            </div>
-            {staffEmps.length === 0 ? (
-              <div className="text-center py-6 text-gray-400 text-sm">ไม่มีพนักงาน</div>
-            ) : (
-              <div className="bg-white rounded-xl border border-gray-100 shadow-sm overflow-hidden">
-                <div className="overflow-x-auto">
-                  <table className="w-full text-xs">
-                    <thead>
-                      <tr className="border-b border-gray-100 bg-gray-50">
-                        <th className="text-left px-3 py-2 font-medium text-gray-500 min-w-24">Name</th>
-                        <th className="text-center px-2 py-2 font-medium text-gray-500 min-w-14">Rate</th>
-                        {wageWeekDates.map((d, i) => (
-                          <th key={d} colSpan={2} className="text-center px-1 py-2 font-medium text-gray-500">
-                            <div>{DAYS_SHORT[i]}</div>
-                            <div className="text-gray-300 text-[9px]">{new Date(d + 'T00:00:00').getDate()}</div>
-                            <div className="flex gap-0.5 justify-center mt-0.5">
-                              <span className="text-[9px] text-yellow-500 w-4 text-center">L</span>
-                              <span className="text-[9px] text-blue-400 w-4 text-center">D</span>
-                            </div>
-                          </th>
-                        ))}
-                        <th className="text-center px-2 py-2 font-medium text-gray-600 min-w-14">WAGE</th>
-                        <th className="text-center px-2 py-2 font-medium text-gray-500 min-w-14">TAX</th>
-                        <th className="text-center px-2 py-2 font-medium text-gray-500 min-w-16">PAID</th>
-                        <th className="text-center px-2 py-2 font-medium text-gray-500 min-w-16">Remaining</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {staffEmps.map((emp) => {
-                        const hourly = emp.hourlyWage ?? 0
-                        const calcShift = (hrs: number, isLunch: boolean) => {
-                          if (hrs <= 0) return 0
-                          if (isLunch && hrs === 4) return emp.wageLunch ?? hourly * hrs
-                          if (!isLunch && hrs === 4.5) return emp.wageDinner ?? hourly * hrs
-                          return hourly * hrs
-                        }
-                        const wage = wageWeekDates.reduce((sum, d) => {
-                          const a = wageAttend[d]?.[emp.id] ?? { morning: 0, evening: 0 }
-                          return sum + calcShift(a.morning, true) + calcShift(a.evening, false)
-                        }, 0)
-                        const tax = wageTax[emp.id] ?? 0
-                        const paid = wagePaid[emp.id] ?? 0
-                        const remaining = wage - tax - paid
-                        return (
-                          <tr key={emp.id} className="border-b border-gray-50 last:border-0">
-                            <td className="px-3 py-2 font-medium text-gray-700 whitespace-nowrap">{emp.name}</td>
-                            <td className="text-center px-2 py-2 text-gray-500">{emp.wageLunch || emp.wageDinner ? `L฿${emp.wageLunch ?? 0}/D฿${emp.wageDinner ?? 0}` : emp.hourlyWage ? `฿${emp.hourlyWage}/hr` : '—'}</td>
-                            {wageWeekDates.map((d) => {
-                              const a = wageAttend[d]?.[emp.id] ?? { morning: 0, evening: 0 }
-                              return (
-                                <>
-                                  <td key={d + 'L'} className={`text-center px-1 py-2 ${a.morning > 0 ? 'bg-yellow-50 text-yellow-700 font-semibold' : 'text-gray-200'}`}>{a.morning > 0 ? '✓' : '·'}</td>
-                                  <td key={d + 'D'} className={`text-center px-1 py-2 ${a.evening > 0 ? 'bg-blue-50 text-blue-600 font-semibold' : 'text-gray-200'}`}>{a.evening > 0 ? '✓' : '·'}</td>
-                                </>
-                              )
-                            })}
-                            <td className="text-center px-2 py-2 font-bold text-gray-800">{wage > 0 ? `$${wage.toFixed(2)}` : '—'}</td>
-                            <td className="px-1 py-1">
-                              <input type="number" min="0" value={tax || ''} onChange={(e) => setWageTax((p) => ({ ...p, [emp.id]: parseFloat(e.target.value) || 0 }))} placeholder="0" className="w-14 border border-gray-200 rounded px-1.5 py-1 text-center focus:outline-none focus:ring-1 focus:ring-brand-gold" />
-                            </td>
-                            <td className="px-1 py-1">
-                              <input type="number" min="0" value={paid || ''} onChange={(e) => setWagePaid((p) => ({ ...p, [emp.id]: parseFloat(e.target.value) || 0 }))} placeholder="0" className="w-16 border border-gray-200 rounded px-1.5 py-1 text-center focus:outline-none focus:ring-1 focus:ring-brand-gold" />
-                            </td>
-                            <td className={`text-center px-2 py-2 font-semibold ${remaining < 0 ? 'text-red-500' : remaining > 0 ? 'text-green-600' : 'text-gray-400'}`}>{wage > 0 ? `$${remaining.toFixed(2)}` : '—'}</td>
-                          </tr>
-                        )
-                      })}
-                      {(() => {
-                        const totalWage = staffEmps.reduce((s, emp) => {
-                          const hourly = emp.hourlyWage ?? 0
-                          const calcShift = (hrs: number, isLunch: boolean) => {
-                            if (hrs <= 0) return 0
-                            if (isLunch && hrs === 4) return emp.wageLunch ?? hourly * hrs
-                            if (!isLunch && hrs === 4.5) return emp.wageDinner ?? hourly * hrs
-                            return hourly * hrs
-                          }
-                          return s + wageWeekDates.reduce((sum, d) => {
-                            const a = wageAttend[d]?.[emp.id] ?? { morning: 0, evening: 0 }
-                            return sum + calcShift(a.morning, true) + calcShift(a.evening, false)
-                          }, 0)
-                        }, 0)
-                        const totalTax = staffEmps.reduce((s, e) => s + (wageTax[e.id] ?? 0), 0)
-                        const totalPaid = staffEmps.reduce((s, e) => s + (wagePaid[e.id] ?? 0), 0)
-                        return (
-                          <tr className="border-t-2 border-gray-200 bg-gray-50 font-semibold">
-                            <td className="px-3 py-2 text-gray-600" colSpan={2}>Total</td>
-                            {wageWeekDates.map((d) => {
-                              const lunch = staffEmps.filter((e) => (wageAttend[d]?.[e.id]?.morning ?? 0) > 0).length
-                              const dinner = staffEmps.filter((e) => (wageAttend[d]?.[e.id]?.evening ?? 0) > 0).length
-                              return (
-                                <>
-                                  <td key={d + 'L'} className="text-center px-1 py-2 text-yellow-600 bg-yellow-50 text-[10px]">{lunch > 0 ? lunch : ''}</td>
-                                  <td key={d + 'D'} className="text-center px-1 py-2 text-blue-500 bg-blue-50 text-[10px]">{dinner > 0 ? dinner : ''}</td>
-                                </>
-                              )
-                            })}
-                            <td className="text-center px-2 py-2 text-gray-800">${totalWage.toFixed(2)}</td>
-                            <td className="text-center px-2 py-2 text-gray-600">${totalTax.toFixed(2)}</td>
-                            <td className="text-center px-2 py-2 text-gray-600">${totalPaid.toFixed(2)}</td>
-                            <td className="text-center px-2 py-2 text-green-700">${(totalWage - totalTax - totalPaid).toFixed(2)}</td>
-                          </tr>
-                        )
-                      })()}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-            )}
-          </div>
-        )
-      })()}
     </div>
   )
 }

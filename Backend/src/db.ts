@@ -991,6 +991,80 @@ export async function saveExtraRate(shopCode: string, rate: number): Promise<voi
   await saveConfigRows(shopCode, kept)
 }
 
+// ─── Wage Payments (TAX / CASH PAID per week per employee) ───────────────────
+
+const WAGE_PMT_HEADERS = ['weekStart', 'employeeId', 'tax', 'paid', 'note', 'overrides']
+
+export interface WagePaymentRow {
+  tax: number
+  paid: number
+  note: string
+  overrides: Record<string, number>  // e.g. { "0L": 86, "1D": 97 }
+}
+
+export async function getWagePayments(
+  shopCode: string,
+  weekStart: string,
+): Promise<{ payments: Map<string, WagePaymentRow>; weekNote: string }> {
+  try {
+    const { sid, tab } = await getShopDb(shopCode)
+    const rows = await getSheetData(tab('wage_payments'), sid)
+    const payments = new Map<string, WagePaymentRow>()
+    let weekNote = ''
+    for (const r of rows) {
+      if (r.weekStart !== weekStart) continue
+      if (r.employeeId === '__note__') { weekNote = r.note || ''; continue }
+      let overrides: Record<string, number> = {}
+      try { overrides = r.overrides ? JSON.parse(r.overrides) : {} } catch { /* ignore */ }
+      payments.set(r.employeeId, { tax: Number(r.tax) || 0, paid: Number(r.paid) || 0, note: r.note || '', overrides })
+    }
+    return { payments, weekNote }
+  } catch {
+    return { payments: new Map(), weekNote: '' }
+  }
+}
+
+export async function getAllWagePayments(
+  shopCode: string,
+): Promise<Map<string, Map<string, WagePaymentRow>>> {
+  try {
+    const { sid, tab } = await getShopDb(shopCode)
+    const rows = await getSheetData(tab('wage_payments'), sid)
+    const result = new Map<string, Map<string, WagePaymentRow>>()
+    for (const r of rows) {
+      if (r.employeeId === '__note__') continue
+      if (!result.has(r.weekStart)) result.set(r.weekStart, new Map())
+      let overrides: Record<string, number> = {}
+      try { overrides = r.overrides ? JSON.parse(r.overrides) : {} } catch { /* ignore */ }
+      result.get(r.weekStart)!.set(r.employeeId, { tax: Number(r.tax) || 0, paid: Number(r.paid) || 0, note: r.note || '', overrides })
+    }
+    return result
+  } catch {
+    return new Map()
+  }
+}
+
+export async function saveWagePayments(
+  shopCode: string,
+  weekStart: string,
+  payments: { employeeId: string; tax: number; paid: number; note: string; overrides: Record<string, number> }[],
+  weekNote: string,
+): Promise<void> {
+  const { sid, tab } = await getShopDb(shopCode)
+  let existing: { weekStart: string; employeeId: string; tax: string; paid: string; note: string; overrides: string }[] = []
+  try {
+    existing = await getSheetData(tab('wage_payments'), sid) as typeof existing
+  } catch { /* sheet doesn't exist yet */ }
+
+  const kept = existing.filter((r) => r.weekStart !== weekStart)
+  const dataRows: string[][] = [
+    ...kept.map((r) => [r.weekStart, r.employeeId, r.tax || '0', r.paid || '0', r.note || '', r.overrides || '']),
+    ...payments.map((p) => [weekStart, p.employeeId, String(p.tax), String(p.paid), p.note, JSON.stringify(p.overrides)]),
+    [weekStart, '__note__', '0', '0', weekNote, ''],
+  ]
+  await setSheetData(tab('wage_payments'), WAGE_PMT_HEADERS, dataRows, sid)
+}
+
 // ─── Migration ────────────────────────────────────────────────────────────────
 
 /** ย้ายข้อมูลร้านจาก master sheet ไปยัง spreadsheet ของตัวเอง */
@@ -1747,9 +1821,10 @@ async function applyWageFullFormat(
 
 export async function syncWageSheet(shopCode: string): Promise<void> {
   const { sid } = await getShopDb(shopCode)
-  const [employees, timeRecords] = await Promise.all([
+  const [employees, timeRecords, allPayments] = await Promise.all([
     listEmployees(shopCode),
     listTimeRecords(shopCode),
+    getAllWagePayments(shopCode),
   ])
   const staffEmps = employees.filter((e) => !e.positions.includes('Home'))
   if (staffEmps.length === 0) return
@@ -1860,20 +1935,22 @@ export async function syncWageSheet(shopCode: string): Promise<void> {
       fmtRules.push({ startRow: rowIdx, endRow: rowIdx + 1, startCol: 1, endCol: 2, backgroundColor: W_RATE_COL })
       for (let d = 0; d < 7; d++) {
         const rec = weekRecords.find((r) => r.date === weekDates[d] && r.employeeId === emp.id)
-        if (rec) {
-          const lv = shiftWage(rec.morning, true)
-          const dv = shiftWage(rec.evening, false)
-          if (lv > 0) {
-            empRow[2 + d * 2] = lv
-            if (lunchColor) fmtRules.push({ startRow: rowIdx, endRow: rowIdx + 1, startCol: 2 + d * 2, endCol: 2 + d * 2 + 1, backgroundColor: lunchColor })
-          }
-          if (dv > 0) {
-            empRow[2 + d * 2 + 1] = dv
-            if (dinnerColor) fmtRules.push({ startRow: rowIdx, endRow: rowIdx + 1, startCol: 3 + d * 2, endCol: 3 + d * 2 + 1, backgroundColor: dinnerColor })
-          }
+        const pmt = allPayments.get(monday)?.get(emp.id)
+        const lv = pmt?.overrides?.[`${d}L`] ?? (rec ? shiftWage(rec.morning, true)  : 0)
+        const dv = pmt?.overrides?.[`${d}D`] ?? (rec ? shiftWage(rec.evening, false) : 0)
+        if (lv > 0) {
+          empRow[2 + d * 2] = lv
+          if (lunchColor) fmtRules.push({ startRow: rowIdx, endRow: rowIdx + 1, startCol: 2 + d * 2, endCol: 2 + d * 2 + 1, backgroundColor: lunchColor })
+        }
+        if (dv > 0) {
+          empRow[2 + d * 2 + 1] = dv
+          if (dinnerColor) fmtRules.push({ startRow: rowIdx, endRow: rowIdx + 1, startCol: 3 + d * 2, endCol: 3 + d * 2 + 1, backgroundColor: dinnerColor })
         }
       }
       empRow[17] = `=SUM(C${rn}:Q${rn})`
+      const pmt = allPayments.get(monday)?.get(emp.id)
+      empRow[18] = pmt?.tax  ?? ''
+      empRow[19] = pmt?.paid ?? ''
       empRow[20] = `=R${rn}-S${rn}-T${rn}`
       rows.push(empRow)
     }
