@@ -158,12 +158,21 @@ export async function applyFormattingRules(
   sheetName: string,
   spreadsheetId: string,
   rules: SheetFormatRule[],
+  clearRowsCount?: number,
 ): Promise<void> {
-  if (rules.length === 0) return
+  if (rules.length === 0 && !clearRowsCount) return
   const meta = await sheetsApi.spreadsheets.get({ spreadsheetId })
   const sheet = meta.data.sheets?.find((s) => s.properties?.title === sheetName)
   const sheetId = sheet?.properties?.sheetId
   if (sheetId === undefined) return
+
+  const WHITE = { red: 1, green: 1, blue: 1 }
+  const clearRequests: object[] = []
+  if (clearRowsCount && clearRowsCount > 0) {
+    const gridRowCount = sheet?.properties?.gridProperties?.rowCount ?? clearRowsCount
+    const clearEnd = Math.max(clearRowsCount + 1, gridRowCount)
+    clearRequests.push({ repeatCell: { range: { sheetId, startRowIndex: 0, endRowIndex: clearEnd }, cell: { userEnteredFormat: { backgroundColor: WHITE } }, fields: 'userEnteredFormat.backgroundColor' } })
+  }
 
   const requests = rules.map(({ startRow, endRow, startCol, endCol, backgroundColor, foregroundColor, bold, numberFormat }) => {
     const ueFormat: Record<string, unknown> = {}
@@ -199,10 +208,11 @@ export async function applyFormattingRules(
     }
   })
 
-  for (let i = 0; i < requests.length; i += 100) {
+  const allRequests = [...clearRequests, ...requests]
+  for (let i = 0; i < allRequests.length; i += 100) {
     await sheetsApi.spreadsheets.batchUpdate({
       spreadsheetId,
-      requestBody: { requests: requests.slice(i, i + 100) },
+      requestBody: { requests: allRequests.slice(i, i + 100) },
     })
   }
 }
@@ -300,7 +310,7 @@ export async function applyTimeRecordFormatting(
     requests.push({
       repeatCell: {
         range: { sheetId, startRowIndex: start, endRowIndex: end, startColumnIndex: 1, endColumnIndex: 16 },
-        cell: { userEnteredFormat: { numberFormat: { type: 'NUMBER', pattern: '0' } } },
+        cell: { userEnteredFormat: { numberFormat: { type: 'NUMBER', pattern: '0.##' } } },
         fields: 'userEnteredFormat.numberFormat',
       },
     })

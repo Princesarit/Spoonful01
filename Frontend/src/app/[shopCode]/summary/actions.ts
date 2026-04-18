@@ -28,6 +28,24 @@ export async function getSummaryData(shopCode: string, month: string) {
   }>
 }
 
+export async function getSummaryDataAll(shopCode: string) {
+  const session = await getSession()
+  if (!session || session.shopCode !== shopCode) throw new Error('Unauthorized')
+  const res = await fetch(`${BACKEND_URL}/${shopCode}/summary`, {
+    headers: authHeader(session.token),
+    cache: 'no-store',
+  })
+  if (!res.ok) throw new Error('Failed to fetch summary')
+  return res.json() as Promise<{
+    employees: Employee[]
+    timeRecords: TimeRecord[]
+    deliveryTrips: DeliveryTrip[]
+    revenue: RevenueEntry[]
+    expenses: ExpenseEntry[]
+    notes: DailyNote[]
+  }>
+}
+
 export async function syncReportSheets(shopCode: string) {
   const session = await getSession()
   if (!session || session.shopCode !== shopCode) throw new Error('Unauthorized')

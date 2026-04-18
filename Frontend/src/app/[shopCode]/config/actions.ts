@@ -69,6 +69,36 @@ export async function saveDeliveryFee(shopCode: string, fee: number): Promise<vo
   if (!res.ok) throw new Error('Failed to save delivery fee')
 }
 
+export async function getExtraRate(shopCode: string): Promise<number> {
+  const session = await getSession()
+  if (!session || session.shopCode !== shopCode) return 0
+
+  try {
+    const res = await fetch(`${BACKEND_URL}/${shopCode}/config/extra-rate`, {
+      headers: authHeader(session.token),
+      cache: 'no-store',
+    })
+    if (!res.ok) return 0
+    const data = await res.json() as { rate: number }
+    return data.rate ?? 0
+  } catch {
+    return 0
+  }
+}
+
+export async function saveExtraRate(shopCode: string, rate: number): Promise<void> {
+  const session = await getSession()
+  if (!session || session.shopCode !== shopCode || session.role !== 'owner')
+    throw new Error('Unauthorized')
+
+  const res = await fetch(`${BACKEND_URL}/${shopCode}/config/extra-rate`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...authHeader(session.token) },
+    body: JSON.stringify({ rate }),
+  })
+  if (!res.ok) throw new Error('Failed to save extra rate')
+}
+
 export async function saveConfigAuditLog(
   shopCode: string,
   changes: string,

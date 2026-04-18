@@ -1,5 +1,5 @@
 import { Router, Response } from 'express'
-import { listDeliveryRates, saveDeliveryRates, getDeliveryFee, saveDeliveryFee, appendAuditLog } from '../db'
+import { listDeliveryRates, saveDeliveryRates, getDeliveryFee, saveDeliveryFee, getExtraRate, saveExtraRate, appendAuditLog } from '../db'
 import { requireShopAuth, requireOwner } from '../middleware/auth'
 import type { AuthRequest } from '../middleware/auth'
 import type { DeliveryRate } from '../types'
@@ -41,6 +41,27 @@ router.post('/delivery-fee', requireOwner, async (req: AuthRequest, res: Respons
   try {
     const { fee } = req.body as { fee: number }
     await saveDeliveryFee(req.params.shopCode, fee)
+    res.json({ ok: true })
+  } catch {
+    res.status(500).json({ error: 'Server error' })
+  }
+})
+
+// GET /:shopCode/config/extra-rate
+router.get('/extra-rate', requireShopAuth, async (req: AuthRequest, res: Response) => {
+  try {
+    const rate = await getExtraRate(req.params.shopCode)
+    res.json({ rate })
+  } catch {
+    res.status(500).json({ error: 'Server error' })
+  }
+})
+
+// POST /:shopCode/config/extra-rate — owner only
+router.post('/extra-rate', requireOwner, async (req: AuthRequest, res: Response) => {
+  try {
+    const { rate } = req.body as { rate: number }
+    await saveExtraRate(req.params.shopCode, rate)
     res.json({ ok: true })
   } catch {
     res.status(500).json({ error: 'Server error' })

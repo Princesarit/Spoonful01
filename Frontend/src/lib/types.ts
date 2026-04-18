@@ -24,7 +24,9 @@ export interface Employee {
   name: string
   positions: Position[]   // replaces position (supports multi-position)
   phone?: string
-  hourlyWage?: number      // kept optional for backward compat
+  hourlyWage?: number      // derived: wageLunch / 4 (kept for backward compat & sheet sync)
+  wageLunch?: number       // wage per lunch shift
+  wageDinner?: number      // wage per dinner shift
   deliveryFeePerTrip?: number  // flat fee per delivery trip; overrides distance-based calc
   defaultDays: boolean[]  // [Mon, Tue, Wed, Thu, Fri, Sat, Sun]
   fired?: boolean         // soft-delete: true = ไล่ออก, ยังเก็บข้อมูลประวัติ
@@ -65,7 +67,8 @@ export interface MealRevenue {
   uberOnline: number    // Uber Eat - Paid Online
   doorDash: number      // DoorDash
   cashLeftInBag: number // Cash left in bag
-  totalSale: number     // Total Sale (manually entered)
+  cashSale?: number     // user-entered cash sale (legacy entries derive from totalSale)
+  totalSale: number     // auto-calculated: eftpos + lfyOnline + lfyCash + uberOnline + doorDash + cashSale
 }
 
 export interface RevenueEntry {
@@ -93,6 +96,7 @@ export interface ExpenseEntry {
   bankAccount?: string
   dueDate?: string
   paid: boolean
+  filledBy?: string
 }
 
 export interface DailyNote {

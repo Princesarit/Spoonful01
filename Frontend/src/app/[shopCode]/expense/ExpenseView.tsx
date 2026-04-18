@@ -218,6 +218,22 @@ export default function ExpenseView() {
               </div>
             </div>
 
+            {/* Filled by (required) */}
+            <div>
+              <label className="text-xs text-gray-500 block mb-1">
+                Filled by <span className="text-red-400">*</span>
+              </label>
+              <input
+                type="text"
+                value={form.filledBy ?? ''}
+                onChange={(e) => setField('filledBy', e.target.value)}
+                placeholder="Your name..."
+                className={`w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-gold ${
+                  !form.filledBy?.trim() ? 'border-red-300' : 'border-gray-300'
+                }`}
+              />
+            </div>
+
             {/* Description / Name */}
             <div>
               <label className="text-xs text-gray-500 block mb-1">Description / Name</label>
@@ -257,43 +273,45 @@ export default function ExpenseView() {
                     key={m}
                     type="button"
                     onClick={() => setField('paymentMethod', m)}
-                    className={`flex-1 py-2 rounded-lg text-xs font-medium border cursor-pointer transition-colors ${
+                    className={`flex-1 py-2.5 rounded-lg border cursor-pointer transition-colors flex flex-col items-center gap-1 ${
                       form.paymentMethod === m
                         ? 'bg-brand-gold text-white border-brand-gold'
-                        : 'border-brand-accent text-gray-600 hover:border-brand-gold/50'
+                        : 'border-gray-200 text-gray-600 hover:border-brand-gold/50'
                     }`}
                   >
-                    {METHOD_ICON[m]}
+                    <span className="text-lg leading-none">{METHOD_ICON[m]}</span>
+                    <span className="text-[10px] font-medium leading-none">
+                      {m === 'Credit Card' ? 'Credit' : m === 'Online Banking' ? 'Online' : m}
+                    </span>
                   </button>
                 ))}
               </div>
-              <div className="text-center text-xs text-gray-400 mt-1">
-                {form.paymentMethod}
-              </div>
             </div>
 
-            {/* Online Banking extras */}
+            {/* Online Banking: bank account */}
             {form.paymentMethod === 'Online Banking' && (
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="text-xs text-gray-500 block mb-1">Bank Account</label>
-                  <input
-                    type="text"
-                    value={form.bankAccount ?? ''}
-                    onChange={(e) => setField('bankAccount', e.target.value)}
-                    placeholder={tr.bank_placeholder}
-                    className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-gold"
-                  />
-                </div>
-                <div>
-                  <label className="text-xs text-gray-500 block mb-1">Due Date</label>
-                  <input
-                    type="date"
-                    value={form.dueDate ?? ''}
-                    onChange={(e) => setField('dueDate', e.target.value)}
-                    className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-gold"
-                  />
-                </div>
+              <div>
+                <label className="text-xs text-gray-500 block mb-1">Bank Account</label>
+                <input
+                  type="text"
+                  value={form.bankAccount ?? ''}
+                  onChange={(e) => setField('bankAccount', e.target.value)}
+                  placeholder={tr.bank_placeholder}
+                  className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-gold"
+                />
+              </div>
+            )}
+
+            {/* Due Date — shown when Unpaid */}
+            {!form.paid && (
+              <div>
+                <label className="text-xs text-gray-500 block mb-1">Due Date</label>
+                <input
+                  type="date"
+                  value={form.dueDate ?? ''}
+                  onChange={(e) => setField('dueDate', e.target.value)}
+                  className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-gold"
+                />
               </div>
             )}
 
@@ -332,7 +350,7 @@ export default function ExpenseView() {
               </button>
               <button
                 onClick={handleSave}
-                disabled={saving || !form.supplier.trim() || form.total <= 0}
+                disabled={saving || !form.supplier.trim() || form.total <= 0 || !form.filledBy?.trim()}
                 className="flex-1 py-2.5 bg-brand-gold text-white rounded-xl text-sm font-semibold disabled:opacity-50 cursor-pointer"
               >
                 {saving ? tr.saving : tr.save}

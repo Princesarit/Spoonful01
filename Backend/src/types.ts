@@ -22,7 +22,9 @@ export interface Employee {
   name: string
   positions: Position[]
   phone?: string
-  hourlyWage?: number
+  hourlyWage?: number      // derived: wageLunch / 4
+  wageLunch?: number       // wage per lunch shift
+  wageDinner?: number      // wage per dinner shift
   deliveryFeePerTrip?: number  // flat fee per delivery trip (overrides distance-based calc)
   defaultDays: boolean[]
   fired?: boolean   // soft-delete flag
@@ -63,7 +65,8 @@ export interface MealRevenue {
   uberOnline: number
   doorDash: number
   cashLeftInBag: number
-  totalSale: number
+  cashSale?: number     // user-entered cash sale (auto-populated from formula for legacy entries)
+  totalSale: number     // auto-calculated: eftpos + lfyOnline + lfyCash + uberOnline + doorDash + cashSale
 }
 
 export interface RevenueEntry {
@@ -91,6 +94,7 @@ export interface ExpenseEntry {
   bankAccount?: string
   dueDate?: string
   paid: boolean
+  filledBy?: string
 }
 
 export interface DailyNote {

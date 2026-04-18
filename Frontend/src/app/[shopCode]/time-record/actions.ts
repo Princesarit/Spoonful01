@@ -29,11 +29,14 @@ export async function getWeekTimeRecords(shopCode: string, weekStart: string) {
   const session = await getSession()
   if (!session || session.shopCode !== shopCode) throw new Error('Unauthorized')
 
-  // สร้าง 7 วันของสัปดาห์
+  // สร้าง 7 วันของสัปดาห์ (ใช้ local date เพื่อหลีกเลี่ยง UTC offset)
   const weekDates = Array.from({ length: 7 }, (_, i) => {
-    const d = new Date(weekStart)
-    d.setDate(d.getDate() + i)
-    return d.toISOString().split('T')[0]
+    const [y, mo, day] = weekStart.split('-').map(Number)
+    const d = new Date(y, mo - 1, day + i)
+    const yy = d.getFullYear()
+    const mm = String(d.getMonth() + 1).padStart(2, '0')
+    const dd = String(d.getDate()).padStart(2, '0')
+    return `${yy}-${mm}-${dd}`
   })
 
   const res = await fetch(`${BACKEND_URL}/${shopCode}/time-records`, {

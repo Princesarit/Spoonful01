@@ -55,7 +55,8 @@ const EMPTY_FORM = {
   phone: '',
   positions: ['Front'] as Position[],
   defaultDays: [true, true, true, true, true, true, true],
-  hourlyWage: '',
+  wageLunch: '',
+  wageDinner: '',
   deliveryFeePerTrip: '',
 }
 
@@ -87,6 +88,7 @@ export default function EmployeeView({
   const [deleteAudit, setDeleteAudit] = useState<{ emp: Employee; editorName: string; note: string } | null>(null)
 
   const isOwner = role === 'manager' || role === 'owner'
+  const isOwnerOnly = role === 'owner'
   const filtered = employees.filter((e) => {
     if (filter !== 'all' && !e.positions.includes(filter)) return false
     if (dayFilter !== null && !e.defaultDays[dayFilter]) return false
@@ -104,7 +106,7 @@ export default function EmployeeView({
 
   function openEdit(emp: Employee) {
     setEditing(emp)
-    setForm({ name: emp.name, phone: emp.phone ?? '', positions: [...emp.positions], defaultDays: [...emp.defaultDays], hourlyWage: emp.hourlyWage?.toString() ?? '', deliveryFeePerTrip: emp.deliveryFeePerTrip?.toString() ?? '' })
+    setForm({ name: emp.name, phone: emp.phone ?? '', positions: [...emp.positions], defaultDays: [...emp.defaultDays], wageLunch: emp.wageLunch?.toString() ?? '', wageDinner: emp.wageDinner?.toString() ?? '', deliveryFeePerTrip: emp.deliveryFeePerTrip?.toString() ?? '' })
     setEditorName('')
     setEditNote('')
     setNameError('')
@@ -140,7 +142,8 @@ export default function EmployeeView({
       name: form.name.trim(),
       positions: form.positions,
       phone: form.phone.trim() || undefined,
-      hourlyWage: form.hourlyWage ? Number(form.hourlyWage) : undefined,
+      wageLunch: form.wageLunch ? Number(form.wageLunch) : undefined,
+      wageDinner: form.wageDinner ? Number(form.wageDinner) : undefined,
       deliveryFeePerTrip: form.deliveryFeePerTrip ? Number(form.deliveryFeePerTrip) : undefined,
       defaultDays: form.defaultDays,
     }
@@ -164,8 +167,10 @@ export default function EmployeeView({
           changes.push(`positions: ${editing.positions.join(',')}→${emp.positions.join(',')}`)
         if (JSON.stringify(editing.defaultDays) !== JSON.stringify(emp.defaultDays))
           changes.push('defaultDays changed')
-        if ((editing.hourlyWage ?? 0) !== (emp.hourlyWage ?? 0))
-          changes.push(`hourlyWage: ${editing.hourlyWage ?? 0}→${emp.hourlyWage ?? 0}`)
+        if ((editing.wageLunch ?? 0) !== (emp.wageLunch ?? 0))
+          changes.push(`wageLunch: ${editing.wageLunch ?? 0}→${emp.wageLunch ?? 0}`)
+        if ((editing.wageDinner ?? 0) !== (emp.wageDinner ?? 0))
+          changes.push(`wageDinner: ${editing.wageDinner ?? 0}→${emp.wageDinner ?? 0}`)
         if ((editing.deliveryFeePerTrip ?? 0) !== (emp.deliveryFeePerTrip ?? 0))
           changes.push(`deliveryFeePerTrip: ${editing.deliveryFeePerTrip ?? 0}→${emp.deliveryFeePerTrip ?? 0}`)
         saveAuditLog(shopCode, {
@@ -286,11 +291,16 @@ export default function EmployeeView({
                 {emp.phone && (
                   <div className="text-xs text-gray-400 mb-1.5">Tel: {emp.phone}</div>
                 )}
-                {isOwner && (emp.hourlyWage || emp.deliveryFeePerTrip) && (
-                  <div className="flex gap-2 mb-1.5">
-                    {emp.hourlyWage && (
+                {isOwnerOnly && (emp.wageLunch || emp.wageDinner || emp.deliveryFeePerTrip) && (
+                  <div className="flex gap-2 mb-1.5 flex-wrap">
+                    {emp.wageLunch != null && (
                       <span className="text-xs text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded-full">
-                        ฿{emp.hourlyWage.toLocaleString()}/ชม.
+                        L ฿{emp.wageLunch.toLocaleString()}
+                      </span>
+                    )}
+                    {emp.wageDinner != null && (
+                      <span className="text-xs text-amber-600 bg-amber-50 px-2 py-0.5 rounded-full">
+                        D ฿{emp.wageDinner.toLocaleString()}
                       </span>
                     )}
                     {emp.deliveryFeePerTrip && emp.positions.includes('Home') && (
@@ -411,20 +421,34 @@ export default function EmployeeView({
                 />
               </div>
 
-              <div>
-                <label className="text-xs text-brand-accent block mb-1">
-                  {lang === 'en' ? 'Wage per Hour (฿)' : 'ค่าแรง/ชั่วโมง (฿)'}
-                </label>
-                <input
-                  type="number"
-                  inputMode="numeric"
-                  min="0"
-                  value={form.hourlyWage}
-                  onChange={(e) => setForm((f) => ({ ...f, hourlyWage: e.target.value }))}
-                  className="w-full px-3 py-2 border border-brand-accent rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-brand-gold"
-                  placeholder="0"
-                />
-              </div>
+              {isOwnerOnly && (
+                <div className="grid grid-cols-2 gap-2">
+                  <div>
+                    <label className="text-xs text-brand-accent block mb-1">Wage Lunch (฿)</label>
+                    <input
+                      type="number"
+                      inputMode="numeric"
+                      min="0"
+                      value={form.wageLunch}
+                      onChange={(e) => setForm((f) => ({ ...f, wageLunch: e.target.value }))}
+                      className="w-full px-3 py-2 border border-brand-accent rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-brand-gold"
+                      placeholder="0"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-xs text-brand-accent block mb-1">Wage Dinner (฿)</label>
+                    <input
+                      type="number"
+                      inputMode="numeric"
+                      min="0"
+                      value={form.wageDinner}
+                      onChange={(e) => setForm((f) => ({ ...f, wageDinner: e.target.value }))}
+                      className="w-full px-3 py-2 border border-brand-accent rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-brand-gold"
+                      placeholder="0"
+                    />
+                  </div>
+                </div>
+              )}
 
               {form.positions.includes('Home') && (
                 <div>

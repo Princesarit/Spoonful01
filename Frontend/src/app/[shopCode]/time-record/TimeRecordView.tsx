@@ -26,7 +26,10 @@ function getMonday(date: Date): Date {
 }
 
 function isoDate(d: Date): string {
-  return d.toISOString().split('T')[0]
+  const y = d.getFullYear()
+  const m = String(d.getMonth() + 1).padStart(2, '0')
+  const day = String(d.getDate()).padStart(2, '0')
+  return `${y}-${m}-${day}`
 }
 
 function addWeeks(d: Date, n: number): Date {
@@ -80,10 +83,6 @@ export default function TimeRecordView() {
   // null = no schedule for this week (show all, allow all cells)
   // Map<empId, days[]> = schedule loaded — filter employees and lock unchecked cells
   const [weekScheduleMap, setWeekScheduleMap] = useState<Map<string, (string | null)[]> | null>(null)
-
-  // ── Wage adjustment (tax / cash paid per employee) ──
-  const [wageTax, setWageTax] = useState<Record<string, number>>({})
-  const [wagePaid, setWagePaid] = useState<Record<string, number>>({})
 
   // ── Delivery rates & fee ──
   const [deliveryRates, setDeliveryRates] = useState<DeliveryRate[]>(DEFAULT_DELIVERY_RATES)
@@ -496,6 +495,7 @@ export default function TimeRecordView() {
                                       <input
                                         type="number"
                                         min="0"
+                                        step="0.5"
                                         disabled={isPast || weekLocked || isFuture || !scheduled}
                                         value={a[shift] || ''}
                                         onChange={(e) => setShift(d, emp.id, shift, Number(e.target.value))}
@@ -564,132 +564,6 @@ export default function TimeRecordView() {
               )
             )}
           </>
-        )}
-      </div>
-
-      {/* ═══ WAGE SUMMARY ════════════════════════════════════════════════════ */}
-      <div className="space-y-3">
-        <h3 className="text-sm font-bold text-gray-700">Wage Summary</h3>
-
-        {weekLoading ? (
-          <div className="text-center py-6 text-gray-400 text-sm">{tr.loading}</div>
-        ) : staffEmps.length === 0 ? (
-          <div className="text-center py-6 text-gray-400 text-sm">ไม่มีพนักงาน</div>
-        ) : (
-          <div className="bg-white rounded-xl border border-gray-100 shadow-sm overflow-hidden">
-            <div className="overflow-x-auto">
-              <table className="w-full text-xs">
-                <thead>
-                  <tr className="border-b border-gray-100 bg-gray-50">
-                    <th className="text-left px-3 py-2 font-medium text-gray-500 min-w-24">Name</th>
-                    <th className="text-center px-2 py-2 font-medium text-gray-500 min-w-14">Rate</th>
-                    {weekDates.map((d, i) => (
-                      <th key={d} colSpan={2} className="text-center px-1 py-2 font-medium text-gray-500">
-                        <div>{DAYS_SHORT[i]}</div>
-                        <div className="text-gray-300 text-[9px]">{new Date(d + 'T00:00:00').getDate()}</div>
-                        <div className="flex gap-0.5 justify-center mt-0.5">
-                          <span className="text-[9px] text-yellow-500 w-4 text-center">L</span>
-                          <span className="text-[9px] text-blue-400 w-4 text-center">D</span>
-                        </div>
-                      </th>
-                    ))}
-                    <th className="text-center px-2 py-2 font-medium text-gray-600 min-w-14">WAGE</th>
-                    <th className="text-center px-2 py-2 font-medium text-gray-500 min-w-14">TAX</th>
-                    <th className="text-center px-2 py-2 font-medium text-gray-500 min-w-16">PAID</th>
-                    <th className="text-center px-2 py-2 font-medium text-gray-500 min-w-16">Remaining</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {staffEmps.map((emp) => {
-                    const rate = emp.hourlyWage ?? 0
-                    const wage = weekDates.reduce((sum, d) => {
-                      const a = weekAttend[d]?.[emp.id] ?? { morning: 0, evening: 0 }
-                      return sum + (a.morning > 0 ? rate : 0) + (a.evening > 0 ? rate : 0)
-                    }, 0)
-                    const tax = wageTax[emp.id] ?? 0
-                    const paid = wagePaid[emp.id] ?? 0
-                    const remaining = wage - tax - paid
-                    return (
-                      <tr key={emp.id} className="border-b border-gray-50 last:border-0">
-                        <td className="px-3 py-2 font-medium text-gray-700 whitespace-nowrap">{emp.name}</td>
-                        <td className="text-center px-2 py-2 text-gray-500">{rate > 0 ? `$${rate}` : '—'}</td>
-                        {weekDates.map((d) => {
-                          const a = weekAttend[d]?.[emp.id] ?? { morning: 0, evening: 0 }
-                          return (
-                            <React.Fragment key={d}>
-                              <td className={`text-center px-1 py-2 ${a.morning > 0 ? 'bg-yellow-50 text-yellow-700 font-semibold' : 'text-gray-200'}`}>
-                                {a.morning > 0 ? '✓' : '·'}
-                              </td>
-                              <td className={`text-center px-1 py-2 ${a.evening > 0 ? 'bg-blue-50 text-blue-600 font-semibold' : 'text-gray-200'}`}>
-                                {a.evening > 0 ? '✓' : '·'}
-                              </td>
-                            </React.Fragment>
-                          )
-                        })}
-                        <td className="text-center px-2 py-2 font-bold text-gray-800">
-                          {wage > 0 ? `$${wage.toFixed(2)}` : '—'}
-                        </td>
-                        <td className="px-1 py-1">
-                          <input
-                            type="number"
-                            min="0"
-                            value={tax || ''}
-                            onChange={(e) => setWageTax((p) => ({ ...p, [emp.id]: parseFloat(e.target.value) || 0 }))}
-                            placeholder="0"
-                            className="w-14 border border-gray-200 rounded px-1.5 py-1 text-center focus:outline-none focus:ring-1 focus:ring-brand-gold"
-                          />
-                        </td>
-                        <td className="px-1 py-1">
-                          <input
-                            type="number"
-                            min="0"
-                            value={paid || ''}
-                            onChange={(e) => setWagePaid((p) => ({ ...p, [emp.id]: parseFloat(e.target.value) || 0 }))}
-                            placeholder="0"
-                            className="w-16 border border-gray-200 rounded px-1.5 py-1 text-center focus:outline-none focus:ring-1 focus:ring-brand-gold"
-                          />
-                        </td>
-                        <td className={`text-center px-2 py-2 font-semibold ${remaining < 0 ? 'text-red-500' : remaining > 0 ? 'text-green-600' : 'text-gray-400'}`}>
-                          {wage > 0 ? `$${remaining.toFixed(2)}` : '—'}
-                        </td>
-                      </tr>
-                    )
-                  })}
-                  {/* Totals row */}
-                  {(() => {
-                    const totalWage = staffEmps.reduce((s, emp) => {
-                      const rate = emp.hourlyWage ?? 0
-                      return s + weekDates.reduce((sum, d) => {
-                        const a = weekAttend[d]?.[emp.id] ?? { morning: 0, evening: 0 }
-                        return sum + (a.morning > 0 ? rate : 0) + (a.evening > 0 ? rate : 0)
-                      }, 0)
-                    }, 0)
-                    const totalTax = staffEmps.reduce((s, e) => s + (wageTax[e.id] ?? 0), 0)
-                    const totalPaid = staffEmps.reduce((s, e) => s + (wagePaid[e.id] ?? 0), 0)
-                    return (
-                      <tr className="border-t-2 border-gray-200 bg-gray-50 font-semibold">
-                        <td className="px-3 py-2 text-gray-600" colSpan={2}>Total</td>
-                        {weekDates.map((d) => {
-                          const lunch = staffEmps.filter((e) => (weekAttend[d]?.[e.id]?.morning ?? 0) > 0).length
-                          const dinner = staffEmps.filter((e) => (weekAttend[d]?.[e.id]?.evening ?? 0) > 0).length
-                          return (
-                            <React.Fragment key={d}>
-                              <td className="text-center px-1 py-2 text-yellow-600 bg-yellow-50 text-[10px]">{lunch > 0 ? lunch : ''}</td>
-                              <td className="text-center px-1 py-2 text-blue-500 bg-blue-50 text-[10px]">{dinner > 0 ? dinner : ''}</td>
-                            </React.Fragment>
-                          )
-                        })}
-                        <td className="text-center px-2 py-2 text-gray-800">${totalWage.toFixed(2)}</td>
-                        <td className="text-center px-2 py-2 text-gray-600">${totalTax.toFixed(2)}</td>
-                        <td className="text-center px-2 py-2 text-gray-600">${totalPaid.toFixed(2)}</td>
-                        <td className="text-center px-2 py-2 text-green-700">${(totalWage - totalTax - totalPaid).toFixed(2)}</td>
-                      </tr>
-                    )
-                  })()}
-                </tbody>
-              </table>
-            </div>
-          </div>
         )}
       </div>
 

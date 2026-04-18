@@ -14,6 +14,11 @@ function today(): string {
   return new Date().toISOString().split('T')[0]
 }
 
+function mealTotal(m: { eftpos: number; lfyOnline: number; uberOnline: number; doorDash: number; cashSale?: number; totalSale: number }): number {
+  if (m.totalSale > 0) return m.totalSale
+  return m.eftpos + m.lfyOnline + m.uberOnline + m.doorDash + (m.cashSale ?? 0)
+}
+
 function ElevateModal({
   onClose,
   title,
@@ -102,8 +107,8 @@ export default function HomePage() {
     getRevenueData(shopCode).then(({ entries }) => {
       const todayEntries = entries.filter((e) => e.date === todayDate)
       setStats({
-        lunchSales: todayEntries.reduce((s, e) => s + e.lunch.totalSale, 0),
-        dinnerSales: todayEntries.reduce((s, e) => s + e.dinner.totalSale, 0),
+        lunchSales: todayEntries.reduce((s, e) => s + mealTotal(e.lunch), 0),
+        dinnerSales: todayEntries.reduce((s, e) => s + mealTotal(e.dinner), 0),
         totalBills: todayEntries.reduce((s, e) => s + e.lfyBills + e.uberBills + e.doorDashBills, 0),
       })
     }).catch(() => {})
@@ -338,6 +343,15 @@ export default function HomePage() {
           className="w-full block text-center py-3 rounded-2xl text-sm font-semibold text-gray-600 border border-gray-200 bg-white hover:border-gray-300 hover:shadow-sm transition-all cursor-pointer"
         >
           {tr.delivery_settings}
+        </Link>
+      )}
+
+      {session.role === 'owner' && (
+        <Link
+          href={`/${shopCode}/extra-rate`}
+          className="w-full block text-center py-3 rounded-2xl text-sm font-semibold text-gray-600 border border-gray-200 bg-white hover:border-gray-300 hover:shadow-sm transition-all cursor-pointer"
+        >
+          ✦ Extra Rate Setting
         </Link>
       )}
 

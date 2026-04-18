@@ -53,6 +53,68 @@ type NewEmp = {
   defaultDays: boolean[]
 }
 
+function ScheduleDailySummary({ employees, weekDates, getEntry, DAYS_SHORT }: {
+  employees: Employee[]
+  weekDates: Date[]
+  getEntry: (empId: string) => (string | null)[]
+  DAYS_SHORT: string[]
+}) {
+  const frontEmps = employees.filter((e) => e.positions.includes('Front'))
+  const kitchenEmps = employees.filter((e) => e.positions.includes('Kitchen'))
+  if (frontEmps.length === 0 && kitchenEmps.length === 0) return null
+  const rows = [
+    ...(frontEmps.length > 0 ? [{ label: 'Lunch', isLunch: true, posLabel: 'Front', posColor: 'text-blue-600', emps: frontEmps, slotOffset: 0 }] : []),
+    ...(kitchenEmps.length > 0 ? [{ label: 'Lunch', isLunch: true, posLabel: 'Kitchen', posColor: 'text-brand-gold', emps: kitchenEmps, slotOffset: 0 }] : []),
+    ...(frontEmps.length > 0 ? [{ label: 'Dinner', isLunch: false, posLabel: 'Front', posColor: 'text-blue-600', emps: frontEmps, slotOffset: 1 }] : []),
+    ...(kitchenEmps.length > 0 ? [{ label: 'Dinner', isLunch: false, posLabel: 'Kitchen', posColor: 'text-brand-gold', emps: kitchenEmps, slotOffset: 1 }] : []),
+  ]
+  return (
+    <div className="bg-white rounded-xl border border-gray-100 shadow-sm overflow-hidden">
+      <div className="px-4 py-2 border-b border-gray-100">
+        <span className="text-xs font-semibold text-gray-500">Daily Summary</span>
+      </div>
+      <div className="overflow-x-auto">
+        <table className="w-full text-xs">
+          <thead>
+            <tr className="border-b border-gray-100">
+              <th className="text-left px-3 py-2 text-gray-400 font-medium w-28"></th>
+              {weekDates.map((d, i) => (
+                <th key={i} className="text-center px-2 py-2 text-gray-400 font-medium">
+                  <div>{DAYS_SHORT[i]}</div>
+                  <div className="text-gray-300 text-[10px]">{d.getDate()}</div>
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((row) => (
+              <tr key={row.label + row.posLabel} className="border-b border-gray-50 last:border-0">
+                <td className="px-3 py-1.5 whitespace-nowrap">
+                  <span className={`font-semibold ${row.isLunch ? 'text-orange-400' : 'text-blue-400'}`}>{row.label}</span>
+                  {' '}
+                  <span className={row.posColor}>{row.posLabel}</span>
+                </td>
+                {weekDates.map((_, di) => {
+                  const slotIdx = di * 2 + row.slotOffset
+                  const count = row.emps.filter((e) => getEntry(e.id)[slotIdx] !== null).length
+                  return (
+                    <td key={di} className="text-center px-2 py-1.5">
+                      {count > 0
+                        ? <span className={`font-bold ${row.isLunch ? 'text-orange-500' : 'text-blue-500'}`}>{count}</span>
+                        : <span className="text-gray-200">—</span>
+                      }
+                    </td>
+                  )
+                })}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  )
+}
+
 export default function ScheduleView({
   initialEmployees,
   initialSchedules,
@@ -394,6 +456,10 @@ export default function ScheduleView({
           </div>
         )
       })}
+
+      {employees.length > 0 && (
+        <ScheduleDailySummary employees={employees.filter((e) => !e.fired)} weekDates={weekDates} getEntry={getEntry} DAYS_SHORT={DAYS_SHORT} />
+      )}
 
       {employees.filter((e) => !e.fired).length === 0 && (
         <div className="text-center py-16 text-gray-400 text-sm">

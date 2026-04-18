@@ -4,7 +4,7 @@ import { useState, useEffect } from 'react'
 import Link from 'next/link'
 import { useParams } from 'next/navigation'
 import type { MealRevenue, RevenueEntry } from '@/lib/types'
-import { getRevenueData, saveRevenueEntry, deleteRevenueEntry, saveAuditLog } from './actions'
+import { getRevenueData, saveRevenueEntry, saveAuditLog } from './actions'
 import { useShop } from '@/components/ShopProvider'
 import { translations } from '@/lib/translations'
 
@@ -21,7 +21,7 @@ function today(): string {
 }
 
 function emptyMeal(): MealRevenue {
-  return { eftpos: 0, lfyOnline: 0, lfyCards: 0, lfyCash: 0, uberOnline: 0, doorDash: 0, cashLeftInBag: 0, totalSale: 0 }
+  return { eftpos: 0, lfyOnline: 0, lfyCards: 0, lfyCash: 0, uberOnline: 0, doorDash: 0, cashLeftInBag: 0, cashSale: 0, totalSale: 0 }
 }
 
 function emptyEntry(date: string): RevenueEntry {
@@ -36,12 +36,21 @@ function emptyEntry(date: string): RevenueEntry {
   }
 }
 
-function calcCashSale(m: MealRevenue): number {
-  return m.totalSale - m.eftpos - m.lfyOnline - m.uberOnline - m.doorDash
+function calcTotalSale(m: MealRevenue): number {
+  return m.eftpos + m.lfyOnline + m.uberOnline + m.doorDash + (m.cashSale ?? 0)
+}
+
+// For legacy entries that have totalSale but no cashSale, derive cashSale
+function ensureCashSale(m: MealRevenue): MealRevenue {
+  if ((m.cashSale === undefined || m.cashSale === 0) && m.totalSale > 0) {
+    const derived = m.totalSale - m.eftpos - m.lfyOnline - m.uberOnline - m.doorDash
+    return { ...m, cashSale: Math.max(0, derived) }
+  }
+  return m
 }
 
 function mealHasData(m: MealRevenue): boolean {
-  return m.totalSale > 0
+  return m.totalSale > 0 || m.eftpos > 0 || m.lfyOnline > 0 || m.lfyCards > 0 || m.lfyCash > 0 || m.uberOnline > 0 || m.doorDash > 0 || m.cashLeftInBag > 0 || (m.cashSale ?? 0) > 0
 }
 
 function fmt(n: number): string {
@@ -50,9 +59,9 @@ function fmt(n: number): string {
 
 // ── Numeric input ──────────────────────────────────────────────────────────────
 function NumInput({
-  value, onChange, yellow = false,
+  value, onChange, yellow = false, error = false,
 }: {
-  value: number; onChange: (v: number) => void; yellow?: boolean
+  value: number; onChange: (v: number) => void; yellow?: boolean; error?: boolean
 }) {
   return (
     <input
@@ -63,14 +72,18 @@ function NumInput({
       onChange={(e) => onChange(parseFloat(e.target.value) || 0)}
       onKeyDown={(e) => ['e', 'E', '+', '-'].includes(e.key) && e.preventDefault()}
       placeholder="0"
-      className={`w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-gold ${yellow ? 'bg-yellow-50 border-yellow-300' : ''}`}
+      className={`w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 ${
+        error ? 'border-red-400 bg-red-50 focus:ring-red-400' :
+        yellow ? 'bg-yellow-50 border-yellow-300 focus:ring-brand-gold' :
+        'border-gray-300 focus:ring-brand-gold'
+      }`}
     />
   )
 }
 
 // ── Meal detail rows (card display) ───────────────────────────────────────────
 function MealDetailRows({ meal }: { meal: MealRevenue }) {
-  const cashSale = calcCashSale(meal)
+  const displayTotal = meal.totalSale > 0 ? meal.totalSale : calcTotalSale(ensureCashSale(meal))
   const rows: Array<{ label: string; value: number; dim?: boolean }> = [
     { label: 'Eftpos', value: meal.eftpos, dim: true },
     { label: 'LFY Online', value: meal.lfyOnline, dim: true },
@@ -78,8 +91,8 @@ function MealDetailRows({ meal }: { meal: MealRevenue }) {
     { label: 'LFY Cash', value: meal.lfyCash, dim: true },
     { label: 'Uber Online', value: meal.uberOnline, dim: true },
     { label: 'DoorDash', value: meal.doorDash, dim: true },
+    { label: 'Cash Sale', value: meal.cashSale ?? 0, dim: true },
     { label: 'Cash in Bag', value: meal.cashLeftInBag, dim: true },
-    { label: 'Cash Sale', value: cashSale, dim: true },
   ]
   return (
     <div className="space-y-0.5">
@@ -96,7 +109,7 @@ function MealDetailRows({ meal }: { meal: MealRevenue }) {
       {/* Total Sale — prominent */}
       <div className="flex justify-between items-center pt-1.5 mt-1.5 border-t border-black/10">
         <span className="text-xs font-semibold text-gray-700">Total Sale</span>
-        <span className="text-base font-bold text-gray-900">${fmt(meal.totalSale)}</span>
+        <span className="text-base font-bold text-gray-900">${fmt(displayTotal)}</span>
       </div>
     </div>
   )
@@ -109,9 +122,10 @@ function MealSection({
   label: string; color: string; meal: MealRevenue; onChange: (m: MealRevenue) => void
 }) {
   function set(key: keyof MealRevenue, val: number) {
-    onChange({ ...meal, [key]: val })
+    const updated = { ...meal, [key]: val }
+    updated.totalSale = calcTotalSale(updated)
+    onChange(updated)
   }
-  const cashSale = calcCashSale(meal)
 
   const fields: Array<{ key: keyof MealRevenue; label: string; yellow?: boolean }> = [
     { key: 'eftpos', label: 'Eftpos' },
@@ -120,29 +134,34 @@ function MealSection({
     { key: 'lfyCash', label: 'LFY Cash' },
     { key: 'uberOnline', label: 'Uber Eat Online' },
     { key: 'doorDash', label: 'DoorDash' },
+    { key: 'cashSale', label: 'Cash Sale' },
     { key: 'cashLeftInBag', label: 'Cash Left in Bag', yellow: true },
-    { key: 'totalSale', label: 'Total Sale' },
   ]
+
+  const totalSale = calcTotalSale(meal)
+  const lfyCardsError = (meal.lfyCards + meal.lfyCash) > meal.eftpos
 
   return (
     <div className="border border-gray-200 rounded-xl overflow-hidden">
       <div className={`px-4 py-2.5 font-semibold text-sm ${color}`}>{label}</div>
       <div className="p-4 space-y-2.5">
-        {fields.map(({ key, label: lbl, yellow }) => (
-          <div key={key} className="flex items-center gap-3">
-            <label className="text-xs text-gray-500 w-36 shrink-0">{lbl}</label>
-            <NumInput value={meal[key]} onChange={(v) => set(key, v)} yellow={yellow} />
-          </div>
-        ))}
-        <div className="flex items-center gap-3 pt-1 border-t border-gray-100">
-          <label className="text-xs text-gray-600 font-medium w-36 shrink-0">Cash Sale</label>
-          <div className={`flex-1 px-3 py-2 rounded-lg text-sm font-semibold text-right ${cashSale < 0 ? 'bg-red-50 text-red-600' : 'bg-gray-50 text-gray-700'}`}>
-            ${fmt(cashSale)}
-          </div>
-        </div>
+        {fields.map(({ key, label: lbl, yellow }) => {
+          const isError = (key === 'lfyCards' || key === 'lfyCash') && lfyCardsError
+          return (
+            <div key={key}>
+              <div className="flex items-center gap-3">
+                <label className={`text-xs w-36 shrink-0 ${isError ? 'text-red-500 font-medium' : 'text-gray-500'}`}>{lbl}</label>
+                <NumInput value={(meal[key] as number) ?? 0} onChange={(v) => set(key, v)} yellow={yellow} error={isError} />
+              </div>
+              {isError && (
+                <p className="text-[10px] text-red-500 mt-0.5 ml-39">LFY Cards + LFY Cash ต้องไม่เกิน Eftpos</p>
+              )}
+            </div>
+          )
+        })}
         <div className="flex items-center justify-between bg-green-50 rounded-lg px-3 py-2">
-          <span className="text-xs text-green-700 font-medium">Total Sale</span>
-          <span className="text-sm font-bold text-green-700">${fmt(meal.totalSale)}</span>
+          <span className="text-xs text-green-700 font-medium">Total Sale (auto)</span>
+          <span className="text-sm font-bold text-green-700">${fmt(totalSale)}</span>
         </div>
       </div>
     </div>
@@ -159,9 +178,9 @@ export default function RevenueView() {
   const [formState, setFormState] = useState<FormState | null>(null)
   const [auditEditorName, setAuditEditorName] = useState('')
   const [auditNote, setAuditNote] = useState('')
-  const [deleteAudit, setDeleteAudit] = useState<{ id: string; date: string } | null>(null)
-  const [deleteAuditEditor, setDeleteAuditEditor] = useState('')
-  const [deleteAuditNote, setDeleteAuditNote] = useState('')
+  const [deleteMealAudit, setDeleteMealAudit] = useState<{ id: string; date: string; mode: FormMode } | null>(null)
+  const [deleteMealEditor, setDeleteMealEditor] = useState('')
+  const [deleteMealNote, setDeleteMealNote] = useState('')
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [filterDate, setFilterDate] = useState(today)
@@ -181,7 +200,7 @@ export default function RevenueView() {
 
   function openForm(mode: FormMode) {
     const base = dayEntry
-      ? { ...dayEntry, lunch: { ...dayEntry.lunch }, dinner: { ...dayEntry.dinner } }
+      ? { ...dayEntry, lunch: ensureCashSale(dayEntry.lunch), dinner: ensureCashSale(dayEntry.dinner) }
       : emptyEntry(filterDate)
     setAuditEditorName('')
     setAuditNote('')
@@ -201,7 +220,13 @@ export default function RevenueView() {
 
   async function handleSave() {
     if (!formState) return
+    const currentMeal = formState.mode === 'lunch' ? formState.entry.lunch : formState.entry.dinner
+    const recorderName = formState.mode === 'lunch' ? formState.entry.lunchRecorderName : formState.entry.dinnerRecorderName
+    if (!recorderName?.trim()) return
     if (formState.isEditing && !auditEditorName.trim()) return
+    if ((currentMeal.lfyCards + currentMeal.lfyCash) > currentMeal.eftpos) return
+    const cashSaleVal = currentMeal.cashSale ?? 0
+    if (currentMeal.cashLeftInBag !== cashSaleVal && !formState.entry.note?.trim()) return
     setSaving(true)
     try {
       const toSave = formState.entry
@@ -229,31 +254,33 @@ export default function RevenueView() {
     }
   }
 
-  function handleDelete(id: string, date: string) {
-    setDeleteAuditEditor('')
-    setDeleteAuditNote('')
-    setDeleteAudit({ id, date })
-  }
-
-  async function doDelete() {
-    if (!deleteAudit || !deleteAuditEditor.trim()) return
-    await deleteRevenueEntry(shopCode, deleteAudit.id)
+  async function doDeleteMeal() {
+    if (!deleteMealAudit || !deleteMealEditor.trim()) return
+    const entry = entries.find((e) => e.id === deleteMealAudit.id)
+    if (!entry) return
+    const updated: RevenueEntry = {
+      ...entry,
+      [deleteMealAudit.mode]: emptyMeal(),
+      [`${deleteMealAudit.mode}RecorderName`]: undefined,
+    }
+    await saveRevenueEntry(shopCode, updated)
     saveAuditLog(shopCode, {
-      editorName: deleteAuditEditor,
-      note: deleteAuditNote,
-      employeeName: deleteAudit.date,
-      shift: 'revenue',
-      changes: `Delete revenue entry: ${deleteAudit.date}`,
+      editorName: deleteMealEditor,
+      note: deleteMealNote,
+      employeeName: deleteMealAudit.date,
+      shift: deleteMealAudit.mode,
+      changes: `Delete ${deleteMealAudit.mode} revenue: ${deleteMealAudit.date}`,
     }).catch(() => {})
-    setEntries((p) => p.filter((e) => e.id !== deleteAudit.id))
-    setDeleteAudit(null)
+    const { entries: fresh } = await getRevenueData(shopCode)
+    setEntries(fresh)
+    setDeleteMealAudit(null)
   }
 
   function openEdit(entry: RevenueEntry, mode: FormMode) {
     setAuditEditorName('')
     setAuditNote('')
     setFormState({
-      entry: { ...entry, lunch: { ...entry.lunch }, dinner: { ...entry.dinner } },
+      entry: { ...entry, lunch: ensureCashSale(entry.lunch), dinner: ensureCashSale(entry.dinner) },
       mode,
       isEditing: true,
     })
@@ -315,15 +342,7 @@ export default function RevenueView() {
         <div className="text-center py-12 text-gray-400 text-sm">{tr.no_data}</div>
       ) : (
         <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-4 space-y-3">
-          <div className="flex items-start justify-between">
-            <div className="text-xs text-gray-400">{dayEntry.date}</div>
-            <button
-              onClick={() => handleDelete(dayEntry.id, dayEntry.date)}
-              className="text-xs text-red-400 cursor-pointer"
-            >
-              {tr.delete}
-            </button>
-          </div>
+          <div className="text-xs text-gray-400">{dayEntry.date}</div>
 
           {/* Bill counts */}
           {(dayEntry.lfyBills > 0 || dayEntry.uberBills > 0 || dayEntry.doorDashBills > 0) && (
@@ -345,9 +364,10 @@ export default function RevenueView() {
                     <span className="text-[10px] text-yellow-600">👤 {dayEntry.lunchRecorderName}</span>
                   )}
                   {lunchDone && (
-                    <button onClick={() => openEdit(dayEntry, 'lunch')} className="text-[10px] text-blue-500 cursor-pointer">
-                      {tr.edit}
-                    </button>
+                    <>
+                      <button onClick={() => openEdit(dayEntry, 'lunch')} className="text-[10px] text-blue-500 cursor-pointer">{tr.edit}</button>
+                      <button onClick={() => { setDeleteMealEditor(''); setDeleteMealNote(''); setDeleteMealAudit({ id: dayEntry.id, date: dayEntry.date, mode: 'lunch' }) }} className="text-[10px] text-red-400 cursor-pointer">{tr.delete}</button>
+                    </>
                   )}
                 </div>
               </div>
@@ -363,9 +383,10 @@ export default function RevenueView() {
                     <span className="text-[10px] text-blue-600">👤 {dayEntry.dinnerRecorderName}</span>
                   )}
                   {dinnerDone && (
-                    <button onClick={() => openEdit(dayEntry, 'dinner')} className="text-[10px] text-blue-500 cursor-pointer">
-                      {tr.edit}
-                    </button>
+                    <>
+                      <button onClick={() => openEdit(dayEntry, 'dinner')} className="text-[10px] text-blue-500 cursor-pointer">{tr.edit}</button>
+                      <button onClick={() => { setDeleteMealEditor(''); setDeleteMealNote(''); setDeleteMealAudit({ id: dayEntry.id, date: dayEntry.date, mode: 'dinner' }) }} className="text-[10px] text-red-400 cursor-pointer">{tr.delete}</button>
+                    </>
                   )}
                 </div>
               </div>
@@ -375,19 +396,22 @@ export default function RevenueView() {
 
           <div className="flex justify-between items-center text-sm border-t border-gray-100 pt-2">
             <span className="text-gray-500 text-xs">Grand Total</span>
-            <span className="font-bold text-brand-gold">${fmt(dayEntry.lunch.totalSale + dayEntry.dinner.totalSale)}</span>
+            <span className="font-bold text-brand-gold">${fmt(
+              (dayEntry.lunch.totalSale > 0 ? dayEntry.lunch.totalSale : calcTotalSale(ensureCashSale(dayEntry.lunch))) +
+              (dayEntry.dinner.totalSale > 0 ? dayEntry.dinner.totalSale : calcTotalSale(ensureCashSale(dayEntry.dinner)))
+            )}</span>
           </div>
           {dayEntry.note && <div className="text-xs text-gray-400 italic">{dayEntry.note}</div>}
         </div>
       )}
 
-      {/* Delete Audit Modal */}
-      {deleteAudit && (
+      {/* Per-meal Delete Modal */}
+      {deleteMealAudit && (
         <div className="fixed inset-0 bg-black/40 flex items-end justify-center z-50 p-4">
           <div className="bg-white rounded-2xl w-full max-w-sm p-6 space-y-4">
-            <h3 className="font-bold text-red-600">ยืนยันการลบ</h3>
+            <h3 className="font-bold text-red-600">ยืนยันการลบ {deleteMealAudit.mode === 'lunch' ? '🌞 Lunch' : '🌙 Dinner'}</h3>
             <div className="text-xs text-gray-500 bg-red-50 rounded-lg px-3 py-2">
-              ลบข้อมูลรายรับ: <span className="font-semibold text-gray-700">{deleteAudit.date}</span>
+              ลบข้อมูล {deleteMealAudit.mode}: <span className="font-semibold text-gray-700">{deleteMealAudit.date}</span>
             </div>
             <div className="space-y-3">
               <div>
@@ -395,8 +419,8 @@ export default function RevenueView() {
                 <input
                   type="text"
                   autoFocus
-                  value={deleteAuditEditor}
-                  onChange={(e) => setDeleteAuditEditor(e.target.value)}
+                  value={deleteMealEditor}
+                  onChange={(e) => setDeleteMealEditor(e.target.value)}
                   placeholder="กรอกชื่อ"
                   className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-red-400"
                 />
@@ -405,27 +429,16 @@ export default function RevenueView() {
                 <label className="text-xs text-gray-500 block mb-1">หมายเหตุ</label>
                 <input
                   type="text"
-                  value={deleteAuditNote}
-                  onChange={(e) => setDeleteAuditNote(e.target.value)}
+                  value={deleteMealNote}
+                  onChange={(e) => setDeleteMealNote(e.target.value)}
                   placeholder="เหตุผล (ถ้ามี)"
                   className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-red-400"
                 />
               </div>
             </div>
             <div className="flex gap-2 pt-1">
-              <button
-                onClick={() => setDeleteAudit(null)}
-                className="flex-1 py-2.5 border border-gray-200 rounded-xl text-sm text-gray-600 cursor-pointer"
-              >
-                {tr.cancel}
-              </button>
-              <button
-                onClick={doDelete}
-                disabled={!deleteAuditEditor.trim()}
-                className="flex-1 py-2.5 bg-red-500 text-white rounded-xl text-sm font-semibold disabled:opacity-50 cursor-pointer"
-              >
-                {tr.delete}
-              </button>
+              <button onClick={() => setDeleteMealAudit(null)} className="flex-1 py-2.5 border border-gray-200 rounded-xl text-sm text-gray-600 cursor-pointer">{tr.cancel}</button>
+              <button onClick={doDeleteMeal} disabled={!deleteMealEditor.trim()} className="flex-1 py-2.5 bg-red-500 text-white rounded-xl text-sm font-semibold disabled:opacity-50 cursor-pointer">{tr.delete}</button>
             </div>
           </div>
         </div>
@@ -439,20 +452,30 @@ export default function RevenueView() {
               {mode === 'lunch' ? '🌞 Lunch' : '🌙 Dinner'} — {form.date}
             </h3>
 
-            {/* Recorder name — per meal */}
-            <div>
-              <label className="text-xs text-gray-500 block mb-1">Name (ชื่อผู้กรอก)</label>
-              <input
-                type="text"
-                value={(mode === 'lunch' ? form.lunchRecorderName : form.dinnerRecorderName) ?? ''}
-                onChange={(e) => setEntryField(
-                  mode === 'lunch' ? 'lunchRecorderName' : 'dinnerRecorderName',
-                  e.target.value || undefined,
-                )}
-                placeholder="ชื่อพนักงาน"
-                className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-gold"
-              />
-            </div>
+            {/* Recorder name — required */}
+            {(() => {
+              const recorderVal = (mode === 'lunch' ? form.lunchRecorderName : form.dinnerRecorderName) ?? ''
+              const nameEmpty = !recorderVal.trim()
+              return (
+                <div>
+                  <label className="text-xs block mb-1">
+                    <span className={nameEmpty ? 'text-red-500 font-medium' : 'text-gray-500'}>
+                      Name (ชื่อผู้กรอก) *
+                    </span>
+                  </label>
+                  <input
+                    type="text"
+                    value={recorderVal}
+                    onChange={(e) => setEntryField(
+                      mode === 'lunch' ? 'lunchRecorderName' : 'dinnerRecorderName',
+                      e.target.value || undefined,
+                    )}
+                    placeholder="ชื่อพนักงาน *"
+                    className={`w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-gold ${nameEmpty ? 'border-red-400 bg-red-50' : 'border-gray-300'}`}
+                  />
+                </div>
+              )
+            })()}
 
             {/* Audit fields — shown only when editing existing data */}
             {isEditing && (
@@ -537,33 +560,49 @@ export default function RevenueView() {
               />
             )}
 
-            {/* Note */}
-            <div>
-              <label className="text-xs text-gray-500 block mb-1">Note (optional)</label>
-              <input
-                type="text"
-                value={form.note ?? ''}
-                onChange={(e) => setEntryField('note', e.target.value || undefined)}
-                placeholder="—"
-                className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-gold"
-              />
-            </div>
-
-            <div className="flex gap-2">
-              <button
-                onClick={() => setFormState(null)}
-                className="flex-1 py-2.5 border border-brand-accent rounded-xl text-sm text-gray-600 cursor-pointer"
-              >
-                {tr.cancel}
-              </button>
-              <button
-                onClick={handleSave}
-                disabled={saving || (isEditing && !auditEditorName.trim())}
-                className="flex-1 py-2.5 bg-brand-gold text-white rounded-xl text-sm font-semibold disabled:opacity-50 cursor-pointer"
-              >
-                {saving ? tr.saving : tr.save}
-              </button>
-            </div>
+            {/* Note — required if cashLeftInBag ≠ cashSale */}
+            {(() => {
+              const currentMeal = mode === 'lunch' ? form.lunch : form.dinner
+              const cashSaleVal = currentMeal.cashSale ?? 0
+              const discrepancy = currentMeal.cashLeftInBag !== cashSaleVal
+              const noteRequired = discrepancy && !form.note?.trim()
+              const recorderName = (mode === 'lunch' ? form.lunchRecorderName : form.dinnerRecorderName) ?? ''
+              const lfyCardsInvalid = (currentMeal.lfyCards + currentMeal.lfyCash) > currentMeal.eftpos
+              const canSave = !saving && !!recorderName.trim() && !noteRequired && !lfyCardsInvalid && (!isEditing || !!auditEditorName.trim())
+              return (
+                <>
+                  <div>
+                    <label className="text-xs block mb-1">
+                      <span className={noteRequired ? 'text-red-500 font-medium' : 'text-gray-500'}>
+                        Note{noteRequired ? ' * (Cash in Bag ≠ Cash Sale — required)' : ' (optional)'}
+                      </span>
+                    </label>
+                    <input
+                      type="text"
+                      value={form.note ?? ''}
+                      onChange={(e) => setEntryField('note', e.target.value || undefined)}
+                      placeholder={noteRequired ? 'ต้องกรอก — ยอดไม่ตรงกัน' : '—'}
+                      className={`w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-gold ${noteRequired ? 'border-red-400 bg-red-50' : 'border-gray-300'}`}
+                    />
+                  </div>
+                  <div className="flex gap-2">
+                    <button
+                      onClick={() => setFormState(null)}
+                      className="flex-1 py-2.5 border border-brand-accent rounded-xl text-sm text-gray-600 cursor-pointer"
+                    >
+                      {tr.cancel}
+                    </button>
+                    <button
+                      onClick={handleSave}
+                      disabled={!canSave}
+                      className="flex-1 py-2.5 bg-brand-gold text-white rounded-xl text-sm font-semibold disabled:opacity-50 cursor-pointer"
+                    >
+                      {saving ? tr.saving : tr.save}
+                    </button>
+                  </div>
+                </>
+              )
+            })()}
           </div>
         </div>
       )}

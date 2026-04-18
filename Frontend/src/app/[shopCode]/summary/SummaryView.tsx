@@ -10,16 +10,33 @@ import type {
   RevenueEntry,
   ExpenseEntry,
   DailyNote,
+  MealRevenue,
 } from '@/lib/types'
-import { getSummaryData, saveDailyNote, syncReportSheets } from './actions'
+import { getSummaryData, getSummaryDataAll, saveDailyNote, syncReportSheets } from './actions'
 import { useShop } from '@/components/ShopProvider'
 import { translations } from '@/lib/translations'
 
 type Pov = 'daily' | 'weekly' | 'monthly'
 type Shift = 'am' | 'pm' | 'total'
 
+const DAYS_SHORT_EN = ['M', 'T', 'W', 'Th', 'F', 'Sa', 'Su']
+const DAYS_SHORT_TH = ['จ', 'อ', 'พ', 'พฤ', 'ศ', 'ส', 'อา']
+
 function currentMonth(): string {
   return new Date().toISOString().slice(0, 7)
+}
+
+function getMondayStr(date: Date): string {
+  const d = new Date(date)
+  const day = d.getDay()
+  d.setDate(d.getDate() + (day === 0 ? -6 : 1 - day))
+  return d.toISOString().split('T')[0]
+}
+
+function addWeeks(weekStr: string, delta: number): string {
+  const d = new Date(weekStr + 'T00:00:00')
+  d.setDate(d.getDate() + delta * 7)
+  return d.toISOString().split('T')[0]
 }
 
 function addMonth(month: string, delta: number): string {
@@ -144,6 +161,11 @@ function groupByWeek(rows: DaySummary[]): WeekGroup[] {
     .map(([weekStart, days]) => ({ weekStart, days, totals: sumTotals(days) }))
 }
 
+function mealTotal(m: MealRevenue): number {
+  if (m.totalSale > 0) return m.totalSale
+  return m.eftpos + m.lfyOnline + m.uberOnline + m.doorDash + (m.cashSale ?? 0)
+}
+
 function calcDay(
   date: string,
   employees: Employee[],
@@ -159,7 +181,7 @@ function calcDay(
   const dayTrips = deliveryTrips.filter((t) => t.date === date)
   const note = notes.find((n) => n.date === date)?.note ?? ''
 
-  const totalSale = dayRevenue.reduce((s, e) => s + e.lunch.totalSale + e.dinner.totalSale, 0)
+  const totalSale = dayRevenue.reduce((s, e) => s + mealTotal(e.lunch) + mealTotal(e.dinner), 0)
   const totalEftpos = dayRevenue.reduce((s, e) => s + e.lunch.eftpos + e.dinner.eftpos, 0)
   const onlineOrders = dayRevenue.reduce(
     (s, e) => s + e.lunch.lfyOnline + e.lunch.uberOnline + e.lunch.doorDash
@@ -167,8 +189,8 @@ function calcDay(
   const netSales = totalSale - onlineOrders
   const cashRevenue = dayRevenue.reduce(
     (s, e) =>
-      s + (e.lunch.totalSale - e.lunch.eftpos - e.lunch.lfyOnline - e.lunch.uberOnline - e.lunch.doorDash)
-        + (e.dinner.totalSale - e.dinner.eftpos - e.dinner.lfyOnline - e.dinner.uberOnline - e.dinner.doorDash),
+      s + (mealTotal(e.lunch) - e.lunch.eftpos - e.lunch.lfyOnline - e.lunch.uberOnline - e.lunch.doorDash)
+        + (mealTotal(e.dinner) - e.dinner.eftpos - e.dinner.lfyOnline - e.dinner.uberOnline - e.dinner.doorDash),
     0,
   )
 
@@ -189,17 +211,17 @@ function calcDay(
   const cashLeave = cashRevenue - cashExpense - labor
 
   const hasData =
-    totalSale > 0 || dayExpenses.length > 0 || labor > 0 || note !== ''
+    totalSale > 0 || dayRevenue.some(e => mealTotal(e.lunch) > 0 || mealTotal(e.dinner) > 0) || dayExpenses.length > 0 || labor > 0 || note !== ''
 
   // Per-meal breakdowns
-  const lunchSale   = dayRevenue.reduce((s, e) => s + e.lunch.totalSale, 0)
+  const lunchSale   = dayRevenue.reduce((s, e) => s + mealTotal(e.lunch), 0)
   const lunchEftpos = dayRevenue.reduce((s, e) => s + e.lunch.eftpos, 0)
   const lunchOnline = dayRevenue.reduce((s, e) => s + e.lunch.lfyOnline + e.lunch.uberOnline + e.lunch.doorDash, 0)
-  const lunchCash   = dayRevenue.reduce((s, e) => s + (e.lunch.totalSale - e.lunch.eftpos - e.lunch.lfyOnline - e.lunch.uberOnline - e.lunch.doorDash), 0)
-  const dinnerSale   = dayRevenue.reduce((s, e) => s + e.dinner.totalSale, 0)
+  const lunchCash   = dayRevenue.reduce((s, e) => s + (mealTotal(e.lunch) - e.lunch.eftpos - e.lunch.lfyOnline - e.lunch.uberOnline - e.lunch.doorDash), 0)
+  const dinnerSale   = dayRevenue.reduce((s, e) => s + mealTotal(e.dinner), 0)
   const dinnerEftpos = dayRevenue.reduce((s, e) => s + e.dinner.eftpos, 0)
   const dinnerOnline = dayRevenue.reduce((s, e) => s + e.dinner.lfyOnline + e.dinner.uberOnline + e.dinner.doorDash, 0)
-  const dinnerCash   = dayRevenue.reduce((s, e) => s + (e.dinner.totalSale - e.dinner.eftpos - e.dinner.lfyOnline - e.dinner.uberOnline - e.dinner.doorDash), 0)
+  const dinnerCash   = dayRevenue.reduce((s, e) => s + (mealTotal(e.dinner) - e.dinner.eftpos - e.dinner.lfyOnline - e.dinner.uberOnline - e.dinner.doorDash), 0)
 
   return {
     date, netSales, onlineOrders, totalSale, totalEftpos, cashRevenue, cashExpense, cashLeave, labor,
@@ -226,6 +248,166 @@ function getDayDisplay(d: DaySummary, shift: Shift) {
 
 function fmt(n: number): string {
   return n.toLocaleString()
+}
+
+const MONTH_SHORT = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec']
+
+function RevenueExpenseChart({
+  rows, weekGroups, allRevenue, allExpenses, shift, pov,
+}: {
+  rows: DaySummary[]
+  weekGroups: WeekGroup[]
+  allRevenue: RevenueEntry[]
+  allExpenses: ExpenseEntry[]
+  shift: Shift
+  pov: Pov
+}) {
+  const fmtY = (v: number) => v >= 1000 ? `${(v / 1000).toFixed(v % 1000 === 0 ? 0 : 1)}k` : String(v)
+
+  const data = pov === 'daily'
+    ? rows.map((d) => {
+        const dv = getDayDisplay(d, shift)
+        return { label: String(parseInt(d.date.split('-')[2])), revenue: dv.totalSale, expense: dv.cashExpense }
+      })
+    : pov === 'weekly'
+    ? weekGroups.map((wg, i) => {
+        const wt = wg.days.reduce(
+          (acc, d) => {
+            const dv = getDayDisplay(d, shift)
+            return { revenue: acc.revenue + dv.totalSale, expense: acc.expense + dv.cashExpense }
+          },
+          { revenue: 0, expense: 0 },
+        )
+        const startDay = parseInt(wg.weekStart.split('-')[2])
+        return { label: `W${i + 1} (${startDay})`, revenue: wt.revenue, expense: wt.expense }
+      })
+    : (() => {
+        // Monthly: one point per month from all data
+        const monthMap = new Map<string, { revenue: number; expense: number }>()
+        for (const r of allRevenue) {
+          const m = r.date.slice(0, 7)
+          const prev = monthMap.get(m) ?? { revenue: 0, expense: 0 }
+          monthMap.set(m, { ...prev, revenue: prev.revenue + mealTotal(r.lunch) + mealTotal(r.dinner) })
+        }
+        for (const e of allExpenses) {
+          const m = e.date.slice(0, 7)
+          const prev = monthMap.get(m) ?? { revenue: 0, expense: 0 }
+          if (e.paymentMethod === 'Cash')
+            monthMap.set(m, { ...prev, expense: prev.expense + e.total })
+        }
+        return [...monthMap.entries()]
+          .sort(([a], [b]) => a.localeCompare(b))
+          .map(([m, v]) => {
+            const [, mm] = m.split('-')
+            return { label: MONTH_SHORT[parseInt(mm) - 1], revenue: v.revenue, expense: v.expense }
+          })
+      })()
+
+  if (data.length < 2) return null
+
+  const W = 360, H = 290
+  const padL = 52, padR = 16, padT = 30, padB = 50
+  const chartW = W - padL - padR
+  const chartH = H - padT - padB
+
+  const maxVal = Math.max(...data.flatMap((d) => [d.revenue, d.expense]), 1)
+  const niceMax = Math.ceil(maxVal / 1000) * 1000 || 1000
+  const xScale = (i: number) => padL + (i / (data.length - 1)) * chartW
+  const yScale = (v: number) => padT + chartH - (v / niceMax) * chartH
+
+  const makePath = (key: 'revenue' | 'expense') =>
+    data.map((d, i) => `${i === 0 ? 'M' : 'L'}${xScale(i).toFixed(1)},${yScale(d[key]).toFixed(1)}`).join(' ')
+
+  const makeArea = (key: 'revenue' | 'expense') => {
+    const base = (padT + chartH).toFixed(1)
+    return `${makePath(key)} L${xScale(data.length - 1).toFixed(1)},${base} L${xScale(0).toFixed(1)},${base} Z`
+  }
+
+  const yTicks = [0, Math.round(niceMax / 4), Math.round(niceMax / 2), Math.round((niceMax * 3) / 4), niceMax]
+  const xStep = data.length > 20 ? 7 : data.length > 14 ? 5 : data.length > 7 ? 3 : 1
+
+  return (
+    <div className="bg-white rounded-2xl border border-gray-100 shadow-sm px-4 pt-4 pb-2">
+      {/* Header */}
+      <div className="flex items-center justify-between mb-3">
+        <span className="text-sm font-bold text-gray-700">Revenue vs Expenses</span>
+        <div className="flex items-center gap-4">
+          <div className="flex items-center gap-1.5">
+            <div className="w-5 h-0.75 bg-green-500 rounded-full" />
+            <span className="text-xs text-gray-500 font-medium">Revenue</span>
+          </div>
+          <div className="flex items-center gap-1.5">
+            <div className="w-5 h-0.75 bg-red-400 rounded-full" />
+            <span className="text-xs text-gray-500 font-medium">Expenses</span>
+          </div>
+        </div>
+      </div>
+
+      <svg viewBox={`0 0 ${W} ${H}`} className="w-full" style={{ height: 290 }}>
+        <defs>
+          <linearGradient id="gradGreen" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stopColor="#22c55e" stopOpacity="0.25" />
+            <stop offset="100%" stopColor="#22c55e" stopOpacity="0.02" />
+          </linearGradient>
+          <linearGradient id="gradRed" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stopColor="#f87171" stopOpacity="0.20" />
+            <stop offset="100%" stopColor="#f87171" stopOpacity="0.02" />
+          </linearGradient>
+        </defs>
+
+        {/* Horizontal grid lines + Y labels */}
+        {yTicks.map((v) => (
+          <g key={v}>
+            <line
+              x1={padL} y1={yScale(v)} x2={padL + chartW} y2={yScale(v)}
+              stroke={v === 0 ? '#e5e7eb' : '#f3f4f6'} strokeWidth={v === 0 ? 1.5 : 1}
+            />
+            <text x={padL - 7} y={yScale(v) + 4} textAnchor="end" fontSize="10" fill="#9ca3af" fontFamily="sans-serif">
+              {fmtY(v)}
+            </text>
+          </g>
+        ))}
+
+        {/* Area fills */}
+        <path d={makeArea('revenue')} fill="url(#gradGreen)" />
+        <path d={makeArea('expense')} fill="url(#gradRed)" />
+
+        {/* Lines */}
+        <path d={makePath('revenue')} fill="none" stroke="#22c55e" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
+        <path d={makePath('expense')} fill="none" stroke="#f87171" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
+
+        {/* Dots with white ring + value labels */}
+        {data.map((d, i) => {
+          const cx = xScale(i)
+          const cyR = yScale(d.revenue)
+          const cyE = yScale(d.expense)
+          const labelR = fmtY(d.revenue)
+          const labelE = fmtY(d.expense)
+          // Revenue label: above dot; Expense label: below dot
+          const revLabelY = cyR - 10
+          const expLabelY = cyE + 20
+          return (
+            <g key={i}>
+              <circle cx={cx} cy={cyR} r="4" fill="white" stroke="#22c55e" strokeWidth="2" />
+              <circle cx={cx} cy={cyE} r="4" fill="white" stroke="#f87171" strokeWidth="2" />
+              <text x={cx} y={revLabelY} textAnchor="middle" fontSize="12" fill="#16a34a" fontWeight="700" fontFamily="sans-serif">{labelR}</text>
+              <text x={cx} y={expLabelY} textAnchor="middle" fontSize="12" fill="#ef4444" fontWeight="700" fontFamily="sans-serif">{labelE}</text>
+            </g>
+          )
+        })}
+
+        {/* X-axis labels */}
+        {data.map((d, i) => {
+          if (i % xStep !== 0 && i !== data.length - 1) return null
+          return (
+            <text key={i} x={xScale(i)} y={H - 8} textAnchor="middle" fontSize="10" fill="#9ca3af" fontFamily="sans-serif">
+              {d.label}
+            </text>
+          )
+        })}
+      </svg>
+    </div>
+  )
 }
 
 function TotalsGrid({ totals }: { totals: Totals }) {
@@ -335,12 +517,19 @@ export default function SummaryView() {
   function nextShift() { setShift((s) => s === 'am' ? 'pm' : s === 'pm' ? 'total' : 'am') }
   const [loading, setLoading] = useState(true)
   const [syncing, setSyncing] = useState(false)
+  const [showWage, setShowWage] = useState(false)
+  const [wageWeekStart, setWageWeekStart] = useState(() => getMondayStr(new Date()))
+  const [wageTax, setWageTax] = useState<Record<string, number>>({})
+  const [wagePaid, setWagePaid] = useState<Record<string, number>>({})
+  const DAYS_SHORT = lang === 'en' ? DAYS_SHORT_EN : DAYS_SHORT_TH
   const [employees, setEmployees] = useState<Employee[]>([])
   const [timeRecords, setTimeRecords] = useState<TimeRecord[]>([])
   const [deliveryTrips, setDeliveryTrips] = useState<DeliveryTrip[]>([])
   const [revenue, setRevenue] = useState<RevenueEntry[]>([])
   const [expenses, setExpenses] = useState<ExpenseEntry[]>([])
   const [notes, setNotes] = useState<DailyNote[]>([])
+  const [allRevenue, setAllRevenue] = useState<RevenueEntry[]>([])
+  const [allExpenses, setAllExpenses] = useState<ExpenseEntry[]>([])
 
   useEffect(() => {
     setLoading(true)
@@ -356,6 +545,16 @@ export default function SummaryView() {
       .catch(console.error)
       .finally(() => setLoading(false))
   }, [shopCode, month])
+
+  useEffect(() => {
+    if (pov !== 'monthly') return
+    getSummaryDataAll(shopCode)
+      .then(({ revenue: rev, expenses: exp }) => {
+        setAllRevenue(rev)
+        setAllExpenses(exp)
+      })
+      .catch(console.error)
+  }, [shopCode, pov])
 
   const days = daysInMonth(month)
   const allRows = days.map((date) =>
@@ -385,6 +584,12 @@ export default function SummaryView() {
           {tr.back}
         </Link>
         <h2 className="text-lg font-bold text-gray-800 flex-1">{tr.summary_title}</h2>
+        <button
+          onClick={() => setShowWage((v) => !v)}
+          className={`text-xs px-3 py-1.5 rounded-lg cursor-pointer border transition-colors ${showWage ? 'bg-brand-gold text-white border-brand-gold' : 'bg-white text-gray-600 border-gray-200 hover:border-gray-300'}`}
+        >
+          Wage
+        </button>
         {session.role === 'owner' && (
           <button
             onClick={async () => {
@@ -461,6 +666,18 @@ export default function SummaryView() {
             </div>
             <TotalsGrid totals={monthTotals} />
           </div>
+
+          {/* Revenue vs Expenses chart */}
+          {activeRows.length >= 2 && (
+            <RevenueExpenseChart
+              rows={activeRows}
+              weekGroups={weekGroups}
+              allRevenue={allRevenue}
+              allExpenses={allExpenses}
+              shift={shift}
+              pov={pov}
+            />
+          )}
 
           {/* Per-pov content */}
           {pov === 'monthly' ? null : pov === 'weekly' ? (
@@ -560,6 +777,147 @@ export default function SummaryView() {
           )}
         </>
       )}
+
+      {/* ── Wage Summary ───────────────────────────────────────────────── */}
+      {showWage && (() => {
+        const staffEmps = employees.filter((e) => !e.positions.includes('Home') && !e.fired)
+        const wageWeekDates = Array.from({ length: 7 }, (_, i) => {
+          const d = new Date(wageWeekStart + 'T00:00:00')
+          d.setDate(d.getDate() + i)
+          return d.toISOString().split('T')[0]
+        })
+        const wageAttend: Record<string, Record<string, { morning: number; evening: number }>> = {}
+        for (const rec of timeRecords) {
+          if (!wageAttend[rec.date]) wageAttend[rec.date] = {}
+          wageAttend[rec.date][rec.employeeId] = { morning: rec.morning, evening: rec.evening }
+        }
+        const weekLabel = (() => {
+          const s = new Date(wageWeekStart + 'T00:00:00')
+          const e = new Date(wageWeekStart + 'T00:00:00')
+          e.setDate(e.getDate() + 6)
+          const fmtD = (d: Date) => `${d.getDate()}/${d.getMonth() + 1}`
+          return `${fmtD(s)} – ${fmtD(e)}`
+        })()
+        return (
+          <div className="space-y-3 mt-2">
+            <div className="flex items-center justify-between">
+              <h3 className="text-sm font-bold text-gray-700">Wage Summary</h3>
+              <div className="flex items-center gap-2">
+                <button onClick={() => setWageWeekStart((w) => addWeeks(w, -1))} className="w-7 h-7 flex items-center justify-center rounded text-gray-500 hover:bg-gray-100 cursor-pointer">◀</button>
+                <span className="text-xs text-gray-600 font-medium">{weekLabel}</span>
+                <button onClick={() => setWageWeekStart((w) => addWeeks(w, 1))} className="w-7 h-7 flex items-center justify-center rounded text-gray-500 hover:bg-gray-100 cursor-pointer">▶</button>
+              </div>
+            </div>
+            {staffEmps.length === 0 ? (
+              <div className="text-center py-6 text-gray-400 text-sm">ไม่มีพนักงาน</div>
+            ) : (
+              <div className="bg-white rounded-xl border border-gray-100 shadow-sm overflow-hidden">
+                <div className="overflow-x-auto">
+                  <table className="w-full text-xs">
+                    <thead>
+                      <tr className="border-b border-gray-100 bg-gray-50">
+                        <th className="text-left px-3 py-2 font-medium text-gray-500 min-w-24">Name</th>
+                        <th className="text-center px-2 py-2 font-medium text-gray-500 min-w-14">Rate</th>
+                        {wageWeekDates.map((d, i) => (
+                          <th key={d} colSpan={2} className="text-center px-1 py-2 font-medium text-gray-500">
+                            <div>{DAYS_SHORT[i]}</div>
+                            <div className="text-gray-300 text-[9px]">{new Date(d + 'T00:00:00').getDate()}</div>
+                            <div className="flex gap-0.5 justify-center mt-0.5">
+                              <span className="text-[9px] text-yellow-500 w-4 text-center">L</span>
+                              <span className="text-[9px] text-blue-400 w-4 text-center">D</span>
+                            </div>
+                          </th>
+                        ))}
+                        <th className="text-center px-2 py-2 font-medium text-gray-600 min-w-14">WAGE</th>
+                        <th className="text-center px-2 py-2 font-medium text-gray-500 min-w-14">TAX</th>
+                        <th className="text-center px-2 py-2 font-medium text-gray-500 min-w-16">PAID</th>
+                        <th className="text-center px-2 py-2 font-medium text-gray-500 min-w-16">Remaining</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {staffEmps.map((emp) => {
+                        const hourly = emp.hourlyWage ?? 0
+                        const calcShift = (hrs: number, isLunch: boolean) => {
+                          if (hrs <= 0) return 0
+                          if (isLunch && hrs === 4) return emp.wageLunch ?? hourly * hrs
+                          if (!isLunch && hrs === 4.5) return emp.wageDinner ?? hourly * hrs
+                          return hourly * hrs
+                        }
+                        const wage = wageWeekDates.reduce((sum, d) => {
+                          const a = wageAttend[d]?.[emp.id] ?? { morning: 0, evening: 0 }
+                          return sum + calcShift(a.morning, true) + calcShift(a.evening, false)
+                        }, 0)
+                        const tax = wageTax[emp.id] ?? 0
+                        const paid = wagePaid[emp.id] ?? 0
+                        const remaining = wage - tax - paid
+                        return (
+                          <tr key={emp.id} className="border-b border-gray-50 last:border-0">
+                            <td className="px-3 py-2 font-medium text-gray-700 whitespace-nowrap">{emp.name}</td>
+                            <td className="text-center px-2 py-2 text-gray-500">{emp.wageLunch || emp.wageDinner ? `L฿${emp.wageLunch ?? 0}/D฿${emp.wageDinner ?? 0}` : emp.hourlyWage ? `฿${emp.hourlyWage}/hr` : '—'}</td>
+                            {wageWeekDates.map((d) => {
+                              const a = wageAttend[d]?.[emp.id] ?? { morning: 0, evening: 0 }
+                              return (
+                                <>
+                                  <td key={d + 'L'} className={`text-center px-1 py-2 ${a.morning > 0 ? 'bg-yellow-50 text-yellow-700 font-semibold' : 'text-gray-200'}`}>{a.morning > 0 ? '✓' : '·'}</td>
+                                  <td key={d + 'D'} className={`text-center px-1 py-2 ${a.evening > 0 ? 'bg-blue-50 text-blue-600 font-semibold' : 'text-gray-200'}`}>{a.evening > 0 ? '✓' : '·'}</td>
+                                </>
+                              )
+                            })}
+                            <td className="text-center px-2 py-2 font-bold text-gray-800">{wage > 0 ? `$${wage.toFixed(2)}` : '—'}</td>
+                            <td className="px-1 py-1">
+                              <input type="number" min="0" value={tax || ''} onChange={(e) => setWageTax((p) => ({ ...p, [emp.id]: parseFloat(e.target.value) || 0 }))} placeholder="0" className="w-14 border border-gray-200 rounded px-1.5 py-1 text-center focus:outline-none focus:ring-1 focus:ring-brand-gold" />
+                            </td>
+                            <td className="px-1 py-1">
+                              <input type="number" min="0" value={paid || ''} onChange={(e) => setWagePaid((p) => ({ ...p, [emp.id]: parseFloat(e.target.value) || 0 }))} placeholder="0" className="w-16 border border-gray-200 rounded px-1.5 py-1 text-center focus:outline-none focus:ring-1 focus:ring-brand-gold" />
+                            </td>
+                            <td className={`text-center px-2 py-2 font-semibold ${remaining < 0 ? 'text-red-500' : remaining > 0 ? 'text-green-600' : 'text-gray-400'}`}>{wage > 0 ? `$${remaining.toFixed(2)}` : '—'}</td>
+                          </tr>
+                        )
+                      })}
+                      {(() => {
+                        const totalWage = staffEmps.reduce((s, emp) => {
+                          const hourly = emp.hourlyWage ?? 0
+                          const calcShift = (hrs: number, isLunch: boolean) => {
+                            if (hrs <= 0) return 0
+                            if (isLunch && hrs === 4) return emp.wageLunch ?? hourly * hrs
+                            if (!isLunch && hrs === 4.5) return emp.wageDinner ?? hourly * hrs
+                            return hourly * hrs
+                          }
+                          return s + wageWeekDates.reduce((sum, d) => {
+                            const a = wageAttend[d]?.[emp.id] ?? { morning: 0, evening: 0 }
+                            return sum + calcShift(a.morning, true) + calcShift(a.evening, false)
+                          }, 0)
+                        }, 0)
+                        const totalTax = staffEmps.reduce((s, e) => s + (wageTax[e.id] ?? 0), 0)
+                        const totalPaid = staffEmps.reduce((s, e) => s + (wagePaid[e.id] ?? 0), 0)
+                        return (
+                          <tr className="border-t-2 border-gray-200 bg-gray-50 font-semibold">
+                            <td className="px-3 py-2 text-gray-600" colSpan={2}>Total</td>
+                            {wageWeekDates.map((d) => {
+                              const lunch = staffEmps.filter((e) => (wageAttend[d]?.[e.id]?.morning ?? 0) > 0).length
+                              const dinner = staffEmps.filter((e) => (wageAttend[d]?.[e.id]?.evening ?? 0) > 0).length
+                              return (
+                                <>
+                                  <td key={d + 'L'} className="text-center px-1 py-2 text-yellow-600 bg-yellow-50 text-[10px]">{lunch > 0 ? lunch : ''}</td>
+                                  <td key={d + 'D'} className="text-center px-1 py-2 text-blue-500 bg-blue-50 text-[10px]">{dinner > 0 ? dinner : ''}</td>
+                                </>
+                              )
+                            })}
+                            <td className="text-center px-2 py-2 text-gray-800">${totalWage.toFixed(2)}</td>
+                            <td className="text-center px-2 py-2 text-gray-600">${totalTax.toFixed(2)}</td>
+                            <td className="text-center px-2 py-2 text-gray-600">${totalPaid.toFixed(2)}</td>
+                            <td className="text-center px-2 py-2 text-green-700">${(totalWage - totalTax - totalPaid).toFixed(2)}</td>
+                          </tr>
+                        )
+                      })()}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
+          </div>
+        )
+      })()}
     </div>
   )
 }
