@@ -3,9 +3,9 @@
 import React, { useState, useEffect } from 'react'
 import Link from 'next/link'
 import { useParams } from 'next/navigation'
-import type { Employee, TimeRecord, DeliveryTrip, DeliveryRate, Position } from '@/lib/types'
+import type { Employee, TimeRecord, DeliveryTrip, DeliveryRate } from '@/lib/types'
 import { DEFAULT_DELIVERY_RATES, calcDeliveryFee } from '@/lib/config'
-import { getWeekTimeRecords, getTimeRecordData, saveTimeRecords, saveEmployee, getWeekSchedule } from './actions'
+import { getWeekTimeRecords, getTimeRecordData, saveTimeRecords, getWeekSchedule } from './actions'
 import { getDeliveryRates, getDeliveryFee } from '../config/actions'
 import { saveAuditLog } from './actions'
 import { useShop } from '@/components/ShopProvider'
@@ -53,13 +53,6 @@ const DAYS_SHORT_EN = ['M', 'T', 'W', 'Th', 'F', 'Sa', 'Su']
 type DayAttend = { morning: number; evening: number }
 type WeekAttendMap = Record<string, Record<string, DayAttend>>
 type TripMap = Record<string, DeliveryTrip[]>
-type NewEmp = { name: string; positions: Position[]; defaultDays: boolean[] }
-
-const EMPTY_NEW_EMP: NewEmp = {
-  name: '',
-  positions: ['Front'],
-  defaultDays: [true, true, true, true, true, true, true],
-}
 
 // ─── Component ────────────────────────────────────────────────────────────────
 
@@ -106,10 +99,10 @@ export default function TimeRecordView() {
   const [auditModal, setAuditModal] = useState<{ emp: Employee; editorName: string; remark: string } | null>(null)
   const [homeLoading, setHomeLoading] = useState(true)
 
-  // ── Add employee modal ──
-  const [showAdd, setShowAdd] = useState(false)
-  const [newEmp, setNewEmp] = useState<NewEmp>(EMPTY_NEW_EMP)
-  const [addSaving, setAddSaving] = useState(false)
+  // ── Select employee modal ──
+  const [showSelect, setShowSelect] = useState(false)
+  const [allEmployees, setAllEmployees] = useState<Employee[]>([])
+  const [selectingEmp, setSelectingEmp] = useState<Employee | null>(null)
 
   // ── Load weekly data + schedule ──
   useEffect(() => {
@@ -119,6 +112,7 @@ export default function TimeRecordView() {
       getWeekTimeRecords(shopCode, weekStr),
       getWeekSchedule(shopCode),
     ]).then(([{ employees, timeRecords, weekDates: wd }, { schedules }]) => {
+      setAllEmployees(employees)
       // Build schedule map for this week
       const sched = schedules.find((s) => s.weekStart === weekStr)
       const schedMap: Map<string, (string | null)[]> | null = sched
@@ -161,16 +155,19 @@ export default function TimeRecordView() {
     getTimeRecordData(shopCode, date)
       .then(({ employees, deliveryTrips }) => {
         const isToday = date >= today()
-        const home = employees.filter((e) => e.positions.includes('Home') && (!isToday || !e.fired))
+        const home = employees
+          .filter((e) => e.positions.includes('Home') && (!isToday || !e.fired))
+          .map((e) => ({ ...e, instanceId: e.id }))
         setHomeEmps(home)
         const t: TripMap = {}
         const cod: Record<string, number> = {}
         const saved: Record<string, boolean> = {}
         home.forEach((e) => {
+          const iid = e.instanceId!
           const empTrips = deliveryTrips.filter((tr) => tr.employeeId === e.id)
-          t[e.id] = empTrips.map((tr) => ({ ...tr, cod: undefined }))
-          cod[e.id] = empTrips.reduce((s, tr) => s + (tr.cod ?? 0), 0)
-          saved[e.id] = empTrips.length > 0
+          t[iid] = empTrips.map((tr) => ({ ...tr, cod: undefined }))
+          cod[iid] = empTrips.reduce((s, tr) => s + (tr.cod ?? 0), 0)
+          saved[iid] = empTrips.length > 0
         })
         setTrips(t)
         setCodByEmp(cod)
@@ -180,8 +177,9 @@ export default function TimeRecordView() {
         // Capture original state for already-saved employees
         const originals: Record<string, { trips: DeliveryTrip[]; cod: number; note: string }> = {}
         home.forEach((e) => {
-          if (saved[e.id]) {
-            originals[e.id] = {
+          const iid = e.instanceId!
+          if (saved[iid]) {
+            originals[iid] = {
               trips: deliveryTrips.filter((tr) => tr.employeeId === e.id).map((tr) => ({ ...tr, cod: undefined })),
               cod: deliveryTrips.filter((tr) => tr.employeeId === e.id).reduce((s, tr) => s + (tr.cod ?? 0), 0),
               note: '',
@@ -254,20 +252,10 @@ export default function TimeRecordView() {
     }
   }
 
-  // ── Add employee ──
-  async function handleAddEmployee() {
-    if (!newEmp.name.trim() || newEmp.positions.length === 0) return
-    setAddSaving(true)
-    const emp: Employee = {
-      id: Date.now().toString(),
-      name: newEmp.name.trim(),
-      positions: newEmp.positions,
-      defaultDays: newEmp.defaultDays,
-    }
-    try {
-      await saveEmployee(shopCode, emp)
-      // update both lists
-      if (emp.positions.includes('Front') || emp.positions.includes('Kitchen')) {
+  // ── Select employee from DB ──
+  function handleSelectEmployee(emp: Employee, mealShift?: 'lunch' | 'dinner') {
+    if (emp.positions.includes('Front') || emp.positions.includes('Kitchen')) {
+      if (!staffEmps.some((e) => e.id === emp.id)) {
         setStaffEmps((p) => [...p, emp])
         setWeekAttend((p) => {
           const updated = { ...p }
@@ -277,74 +265,65 @@ export default function TimeRecordView() {
           return updated
         })
       }
-      if (emp.positions.includes('Home')) {
-        setHomeEmps((p) => [...p, emp])
-        setTrips((p) => ({ ...p, [emp.id]: [] }))
-        setCodByEmp((p) => ({ ...p, [emp.id]: 0 }))
-        setSavedByEmp((p) => ({ ...p, [emp.id]: false }))
-      }
-      setNewEmp(EMPTY_NEW_EMP)
-      setShowAdd(false)
-      // Auto-log without requiring name/note — use role as editorName
-      const shift = emp.positions.includes('Home')
-        ? (emp.defaultDays[0] ? 'Morning' : 'Evening')
-        : emp.positions.join(', ')
-      const roleName = session.role.charAt(0).toUpperCase() + session.role.slice(1)
-      saveAuditLog(shopCode, {
-        editorName: roleName,
-        note: '',
-        employeeName: emp.name,
-        shift,
-        changes: `Add employee: ${emp.name} (${emp.positions.join(', ')})`,
-      }).catch(() => {})
-    } catch {
-      alert(tr.add_emp_fail)
-    } finally {
-      setAddSaving(false)
     }
+    if (emp.positions.includes('Home')) {
+      const iid = mealShift ? `${emp.id}_${mealShift}` : emp.id
+      const empWithShift: Employee = {
+        ...emp,
+        instanceId: iid,
+        defaultDays: mealShift
+          ? emp.defaultDays.map((_, i) => i === (mealShift === 'lunch' ? 0 : 1))
+          : emp.defaultDays,
+      }
+      setHomeEmps((p) => [...p, empWithShift])
+      setTrips((p) => ({ ...p, [iid]: [] }))
+      setCodByEmp((p) => ({ ...p, [iid]: 0 }))
+      setSavedByEmp((p) => ({ ...p, [iid]: false }))
+    }
+    setSelectingEmp(null)
+    setShowSelect(false)
   }
 
   // ── Remove from view only (does NOT delete from Employees) ──
-  function handleDeleteEmployee(empId: string, name: string) {
+  function handleDeleteEmployee(iid: string, name: string) {
     if (!confirm(tr.confirm_delete_emp2(name))) return
-    setStaffEmps((p) => p.filter((e) => e.id !== empId))
-    setHomeEmps((p) => p.filter((e) => e.id !== empId))
+    setStaffEmps((p) => p.filter((e) => e.id !== iid))
+    setHomeEmps((p) => p.filter((e) => (e.instanceId ?? e.id) !== iid))
   }
 
   // ── Home/Delivery handlers ──
-  function addTrip(empId: string) {
-    const empName = homeEmps.find((e) => e.id === empId)?.name ?? ''
+  function addTrip(iid: string, emp: Employee) {
     const trip: DeliveryTrip = {
       id: Date.now().toString() + Math.random(),
       date,
-      employeeId: empId,
-      employeeName: empName,
+      employeeId: emp.id,
+      employeeName: emp.name,
       distance: 0,
       fee: 0,
     }
-    setTrips((p) => ({ ...p, [empId]: [...(p[empId] ?? []), trip] }))
+    setTrips((p) => ({ ...p, [iid]: [...(p[iid] ?? []), trip] }))
   }
 
-  function updateTrip(empId: string, tripId: string, km: number) {
-    const emp = homeEmps.find((e) => e.id === empId)
-    const fee = emp?.deliveryFeePerTrip != null
+  function updateTrip(iid: string, emp: Employee, tripId: string, km: number) {
+    const fee = emp.deliveryFeePerTrip != null
       ? emp.deliveryFeePerTrip
       : calcDeliveryFee(km, deliveryRates)
     setTrips((p) => ({
       ...p,
-      [empId]: p[empId].map((t) => (t.id === tripId ? { ...t, distance: km, fee } : t)),
+      [iid]: p[iid].map((t) => (t.id === tripId ? { ...t, distance: km, fee } : t)),
     }))
   }
 
-  function removeTrip(empId: string, tripId: string) {
-    setTrips((p) => ({ ...p, [empId]: p[empId].filter((t) => t.id !== tripId) }))
+  function removeTrip(iid: string, tripId: string) {
+    setTrips((p) => ({ ...p, [iid]: p[iid].filter((t) => t.id !== tripId) }))
   }
 
   function buildChangeSummary(emp: Employee): string {
-    const orig = originalByEmp[emp.id]
-    const newTrips = (trips[emp.id] ?? []).filter((t) => t.distance > 0)
-    const newCod = codByEmp[emp.id] ?? 0
-    const newNote = noteByEmp[emp.id] ?? ''
+    const iid = emp.instanceId ?? emp.id
+    const orig = originalByEmp[iid]
+    const newTrips = (trips[iid] ?? []).filter((t) => t.distance > 0)
+    const newCod = codByEmp[iid] ?? 0
+    const newNote = noteByEmp[iid] ?? ''
 
     if (!orig) {
       // First save
@@ -368,29 +347,29 @@ export default function TimeRecordView() {
   }
 
   async function doSaveEmp(emp: Employee, editorName: string, remark: string) {
+    const iid = emp.instanceId ?? emp.id
     setAuditModal(null)
-    setEmpSaving((p) => ({ ...p, [emp.id]: true }))
+    setEmpSaving((p) => ({ ...p, [iid]: true }))
     try {
       // Save ALL home trips together to avoid data loss (skip empty rows)
       const allTrips = homeEmps.flatMap((e) => {
-        const empTrips = (trips[e.id] ?? []).filter((t) => t.distance > 0)
-        const cod = codByEmp[e.id] ?? 0
+        const eiid = e.instanceId ?? e.id
+        const empTrips = (trips[eiid] ?? []).filter((t) => t.distance > 0)
+        const cod = codByEmp[eiid] ?? 0
         if (empTrips.length === 0) return []
-        return empTrips.map((t, i) => ({ ...t, cod: i === 0 && cod > 0 ? cod : undefined }))
+        return empTrips.map((t, i) => ({ ...t, employeeId: e.id, cod: i === 0 && cod > 0 ? cod : undefined }))
       })
       await saveTimeRecords(shopCode, date, [], allTrips)
-      // COD is tracked via audit log — no longer auto-saved to revenue
-      // Save audit log with change summary
-      const shift = emp.defaultDays[0] ? 'Morning' : emp.defaultDays[1] ? 'Evening' : ''
+      const shift = emp.defaultDays[0] ? 'Lunch' : emp.defaultDays[1] ? 'Dinner' : ''
       const changes = buildChangeSummary(emp)
       await saveAuditLog(shopCode, { editorName, note: remark, employeeName: emp.name, shift, changes })
-      setSavedByEmp((p) => ({ ...p, [emp.id]: true }))
-      setEditingByEmp((p) => ({ ...p, [emp.id]: false }))
+      setSavedByEmp((p) => ({ ...p, [iid]: true }))
+      setEditingByEmp((p) => ({ ...p, [iid]: false }))
       alert(tr.save)
     } catch {
       alert(tr.save_fail)
     } finally {
-      setEmpSaving((p) => ({ ...p, [emp.id]: false }))
+      setEmpSaving((p) => ({ ...p, [iid]: false }))
     }
   }
 
@@ -411,10 +390,10 @@ export default function TimeRecordView() {
         <h2 className="text-lg font-bold text-gray-800 flex-1">{tr.time_record_title}</h2>
         {(session.role === 'manager' || session.role === 'owner') && (
           <button
-            onClick={() => setShowAdd(true)}
+            onClick={() => { setShowSelect(true); setSelectingEmp(null) }}
             className="text-sm bg-brand-gold text-white px-3 py-1.5 rounded-lg hover:bg-brand-gold-dark cursor-pointer"
           >
-            {tr.add_employee_btn}
+            + Select
           </button>
         )}
       </div>
@@ -652,32 +631,33 @@ export default function TimeRecordView() {
                     )
                   })}
                 </div>
-                {homeEmps.map((emp) => {
-                  const isSaved = savedByEmp[emp.id] && !editingByEmp[emp.id]
-                  const isSavingThis = empSaving[emp.id]
+                {homeEmps.map((emp, empIdx) => {
+                  const iid = emp.instanceId ?? emp.id
+                  const isSaved = savedByEmp[iid] && !editingByEmp[iid]
+                  const isSavingThis = empSaving[iid]
                   return (
-                  <div key={emp.id} className="border-b border-gray-50 last:border-0">
+                  <div key={`${iid}_${empIdx}`} className="border-b border-gray-50 last:border-0">
                     <div className="px-4 py-2.5 flex items-center justify-between">
                       <div>
                         <div className="flex items-center gap-1.5 flex-wrap">
                           <span className="text-xs font-semibold text-gray-700">{emp.name}</span>
-                          {emp.defaultDays[0] && <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-orange-100 text-orange-600">Morning</span>}
-                          {emp.defaultDays[1] && <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-blue-100 text-blue-600">Evening</span>}
+                          {emp.defaultDays[0] && <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-orange-100 text-orange-600">Lunch</span>}
+                          {emp.defaultDays[1] && <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-blue-100 text-blue-600">Dinner</span>}
                           {emp.deliveryFeePerTrip != null && (
                             <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-green-100 text-green-700">฿{emp.deliveryFeePerTrip}/รอบ</span>
                           )}
                         </div>
                         <div className="text-xs text-gray-400">
-                          {tr.total_col}: ${(trips[emp.id] ?? []).reduce((s, t) => s + t.fee, 0).toFixed(2)}
+                          {tr.total_col}: ${(trips[iid] ?? []).reduce((s, t) => s + t.fee, 0).toFixed(2)}
                           {deliveryFee > 0 && (
-                            <span className="ml-1 text-orange-500">+ ${deliveryFee.toFixed(2)} fee = ${((trips[emp.id] ?? []).reduce((s, t) => s + t.fee, 0) + deliveryFee).toFixed(2)}</span>
+                            <span className="ml-1 text-orange-500">+ ${deliveryFee.toFixed(2)} fee = ${((trips[iid] ?? []).reduce((s, t) => s + t.fee, 0) + deliveryFee).toFixed(2)}</span>
                           )}
                         </div>
                       </div>
                       <div className="flex items-center gap-2">
                         {!isSaved && (
                           <button
-                            onClick={() => addTrip(emp.id)}
+                            onClick={() => addTrip(iid, emp)}
                             disabled={isSaved || !isToday}
                             className="text-xs bg-green-50 text-green-700 border border-green-200 px-2.5 py-1 rounded-lg hover:bg-green-100 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
                           >
@@ -687,16 +667,15 @@ export default function TimeRecordView() {
                         {isSaved ? (
                           <button
                             onClick={() => {
-                              // Snapshot current saved state as "original" before editing
                               setOriginalByEmp((p) => ({
                                 ...p,
-                                [emp.id]: {
-                                  trips: [...(trips[emp.id] ?? [])],
-                                  cod: codByEmp[emp.id] ?? 0,
-                                  note: noteByEmp[emp.id] ?? '',
+                                [iid]: {
+                                  trips: [...(trips[iid] ?? [])],
+                                  cod: codByEmp[iid] ?? 0,
+                                  note: noteByEmp[iid] ?? '',
                                 },
                               }))
-                              setEditingByEmp((p) => ({ ...p, [emp.id]: true }))
+                              setEditingByEmp((p) => ({ ...p, [iid]: true }))
                             }}
                             className="text-xs bg-brand-gold text-white px-2.5 py-1 rounded-lg hover:bg-brand-gold-dark cursor-pointer"
                           >
@@ -713,7 +692,7 @@ export default function TimeRecordView() {
                         )}
                         {(session.role === 'manager' || session.role === 'owner') && (
                           <button
-                            onClick={() => handleDeleteEmployee(emp.id, emp.name)}
+                            onClick={() => handleDeleteEmployee(iid, emp.name)}
                             className="text-red-300 hover:text-red-500 text-base leading-none cursor-pointer"
                             title={tr.delete}
                           >
@@ -722,7 +701,7 @@ export default function TimeRecordView() {
                         )}
                       </div>
                     </div>
-                    {(trips[emp.id] ?? []).map((trip, ti) => (
+                    {(trips[iid] ?? []).map((trip, ti) => (
                       <div key={trip.id} className="px-4 pb-2 flex items-center gap-2 flex-wrap">
                         <span className="text-xs text-gray-400 w-6">{ti + 1}</span>
                         <input
@@ -731,7 +710,7 @@ export default function TimeRecordView() {
                           step="0.1"
                           disabled={isSaved}
                           value={trip.distance || ''}
-                          onChange={(e) => updateTrip(emp.id, trip.id, Number(e.target.value))}
+                          onChange={(e) => updateTrip(iid, emp, trip.id, Number(e.target.value))}
                           placeholder="ระยะ (km)"
                           className="w-24 border border-brand-accent rounded px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-brand-gold disabled:bg-gray-50 disabled:text-gray-400"
                         />
@@ -741,7 +720,7 @@ export default function TimeRecordView() {
                         </span>
                         {!isSaved && (
                           <button
-                            onClick={() => removeTrip(emp.id, trip.id)}
+                            onClick={() => removeTrip(iid, trip.id)}
                             className="text-red-300 hover:text-red-500 cursor-pointer"
                           >
                             ×
@@ -756,8 +735,8 @@ export default function TimeRecordView() {
                         min="0"
                         step="1"
                         disabled={isSaved}
-                        value={codByEmp[emp.id] || ''}
-                        onChange={(e) => setCodByEmp((p) => ({ ...p, [emp.id]: Number(e.target.value) }))}
+                        value={codByEmp[iid] || ''}
+                        onChange={(e) => setCodByEmp((p) => ({ ...p, [iid]: Number(e.target.value) }))}
                         placeholder="0"
                         className="w-28 border border-blue-200 rounded px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-blue-300 disabled:bg-gray-50 disabled:text-gray-400"
                       />
@@ -767,8 +746,8 @@ export default function TimeRecordView() {
                       <input
                         type="text"
                         disabled={isSaved}
-                        value={noteByEmp[emp.id] || ''}
-                        onChange={(e) => setNoteByEmp((p) => ({ ...p, [emp.id]: e.target.value }))}
+                        value={noteByEmp[iid] || ''}
+                        onChange={(e) => setNoteByEmp((p) => ({ ...p, [iid]: e.target.value }))}
                         placeholder="optional"
                         className="flex-1 border border-gray-200 rounded px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-gray-300 disabled:bg-gray-50 disabled:text-gray-400"
                       />
@@ -885,120 +864,73 @@ export default function TimeRecordView() {
         </div>
       )}
 
-      {/* ═══ Add Employee Modal ══════════════════════════════════════════════ */}
-      {showAdd && (
-        <div className="fixed inset-0 bg-black/40 flex items-end justify-center z-50 p-4">
-          <div className="bg-white rounded-2xl w-full max-w-sm p-6 space-y-4">
-            <h3 className="font-bold text-gray-900">{tr.add_employee}</h3>
-
-            <input
-              type="text"
-              placeholder={tr.name_placeholder}
-              value={newEmp.name}
-              onChange={(e) => setNewEmp((p) => ({ ...p, name: e.target.value }))}
-              autoFocus
-              className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-gold"
-            />
-
-            <div className="flex gap-2">
-              {(['Front', 'Kitchen', 'Home'] as const).map((pos) => (
-                <button
-                  key={pos}
-                  type="button"
-                  onClick={() => setNewEmp((p) => ({
-                    ...p,
-                    positions: [pos],
-                    defaultDays: pos === 'Home'
-                      ? Array(7).fill(false)
-                      : [true, true, true, true, true, false, false],
-                  }))}
-                  className={`flex-1 py-2 rounded-lg text-xs font-semibold border cursor-pointer transition-colors ${
-                    newEmp.positions[0] === pos
-                      ? 'bg-brand-gold text-white border-brand-gold'
-                      : 'border-brand-accent text-gray-600 hover:border-brand-gold/50'
-                  }`}
-                >
-                  {pos}
-                </button>
-              ))}
-            </div>
-
-            {newEmp.positions[0] === 'Home' ? (
-              <div>
-                <label className="text-xs text-gray-500 mb-1.5 block">Shift</label>
-                <div className="flex gap-2">
-                  {(['Morning', 'Evening'] as const).map((shift, i) => {
-                    const occupied = homeEmps.some(
-                      (e) => savedByEmp[e.id] && !editingByEmp[e.id] && e.defaultDays[i]
-                    )
-                    return (
-                      <button
-                        key={shift}
-                        type="button"
-                        disabled={occupied}
-                        onClick={() =>
-                          setNewEmp((p) => ({
-                            ...p,
-                            defaultDays: p.defaultDays.map((_, j) => j === i),
-                          }))
-                        }
-                        className={`flex-1 py-2 rounded-lg text-xs font-semibold border transition-colors ${
-                          occupied
-                            ? 'bg-gray-100 text-gray-300 border-gray-200 cursor-not-allowed'
-                            : newEmp.defaultDays[i]
-                            ? i === 0 ? 'bg-orange-100 text-orange-600 border-orange-300 cursor-pointer' : 'bg-blue-100 text-blue-700 border-blue-300 cursor-pointer'
-                            : 'bg-brand-parchment text-gray-400 border-brand-accent cursor-pointer'
-                        }`}
-                      >
-                        {shift}{occupied ? ' (taken)' : ''}
-                      </button>
-                    )
-                  })}
-                </div>
-              </div>
-            ) : (
-              <div>
-                <label className="text-xs text-gray-500 mb-1.5 block">{tr.default_days_label}</label>
-                <div className="flex gap-1">
-                  {DAYS_SHORT.map((d, i) => (
+      {/* ═══ Select Employee Modal ══════════════════════════════════════════ */}
+      {showSelect && (() => {
+        const staffIds = new Set(staffEmps.map((e) => e.id))
+        const available = allEmployees.filter((e) => {
+          if (e.fired) return false
+          const isFrontKitchen = e.positions.some((p) => p === 'Front' || p === 'Kitchen')
+          if (isFrontKitchen && staffIds.has(e.id)) return false
+          return true
+        })
+        return (
+          <div className="fixed inset-0 bg-black/40 flex items-end justify-center z-50 p-4">
+            <div className="bg-white rounded-2xl w-full max-w-sm p-6 space-y-4">
+              {selectingEmp ? (
+                <>
+                  <h3 className="font-bold text-gray-900">{selectingEmp.name} — เลือก Shift</h3>
+                  <div className="flex gap-3">
                     <button
-                      key={i}
-                      type="button"
-                      onClick={() =>
-                        setNewEmp((p) => ({
-                          ...p,
-                          defaultDays: p.defaultDays.map((v, j) => (j === i ? !v : v)),
-                        }))
-                      }
-                      className={`flex-1 py-1.5 rounded text-xs font-medium cursor-pointer transition-colors ${
-                        newEmp.defaultDays[i] ? 'bg-green-100 text-green-700' : 'bg-brand-parchment text-gray-400'
-                      }`}
+                      onClick={() => handleSelectEmployee(selectingEmp, 'lunch')}
+                      className="flex-1 py-4 rounded-xl border-2 border-orange-300 bg-orange-50 text-orange-600 font-semibold text-sm hover:bg-orange-100 cursor-pointer transition-colors"
                     >
-                      {d}
+                      ☀️ Lunch
                     </button>
-                  ))}
-                </div>
-              </div>
-            )}
-
-            <div className="flex gap-2 pt-1">
-              <button
-                onClick={() => { setShowAdd(false); setNewEmp(EMPTY_NEW_EMP) }}
-                className="flex-1 py-2.5 border border-brand-accent rounded-xl text-sm text-gray-600 cursor-pointer"
-              >
-                {tr.cancel}
-              </button>
-              <button
-                onClick={handleAddEmployee}
-                disabled={addSaving || !newEmp.name.trim() || newEmp.positions.length === 0}
-                className="flex-1 py-2.5 bg-brand-gold text-white rounded-xl text-sm font-semibold disabled:opacity-50 cursor-pointer"
-              >
-                {addSaving ? '...' : tr.add}
-              </button>
+                    <button
+                      onClick={() => handleSelectEmployee(selectingEmp, 'dinner')}
+                      className="flex-1 py-4 rounded-xl border-2 border-blue-300 bg-blue-50 text-blue-600 font-semibold text-sm hover:bg-blue-100 cursor-pointer transition-colors"
+                    >
+                      🌙 Dinner
+                    </button>
+                  </div>
+                  <button
+                    onClick={() => setSelectingEmp(null)}
+                    className="w-full py-2.5 border border-brand-accent rounded-xl text-sm text-gray-600 cursor-pointer"
+                  >
+                    {tr.cancel}
+                  </button>
+                </>
+              ) : (
+                <>
+                  <h3 className="font-bold text-gray-900">เลือกพนักงาน</h3>
+                  {available.length === 0 ? (
+                    <p className="text-sm text-gray-400 text-center py-4">ไม่มีพนักงานที่จะเพิ่ม</p>
+                  ) : (
+                    <div className="space-y-2 max-h-72 overflow-y-auto">
+                      {available.map((emp) => (
+                        <button
+                          key={emp.id}
+                          onClick={() => emp.positions.includes('Home') ? setSelectingEmp(emp) : handleSelectEmployee(emp)}
+                          className="w-full flex items-center justify-between px-4 py-3 rounded-xl border border-brand-accent hover:border-brand-gold hover:bg-brand-parchment text-left cursor-pointer transition-colors"
+                        >
+                          <span className="text-sm font-medium text-gray-800">{emp.name}</span>
+                          <span className="text-xs text-gray-400">{emp.positions.join(', ')}</span>
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                  <button
+                    onClick={() => setShowSelect(false)}
+                    className="w-full py-2.5 border border-brand-accent rounded-xl text-sm text-gray-600 cursor-pointer"
+                  >
+                    {tr.cancel}
+                  </button>
+                </>
+              )}
             </div>
           </div>
-        </div>
-      )}
+        )
+      })()}
     </div>
   )
 }

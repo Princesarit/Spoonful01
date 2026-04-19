@@ -2,7 +2,7 @@
  * Database layer — wraps Google Sheets
  */
 
-import { getSheetData, getSheetDataRaw, setSheetData, setSheetDataRaw, applyRowColors, applyTimeRecordFormatting, setSheetDataUserEntered, applyFormattingRules, getSheetIdByName, batchUpdateSheet } from './sheets'
+import { getSheetData, getSheetDataRaw, setSheetData, setSheetDataRaw, applyRowColors, applyTimeRecordFormatting, setSheetDataUserEntered, applyFormattingRules, getSheetIdByName, batchUpdateSheet, clearSheetMerges, hideInternalSheets } from './sheets'
 import type { SheetFormatRule } from './sheets'
 import type {
   Employee,
@@ -2041,231 +2041,334 @@ export async function syncWageSheet(shopCode: string): Promise<void> {
 //
 // Total: 17 columns (A-Q)
 const SUM_SHEET = 'Sum 2026'
-const SUM_COL_COUNT = 17
+const SUM_COL_COUNT = 19
+const SUM_BLOCK     = 45   // rows per week block: rel 0 blank + rel 1-40 data + rel 41-44 trailing blanks (5 gap rows between weeks)
 
 export async function syncSumSheet(shopCode: string): Promise<void> {
   const { sid } = await getShopDb(shopCode)
-  const [employees, timeRecords, deliveryTrips, revenue, expenses] = await Promise.all([
+  const [employees, timeRecords, deliveryTrips, revenue, expenses, allPayments] = await Promise.all([
     listEmployees(shopCode, true),
     listTimeRecords(shopCode),
     listDeliveryTrips(shopCode),
     listRevenue(shopCode),
     listExpenses(shopCode),
+    getAllWagePayments(shopCode),
   ])
 
-  const staffEmps = employees.filter((e) => !e.positions.includes('Home'))
+  // Sort staff: Front-only → Front+Kitchen → unlabeled → Kitchen-only
+  const sortedStaff = [
+    ...employees.filter((e) => !e.fired && !e.positions.includes('Home') && e.positions.includes('Front')  && !e.positions.includes('Kitchen')),
+    ...employees.filter((e) => !e.fired && !e.positions.includes('Home') && e.positions.includes('Front')  &&  e.positions.includes('Kitchen')),
+    ...employees.filter((e) => !e.fired && !e.positions.includes('Home') && !e.positions.includes('Front') && !e.positions.includes('Kitchen')),
+    ...employees.filter((e) => !e.fired && !e.positions.includes('Home') && !e.positions.includes('Front') &&  e.positions.includes('Kitchen')),
+  ]
+  const activeCount   = Math.min(sortedStaff.length, 18)
+  const wageStartRel  = 15 + activeCount + 2  // 2 blank rows after last employee
 
   const weekSet = new Set<string>()
-  for (const e of revenue)  weekSet.add(getMondayStr(e.date))
-  for (const e of expenses) weekSet.add(getMondayStr(e.date))
+  for (const e of revenue)     weekSet.add(getMondayStr(e.date))
+  for (const e of expenses)    weekSet.add(getMondayStr(e.date))
   for (const r of timeRecords) weekSet.add(getMondayStr(r.date))
   const sortedWeeks = [...weekSet].sort()
   if (sortedWeeks.length === 0) return
 
+  function fmtD(d: string): string {
+    const [y, m, day] = d.split('-')
+    return `${day}/${m}/${y}`
+  }
+
+  function shiftWage(emp: Employee, hrs: number, isLunch: boolean): number {
+    if (hrs <= 0) return 0
+    const h = emp.hourlyWage ?? 0
+    return isLunch ? (emp.wageLunch ?? h * hrs) : (emp.wageDinner ?? h * hrs)
+  }
+
+  const mealCredit = (m: MealRevenue) => m.eftpos + m.lfyOnline + m.uberOnline + m.doorDash
+  const mealCash   = (m: MealRevenue) => m.totalSale - mealCredit(m)
+
+  const DAY_FULL = ['Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday']
+
+  // Colors — exact values read from Sheet5 via Sheets API
+  const C_YELLOW   = { red: 1,         green: 1,         blue: 0         }  // section headers
+  const C_SALMON   = { red: 0.9882353, green: 0.8941177, blue: 0.8392157 }  // wage date header
+  const C_GREY_BG  = { red: 0.7882353, green: 0.7882353, blue: 0.7882353 }  // Cash sales I, SUM I
+  const C_LT_GRN   = { red: 0.6627451, green: 0.8156863, blue: 0.5568628 }  // Expenses, Total Expenses
+  const C_LT_BLUE  = { red: 0.7058824, green: 0.7764706, blue: 0.9058824 }  // Wage Cash I, Wage CASH C
+  const C_VLT_GRN  = { red: 0.8862745, green: 0.9372549, blue: 0.8549020 }  // Remaining row
+  const C_DATA_GRY = { red: 0.3490196, green: 0.3490196, blue: 0.3490196 }  // revenue data text D-G
+  const C_SUM_BLUE = { red: 0.2,       green: 0.2470588, blue: 0.3098039 }  // SUM row text D-G
+
   const rows: (string | number | null)[][] = []
   const fmtRules: SheetFormatRule[] = []
 
-  const S_HEADER = { red: 0.851, green: 0.918, blue: 0.827 }  // #D9EAD3 light green
-  const S_SUM    = { red: 1,     green: 0.753, blue: 0     }  // #FFC000 orange
-  const S_WAGE   = { red: 0.886, green: 0.937, blue: 0.855 }  // #E2F0DA very light green
-  const DAY_NAMES_FULL = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']
-
-  function emptyLeft():  (string | number | null)[] { return new Array(11).fill('') }
-  function emptyRight(): (string | number | null)[] { return new Array(6).fill('') }
-  function mergeRow(left: (string | number | null)[], right: (string | number | null)[]): (string | number | null)[] {
-    return [...left, ...right]
-  }
-
   for (const monday of sortedWeeks) {
-    const weekDates = getWeekDates(monday)
-    const sunday = weekDates[6]
-    const wRev   = revenue.filter((e) => weekDates.includes(e.date))
-    const wExp   = expenses.filter((e) => weekDates.includes(e.date)).sort((a, b) => a.date.localeCompare(b.date))
-    const wRec   = timeRecords.filter((r) => weekDates.includes(r.date))
-    const wTrips = deliveryTrips.filter((t) => weekDates.includes(t.date))
-    const blockStart = rows.length  // 0-based index of first row in this week's block
+    const weekDates  = getWeekDates(monday)
+    const sunday     = weekDates[6]
+    const wRev       = revenue.filter((e) => weekDates.includes(e.date))
+    const wExp       = expenses.filter((e) => weekDates.includes(e.date)).sort((a, b) => a.date.localeCompare(b.date))
+    const wRec       = timeRecords.filter((r) => weekDates.includes(r.date))
+    const wTrips     = deliveryTrips.filter((t) => weekDates.includes(t.date))
+    const weekPmts   = allPayments.get(monday)
 
-    // ── Build expense entries for right side ──────────────────────────────────
-    // One 6-wide entry per expense, starting at block offset 2 (Mon revenue row)
-    const expEntries: (string | number | null)[][] = []
-    let lastExpDate = ''
-    for (const exp of wExp) {
-      const right = emptyRight()
-      const isFirstOfDay = exp.date !== lastExpDate
-      if (isFirstOfDay) {
-        right[0] = DAY_ABBR[weekDates.indexOf(exp.date)]  // L: day abbr
-        right[1] = exp.date                                // M: date
-        lastExpDate = exp.date
-      }
-      right[2] = exp.supplier || exp.description           // N: description
-      right[4] = exp.total                                  // P: amount
-      if (exp.description && exp.supplier) right[5] = exp.description  // Q: notes
-      expEntries.push(right)
-    }
-    // Total expenses entry
-    const expTotalEntry = emptyRight()
-    expTotalEntry[3] = 'Total Expenses'
-    expTotalEntry[4] = wExp.reduce((s, e) => s + e.total, 0)
-    expEntries.push(expTotalEntry)
+    // blockStart1 = 1-based absolute row where this block starts
+    const blockStart1 = rows.length + 1
+    const R = (rel: number) => blockStart1 + rel
 
-    const expOffset = 2  // expense entries start at block offset 2 (Monday revenue row)
+    // Block layout verified against Sheet5 (41 rows, rel 0-40)
+    const blk: (string | number | null)[][] =
+      Array.from({ length: SUM_BLOCK }, () => new Array(SUM_COL_COUNT).fill(''))
 
-    // Helper: get right-side entry for a given block row offset
-    function rightFor(blockOffset: number): (string | number | null)[] {
-      const idx = blockOffset - expOffset
-      return idx >= 0 && idx < expEntries.length ? expEntries[idx] : emptyRight()
-    }
+    // ── rel 0: blank separator ────────────────────────────────────────────────
 
-    // ── Header row 0: section labels ──────────────────────────────────────────
-    const hdr0Left = emptyLeft()
-    hdr0Left[3] = 'Lunch'
-    hdr0Left[5] = 'Dinner'
-    hdr0Left[7] = 'Total'
-    const hdr0Right = emptyRight()
-    hdr0Right[0] = `EXPENSES ${monday} to ${sunday}`
-    rows.push(mergeRow(hdr0Left, hdr0Right))
+    // ── rel 1: Section headers (D=Lunch, F=Dinner, H=Total, L=EXPENSES) ──────
+    blk[1][3]  = 'Lunch'
+    blk[1][5]  = 'Dinner'
+    blk[1][7]  = 'Total'
+    blk[1][11] = `EXPENSES ${fmtD(monday)} to ${fmtD(sunday)}`
 
-    // ── Header row 1: sub-labels ──────────────────────────────────────────────
-    const hdr1Left = emptyLeft()
-    hdr1Left[3] = 'Credit'
-    hdr1Left[4] = 'Cash'
-    hdr1Left[5] = 'Credit'
-    hdr1Left[6] = 'Cash'
-    hdr1Left[7] = 'Credit'
-    hdr1Left[8] = 'Cash'
-    hdr1Left[9] = 'Grand Total'
-    const hdr1Right = emptyRight()
-    hdr1Right[4] = '$'  // P column
-    rows.push(mergeRow(hdr1Left, hdr1Right))
+    // ── rel 2: Credit/Cash sub-headers (D-J) + expense sub-headers ─────────
+    blk[2][3] = 'Credit'; blk[2][4] = 'Cash'
+    blk[2][5] = 'Credit'; blk[2][6] = 'Cash'
+    blk[2][7] = 'Credit'; blk[2][8] = 'Cash'; blk[2][9] = 'Grand Total'
+    blk[2][15] = '$'; blk[2][16] = 'Status'; blk[2][17] = 'Due Date'; blk[2][18] = 'Payment Type'
 
-    // Header format
-    fmtRules.push({ startRow: blockStart, endRow: blockStart + 2, startCol: 0, endCol: SUM_COL_COUNT, backgroundColor: S_HEADER, bold: true })
-
-    // ── Revenue rows (Mon-Sun, block offsets 2-8) ─────────────────────────────
-    const revStart1 = rows.length + 1  // 1-based sheet row of Mon revenue
-    const mealCash = (m: MealRevenue) => m.totalSale - m.eftpos - m.lfyOnline - m.uberOnline - m.doorDash
+    // ── rel 3-9: Revenue rows Mon-Sun (B=day, C=date, D-J=amounts) ───────────
     for (let d = 0; d < 7; d++) {
+      const rel  = 3 + d
       const date = weekDates[d]
-      const rev  = wRev.find((r) => r.date === date)
-      const lCredit = rev ? rev.lunch.eftpos : ''
-      const lCash   = rev ? mealCash(rev.lunch) : ''
-      const dCredit = rev ? rev.dinner.eftpos : ''
-      const dCash   = rev ? mealCash(rev.dinner) : ''
-      const tCredit = rev ? (rev.lunch.eftpos + rev.dinner.eftpos) : ''
-      const tCash   = rev ? (mealCash(rev.lunch) + mealCash(rev.dinner)) : ''
-      const gTotal  = rev ? (rev.lunch.totalSale + rev.dinner.totalSale) : ''
-      const left = emptyLeft()
-      left[1] = DAY_NAMES_FULL[d]
-      left[2] = date
-      left[3] = lCredit
-      left[4] = lCash
-      left[5] = dCredit
-      left[6] = dCash
-      left[7] = tCredit
-      left[8] = tCash
-      left[9] = gTotal
-      rows.push(mergeRow(left, rightFor(2 + d)))
-    }
-    const revEnd1 = rows.length  // 1-based sheet row of Sun revenue
-
-    // ── Revenue total row (block offset 9) ────────────────────────────────────
-    const revSumLeft = emptyLeft()
-    for (let c = 3; c <= 9; c++) {
-      revSumLeft[c] = `=SUM(${colLetter(c)}${revStart1}:${colLetter(c)}${revEnd1})`
-    }
-    rows.push(mergeRow(revSumLeft, rightFor(9)))
-    const revSumIdx = rows.length - 1  // 0-based index of rev sum row
-    fmtRules.push({ startRow: revSumIdx, endRow: revSumIdx + 1, startCol: 0, endCol: 11, backgroundColor: S_SUM })
-
-    // ── Blank row (block offset 10) ───────────────────────────────────────────
-    rows.push(mergeRow(emptyLeft(), rightFor(10)))
-
-    // ── Week date label (block offset 11) ─────────────────────────────────────
-    const labelLeft = emptyLeft()
-    labelLeft[1] = `${monday} To ${sunday}`
-    rows.push(mergeRow(labelLeft, rightFor(11)))
-
-    // ── Wage column headers (block offset 12) ─────────────────────────────────
-    const wageHdrLeft = emptyLeft()
-    wageHdrLeft[2] = 'WAGE'
-    wageHdrLeft[3] = 'TAX'
-    wageHdrLeft[4] = 'PAID'
-    rows.push(mergeRow(wageHdrLeft, rightFor(12)))
-
-    // ── Employee wage rows (block offset 13+) ─────────────────────────────────
-    const empWageStart1 = rows.length + 1  // 1-based sheet row of first employee
-    let blockEmpOffset = 13
-    for (const emp of staffEmps) {
-      const rate = emp.hourlyWage ?? 0
-      const empRecs = wRec.filter((r) => r.employeeId === emp.id)
-      const totalWage = empRecs.reduce((s, r) => s + (r.morning > 0 ? rate : 0) + (r.evening > 0 ? rate : 0), 0)
-      const left = emptyLeft()
-      left[1] = emp.name
-      left[2] = totalWage > 0 ? totalWage : ''
-      rows.push(mergeRow(left, rightFor(blockEmpOffset)))
-      blockEmpOffset++
-    }
-    // Delivery fee row (if any)
-    const deliveryFee = wTrips.reduce((s, t) => s + t.fee, 0)
-    if (deliveryFee > 0) {
-      const left = emptyLeft()
-      left[1] = 'Delivery'
-      left[2] = deliveryFee
-      rows.push(mergeRow(left, rightFor(blockEmpOffset)))
-      blockEmpOffset++
-    }
-    const empWageEnd1 = rows.length  // 1-based sheet row of last employee/delivery
-
-    // ── Total Wage row ────────────────────────────────────────────────────────
-    const totalWageRn = rows.length + 1
-    const twLeft = emptyLeft()
-    twLeft[1] = 'Total Wage'
-    twLeft[2] = `=SUM(C${empWageStart1}:C${empWageEnd1})`
-    rows.push(mergeRow(twLeft, rightFor(blockEmpOffset++)))
-
-    // ── TAX/PAID row ──────────────────────────────────────────────────────────
-    const taxPaidRn = rows.length + 1
-    const tpLeft = emptyLeft()
-    tpLeft[1] = 'TAX/PAID'
-    tpLeft[2] = `=SUM(D${empWageStart1}:E${empWageEnd1})`
-    rows.push(mergeRow(tpLeft, rightFor(blockEmpOffset++)))
-
-    // ── Wage (CASH) row ───────────────────────────────────────────────────────
-    const wcLeft = emptyLeft()
-    wcLeft[1] = 'Wage (CASH)'
-    wcLeft[2] = `=C${totalWageRn}-C${taxPaidRn}`
-    rows.push(mergeRow(wcLeft, rightFor(blockEmpOffset++)))
-
-    // Color wage summary rows
-    const wcIdx = rows.length - 1
-    fmtRules.push({ startRow: wcIdx - 2, endRow: wcIdx + 1, startCol: 0, endCol: 11, backgroundColor: S_WAGE })
-
-    // ── Flush any remaining expense entries not yet shown ─────────────────────
-    const neededForExp = expOffset + expEntries.length
-    while (rows.length - blockStart < neededForExp) {
-      const idx = rows.length - blockStart
-      rows.push(mergeRow(emptyLeft(), rightFor(idx)))
+      blk[rel][1] = DAY_FULL[d]
+      blk[rel][2] = fmtD(date)
+      const rev = wRev.find((r) => r.date === date)
+      if (rev) {
+        const lC = mealCredit(rev.lunch),  lCash = mealCash(rev.lunch)
+        const dC = mealCredit(rev.dinner), dCash = mealCash(rev.dinner)
+        blk[rel][3] = lC    || ''; blk[rel][4] = lCash        || ''
+        blk[rel][5] = dC    || ''; blk[rel][6] = dCash        || ''
+        blk[rel][7] = lC+dC || ''; blk[rel][8] = lCash+dCash || ''
+        blk[rel][9] = (rev.lunch.totalSale + rev.dinner.totalSale) || ''
+      }
     }
 
-    // ── Blank separator between weeks ─────────────────────────────────────────
-    rows.push(new Array(SUM_COL_COUNT).fill(''))
+    // ── rel 10: Revenue SUM totals (D-J) ─────────────────────────────────────
+    for (let c = 3; c <= 9; c++)
+      blk[10][c] = `=SUM(${colLetter(c)}${R(3)}:${colLetter(c)}${R(9)})`
+
+    // ── rel 11: blank ─────────────────────────────────────────────────────────
+
+    // ── rel 12: Wage date header (B) ──────────────────────────────────────────
+    blk[12][1] = `${fmtD(monday)} To ${fmtD(sunday)}`
+
+    // ── rel 13: WAGE/TAX/PAID column headers (C/D/E) ─────────────────────────
+    blk[13][2] = 'WAGE'; blk[13][3] = 'TAX'; blk[13][4] = 'PAID'
+
+    // ── rel 14: blank ─────────────────────────────────────────────────────────
+
+    // ── rel 15..: Employee rows (B=name, C=WAGE, D=TAX, E=PAID) ─────────────
+    for (let i = 0; i < activeCount; i++) {
+      const rel = 15 + i
+      const emp = sortedStaff[i]
+      const pmt = weekPmts?.get(emp.id)
+      const ov  = pmt?.overrides ?? {}
+      let wage  = 0
+      for (let d = 0; d < 7; d++) {
+        const rec = wRec.find((r) => r.date === weekDates[d] && r.employeeId === emp.id)
+        wage += ov[`${d}L`] ?? (rec ? shiftWage(emp, rec.morning, true)  : 0)
+        wage += ov[`${d}D`] ?? (rec ? shiftWage(emp, rec.evening, false) : 0)
+      }
+      blk[rel][1] = emp.name
+      blk[rel][2] = wage > 0 ? wage : ''
+      blk[rel][3] = pmt?.tax  ? pmt.tax  : ''
+      blk[rel][4] = pmt?.paid ? pmt.paid : ''
+    }
+
+    // ── Cash flow (G=6 labels, H=7 total-labels, I=8 amounts) ────────────────
+    const totalCashRev = wRev.reduce((s, r) => s + mealCash(r.lunch) + mealCash(r.dinner), 0)
+    const totalExpAmt  = wExp.reduce((s, e) => s + e.total, 0)
+    const cashInBag    = wRev.reduce((s, r) => s + (r.lunch.cashLeftInBag ?? 0) + (r.dinner.cashLeftInBag ?? 0), 0)
+
+    // rel 21: Cash sales
+    blk[21][6] = 'Cash sales';           blk[21][8] = totalCashRev > 0 ? totalCashRev : ''
+    // rel 22: cash from bank (manual)
+    blk[22][6] = 'cash from bank'
+    // rel 24: Total cash = Cash sales + cash from bank
+    blk[24][7] = 'Total cash';           blk[24][8] = `=I${R(21)}+I${R(22)}`
+    // rel 30: Expenses
+    blk[30][6] = 'Expenses';             blk[30][8] = totalExpAmt > 0 ? totalExpAmt : ''
+    // rel 31: Wage (Cash) = dynamic — references Wage(CASH) at wageStartRel+2
+    blk[31][6] = 'Wage (Cash)';          blk[31][8] = `=C${R(wageStartRel + 2)}`
+    // rel 33: Total Exp.
+    blk[33][7] = 'Total Exp.';           blk[33][8] = `=I${R(30)}+I${R(31)}`
+    // rel 35: Remaining
+    blk[35][6] = 'Remaining';            blk[35][8] = `=I${R(24)}-I${R(33)}`
+    // rel 37: Cash left in the bag
+    blk[37][6] = 'Cash left in the bag'; blk[37][8] = cashInBag > 0 ? cashInBag : ''
+
+    // ── Wage totals: 2 blank rows after last employee (dynamic position) ──────
+    const WS = wageStartRel
+    blk[WS][1]   = 'Total Wage'
+    blk[WS][2]   = `=SUM(C${R(15)}:C${R(14 + activeCount)})`
+    blk[WS+1][1] = 'TAX/PAID'
+    blk[WS+1][2] = `=SUM(D${R(15)}:D${R(14+activeCount)})+SUM(E${R(15)}:E${R(14+activeCount)})`
+    blk[WS+1][13] = 'Total Expenses'
+    blk[WS+1][15] = totalExpAmt > 0 ? totalExpAmt : ''
+    blk[WS+2][1] = 'Wage (CASH)'
+    blk[WS+2][2] = `=C${R(WS)}-C${R(WS+1)}`
+
+    // ── Expense list (L=11, M=12, N=13, P=15) — starts at rel 4, max 32 slots
+    // Merge regular expenses + per-day delivery fees as "Home" entries
+    const tripFeeByDate = new Map<string, number>()
+    for (const t of wTrips) {
+      if (t.fee > 0) tripFeeByDate.set(t.date, (tripFeeByDate.get(t.date) ?? 0) + t.fee)
+    }
+    const expRows: { date: string; label: string; amount: number; paid: boolean; dueDate: string; paymentMethod: string }[] = [
+      ...wExp.map((e) => ({ date: e.date, label: e.supplier || e.description, amount: e.total, paid: e.paid, dueDate: e.dueDate ?? '', paymentMethod: e.paymentMethod ?? '' })),
+      ...[...tripFeeByDate.entries()].map(([date, fee]) => ({ date, label: 'Home', amount: fee, paid: true, dueDate: '', paymentMethod: 'Cash' })),
+    ]
+    expRows.sort((a, b) => a.date.localeCompare(b.date))
+
+    let expSlot    = 0
+    let lastExpDate = ''
+    const paidRels: number[] = []   // relative row indices for Paid
+    const unpaidRels: number[] = [] // relative row indices for Unpaid
+    for (const row of expRows) {
+      if (expSlot >= 32) break
+      const rel = 4 + expSlot
+      if (row.date !== lastExpDate) {
+        const di = weekDates.indexOf(row.date)
+        blk[rel][11] = di >= 0 ? DAY_ABBR[di] : ''
+        blk[rel][12] = fmtD(row.date)
+        lastExpDate  = row.date
+      }
+      blk[rel][13] = row.label
+      blk[rel][15] = row.amount
+      blk[rel][16] = row.paid ? 'Paid' : 'Unpaid'
+      blk[rel][17] = row.dueDate
+      blk[rel][18] = row.paymentMethod
+      if (row.paid) paidRels.push(rel)
+      else unpaidRels.push(rel)
+      expSlot++
+    }
+
+    for (const row of blk) rows.push(row)
+
+    // ── Format rules (0-based absolute rows) ─────────────────────────────────
+    const bs = blockStart1 - 1
+
+    // rel 1: yellow section headers (Lunch D-E, Dinner F-G, Total H-J, EXPENSES L-P)
+    fmtRules.push({ startRow: bs+1, endRow: bs+2, startCol: 3,  endCol: 5,  backgroundColor: C_YELLOW, bold: true })
+    fmtRules.push({ startRow: bs+1, endRow: bs+2, startCol: 5,  endCol: 7,  backgroundColor: C_YELLOW, bold: true })
+    fmtRules.push({ startRow: bs+1, endRow: bs+2, startCol: 7,  endCol: 10, backgroundColor: C_YELLOW, bold: true })
+    fmtRules.push({ startRow: bs+1, endRow: bs+2, startCol: 11, endCol: 19, backgroundColor: C_YELLOW, bold: true })
+    // rel 2: sub-headers bold (D-J)
+    fmtRules.push({ startRow: bs+2, endRow: bs+3, startCol: 3, endCol: 10, bold: true })
+    // rel 3-9: B bold; D-G dark grey text
+    fmtRules.push({ startRow: bs+3, endRow: bs+10, startCol: 1, endCol: 2, bold: true })
+    fmtRules.push({ startRow: bs+3, endRow: bs+10, startCol: 3, endCol: 7, foregroundColor: C_DATA_GRY })
+    // rel 10: SUM row — D-G dark blue bold; I grey bg
+    fmtRules.push({ startRow: bs+10, endRow: bs+11, startCol: 3, endCol: 7, foregroundColor: C_SUM_BLUE, bold: true })
+    fmtRules.push({ startRow: bs+10, endRow: bs+11, startCol: 8, endCol: 9, backgroundColor: C_GREY_BG })
+    // rel 12: wage date header salmon (B-E)
+    fmtRules.push({ startRow: bs+12, endRow: bs+13, startCol: 1, endCol: 5, backgroundColor: C_SALMON, bold: true })
+    // rel 13: WAGE/TAX/PAID headers bold (B-E)
+    fmtRules.push({ startRow: bs+13, endRow: bs+14, startCol: 1, endCol: 5, bold: true })
+    // rel 21: grey bg on I (8) — Cash sales value
+    fmtRules.push({ startRow: bs+21, endRow: bs+22, startCol: 8, endCol: 9, backgroundColor: C_GREY_BG })
+    // rel 30: light green bg on I (8) — Expenses
+    fmtRules.push({ startRow: bs+30, endRow: bs+31, startCol: 8, endCol: 9, backgroundColor: C_LT_GRN })
+    // rel 31: light blue bg on I (8) — Wage Cash
+    fmtRules.push({ startRow: bs+31, endRow: bs+32, startCol: 8, endCol: 9, backgroundColor: C_LT_BLUE })
+    // rel 35: very light green bg on G (6), I (8), J (9) — Remaining
+    fmtRules.push({ startRow: bs+35, endRow: bs+36, startCol: 6, endCol: 7,  backgroundColor: C_VLT_GRN })
+    fmtRules.push({ startRow: bs+35, endRow: bs+36, startCol: 8, endCol: 10, backgroundColor: C_VLT_GRN })
+    // Wage totals (dynamic): bold on B-E; Total Expenses N bold + P green; Wage CASH C blue
+    const WF = wageStartRel
+    fmtRules.push({ startRow: bs+WF, endRow: bs+WF+3, startCol: 1, endCol: 5, bold: true })
+    fmtRules.push({ startRow: bs+WF+1, endRow: bs+WF+2, startCol: 13, endCol: 14, bold: true })
+    fmtRules.push({ startRow: bs+WF+1, endRow: bs+WF+2, startCol: 15, endCol: 16, backgroundColor: C_LT_GRN })
+    fmtRules.push({ startRow: bs+WF+2, endRow: bs+WF+3, startCol: 2, endCol: 3, backgroundColor: C_LT_BLUE })
+    // Expense Status column: green for Paid, red for Unpaid
+    const C_PAID_GRN  = { red: 0.2980392, green: 0.6862745, blue: 0.3137255 }
+    const C_UNPAID_RD = { red: 0.8980392, green: 0.2235294, blue: 0.2078431 }
+    const C_WHITE     = { red: 1, green: 1, blue: 1 }
+    for (const rel of paidRels) {
+      fmtRules.push({ startRow: bs+rel, endRow: bs+rel+1, startCol: 16, endCol: 17, backgroundColor: C_PAID_GRN, foregroundColor: C_WHITE, bold: true })
+    }
+    for (const rel of unpaidRels) {
+      fmtRules.push({ startRow: bs+rel, endRow: bs+rel+1, startCol: 16, endCol: 17, backgroundColor: C_UNPAID_RD, foregroundColor: C_WHITE, bold: true })
+    }
   }
 
-  // ── Global formats ────────────────────────────────────────────────────────
+  // ── Global number formats ─────────────────────────────────────────────────
   const totalRows = rows.length
-  // Revenue columns D-J (3-9): AUD
-  fmtRules.push({ startRow: 0, endRow: totalRows, startCol: 3, endCol: 10, numberFormat: AUD_FORMAT })
-  // Wage column C (2): AUD
-  fmtRules.push({ startRow: 0, endRow: totalRows, startCol: 2, endCol: 3, numberFormat: AUD_FORMAT })
-  // Expense amount column P (15): AUD
-  fmtRules.push({ startRow: 0, endRow: totalRows, startCol: 15, endCol: 16, numberFormat: AUD_FORMAT })
-  // Date columns C (2) left and M (12) right:
-  // NOTE: C also holds wage amounts, so skip date format for C to avoid conflicts.
-  // Apply date format only to M (12) expense dates
-  fmtRules.push({ startRow: 0, endRow: totalRows, startCol: 12, endCol: 13, numberFormat: DATE_FORMAT })
+  fmtRules.push({ startRow: 0, endRow: totalRows, startCol: 3,  endCol: 10, numberFormat: AUD_FORMAT }) // D-J revenue
+  fmtRules.push({ startRow: 0, endRow: totalRows, startCol: 2,  endCol: 3,  numberFormat: AUD_FORMAT }) // C wage amounts
+  fmtRules.push({ startRow: 0, endRow: totalRows, startCol: 8,  endCol: 9,  numberFormat: AUD_FORMAT }) // I cash flow
+  fmtRules.push({ startRow: 0, endRow: totalRows, startCol: 15, endCol: 16, numberFormat: AUD_FORMAT }) // P expense $
+
+  // ── Get sheetId for merges ────────────────────────────────────────────────
+  const sheetId = await getSheetIdByName(sid, SUM_SHEET)
+  if (sheetId === undefined) return
+
+  // Clear existing merges before rewriting (must unmerge each exact range individually)
+  await clearSheetMerges(sid, sheetId)
 
   await setSheetDataUserEntered(SUM_SHEET, rows, sid)
-  await applyFormattingRules(SUM_SHEET, sid, fmtRules)
+  await applyFormattingRules(SUM_SHEET, sid, fmtRules, totalRows + 5)
+
+  // ── Cell merges per week ──────────────────────────────────────────────────
+  const mergeReqs: object[] = []
+  for (let wi = 0; wi < sortedWeeks.length; wi++) {
+    const bs = wi * SUM_BLOCK
+    const merge = (r0: number, r1: number, c0: number, c1: number) =>
+      mergeReqs.push({ mergeCells: { range: { sheetId, startRowIndex: bs+r0, endRowIndex: bs+r1, startColumnIndex: c0, endColumnIndex: c1 }, mergeType: 'MERGE_ALL' } })
+    merge(1, 2,  3,  5)   // Lunch header D-E
+    merge(1, 2,  5,  7)   // Dinner header F-G
+    merge(1, 2,  7,  10)  // Total header H-J
+    merge(1, 2,  11, 19)  // EXPENSES header L-S
+    merge(12, 13, 1, 5)   // Wage date header B-E
+  }
+  if (mergeReqs.length > 0) await batchUpdateSheet(sid, mergeReqs)
+
+  // ── Structural borders — data-driven per week ────────────────────────────
+  const SOLID_BLK = { style: 'SOLID', width: 1, color: { red: 0, green: 0, blue: 0, alpha: 1 } }
+  const borderReqs: object[] = []
+
+  for (let wi = 0; wi < sortedWeeks.length; wi++) {
+    const bs  = wi * SUM_BLOCK
+    const bdr = (r0: number, r1: number, c0: number, c1: number, edges: Record<string, object>) =>
+      borderReqs.push({ updateBorders: { range: { sheetId, startRowIndex: bs+r0, endRowIndex: bs+r1, startColumnIndex: c0, endColumnIndex: c1 }, ...edges } })
+
+    // ── Clear all borders in this block first ────────────────────────────────
+    const NONE = { style: 'NONE' }
+    bdr(0, SUM_BLOCK, 0, SUM_COL_COUNT, { top: NONE, bottom: NONE, left: NONE, right: NONE, innerHorizontal: NONE, innerVertical: NONE })
+
+    // ── Revenue table: outer box + inner grid (rel 1-10, cols B-J = 1-9) ────
+    bdr(1, 11, 1, 10, {
+      top: SOLID_BLK, bottom: SOLID_BLK, left: SOLID_BLK, right: SOLID_BLK,
+      innerHorizontal: SOLID_BLK, innerVertical: SOLID_BLK,
+    })
+
+    // ── Employee section box (B=1..E=4): wraps header + actual employee rows ─
+    if (activeCount > 0) {
+      const empEnd = 15 + activeCount  // exclusive
+      bdr(13, empEnd, 1, 5, { top: SOLID_BLK })
+      bdr(13, empEnd, 1, 2, { left: SOLID_BLK })
+      bdr(13, empEnd, 4, 5, { right: SOLID_BLK })
+      bdr(empEnd - 1, empEnd, 1, 5, { bottom: SOLID_BLK })
+    }
+
+    // ── Wage totals box (B-E): dynamic position 2 rows after last employee ──
+    const WB = wageStartRel
+    bdr(WB, WB + 3, 1, 5, {
+      top: SOLID_BLK, bottom: SOLID_BLK, left: SOLID_BLK, right: SOLID_BLK,
+    })
+
+    // ── Cash flow box (G-J): rel 18-37 (Cash left in the bag is last row) ───
+    bdr(18, 38, 6, 10, {
+      top: SOLID_BLK, bottom: SOLID_BLK, left: SOLID_BLK, right: SOLID_BLK,
+    })
+  }
+  if (borderReqs.length > 0) await batchUpdateSheet(sid, borderReqs)
 }
 
 // ── OverAll ───────────────────────────────────────────────────────────────────
@@ -2332,8 +2435,10 @@ export async function syncOverAllSheet(shopCode: string): Promise<void> {
 // ── Sync all report sheets ────────────────────────────────────────────────────
 
 export async function syncAllReportSheets(shopCode: string): Promise<void> {
+  const { sid } = await getShopDb(shopCode)
   await syncIncomeSheet(shopCode)
   await syncWageSheet(shopCode)
   await syncSumSheet(shopCode)
   await syncOverAllSheet(shopCode)
+  await hideInternalSheets(sid)
 }

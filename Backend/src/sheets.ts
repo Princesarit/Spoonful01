@@ -420,6 +420,25 @@ export async function getSheetIdByName(
 }
 
 /**
+ * Unmerge all existing merged cells in a sheet.
+ * The API requires exact bounds for each merge — a bulk range unmerge fails if
+ * it doesn't perfectly cover every existing merge, so we fetch them first.
+ */
+export async function clearSheetMerges(
+  spreadsheetId: string,
+  sheetId: number,
+): Promise<void> {
+  const meta = await sheetsApi.spreadsheets.get({ spreadsheetId })
+  const sheet = meta.data.sheets?.find((s) => s.properties?.sheetId === sheetId)
+  const merges = sheet?.merges ?? []
+  if (merges.length === 0) return
+  const requests = merges.map((m) => ({
+    unmergeCells: { range: { sheetId, ...m } },
+  }))
+  await batchUpdateSheet(spreadsheetId, requests)
+}
+
+/**
  * Send arbitrary batchUpdate requests (merges, borders, column widths, etc.)
  */
 export async function batchUpdateSheet(
@@ -433,6 +452,32 @@ export async function batchUpdateSheet(
       requestBody: { requests: requests.slice(i, i + 100) },
     })
   }
+}
+
+const INTERNAL_SHEETS = new Set([
+  'config', 'edit_log', 'wage_payments', 'schedules',
+  'delivery_trips', 'front_time_records', 'back_time_records',
+  'expenses', 'revenue',
+])
+
+/**
+ * Hide internal/raw-data sheet tabs so only report sheets are visible.
+ * Safe to call repeatedly — only sends requests for sheets that are currently visible.
+ */
+export async function hideInternalSheets(spreadsheetId: string): Promise<void> {
+  const res = await sheetsApi.spreadsheets.get({ spreadsheetId })
+  const requests = (res.data.sheets ?? [])
+    .filter((s) => {
+      const title = s.properties?.title ?? ''
+      return INTERNAL_SHEETS.has(title) && !s.properties?.hidden
+    })
+    .map((s) => ({
+      updateSheetProperties: {
+        properties: { sheetId: s.properties!.sheetId, hidden: true },
+        fields: 'hidden',
+      },
+    }))
+  await batchUpdateSheet(spreadsheetId, requests)
 }
 
 /**

@@ -36,8 +36,8 @@ function emptyEntry(date: string): RevenueEntry {
   }
 }
 
-function calcTotalSale(m: MealRevenue): number {
-  return m.eftpos + m.lfyOnline + m.uberOnline + m.doorDash + (m.cashSale ?? 0)
+function calcCashSale(m: MealRevenue): number {
+  return m.totalSale - m.eftpos - m.lfyOnline - m.uberOnline - m.doorDash
 }
 
 // For legacy entries that have totalSale but no cashSale, derive cashSale
@@ -83,7 +83,8 @@ function NumInput({
 
 // ── Meal detail rows (card display) ───────────────────────────────────────────
 function MealDetailRows({ meal }: { meal: MealRevenue }) {
-  const displayTotal = meal.totalSale > 0 ? meal.totalSale : calcTotalSale(ensureCashSale(meal))
+  const displayTotal = meal.totalSale
+  const displayCashSale = meal.cashSale ?? calcCashSale(meal)
   const rows: Array<{ label: string; value: number; dim?: boolean }> = [
     { label: 'Eftpos', value: meal.eftpos, dim: true },
     { label: 'LFY Online', value: meal.lfyOnline, dim: true },
@@ -91,7 +92,7 @@ function MealDetailRows({ meal }: { meal: MealRevenue }) {
     { label: 'LFY Cash', value: meal.lfyCash, dim: true },
     { label: 'Uber Online', value: meal.uberOnline, dim: true },
     { label: 'DoorDash', value: meal.doorDash, dim: true },
-    { label: 'Cash Sale', value: meal.cashSale ?? 0, dim: true },
+    { label: 'Cash Sale', value: displayCashSale, dim: true },
     { label: 'Cash in Bag', value: meal.cashLeftInBag, dim: true },
   ]
   return (
@@ -123,7 +124,7 @@ function MealSection({
 }) {
   function set(key: keyof MealRevenue, val: number) {
     const updated = { ...meal, [key]: val }
-    updated.totalSale = calcTotalSale(updated)
+    updated.cashSale = updated.totalSale - updated.eftpos - updated.lfyOnline - updated.uberOnline - updated.doorDash
     onChange(updated)
   }
 
@@ -134,11 +135,12 @@ function MealSection({
     { key: 'lfyCash', label: 'LFY Cash' },
     { key: 'uberOnline', label: 'Uber Eat Online' },
     { key: 'doorDash', label: 'DoorDash' },
-    { key: 'cashSale', label: 'Cash Sale' },
+    { key: 'totalSale', label: 'Total Sale' },
     { key: 'cashLeftInBag', label: 'Cash Left in Bag', yellow: true },
   ]
 
-  const totalSale = calcTotalSale(meal)
+  const cashSale = meal.totalSale - meal.eftpos - meal.lfyOnline - meal.uberOnline - meal.doorDash
+  const cashSaleError = cashSale < 0
   const lfyCardsError = (meal.lfyCards + meal.lfyCash) > meal.eftpos
 
   return (
@@ -159,10 +161,13 @@ function MealSection({
             </div>
           )
         })}
-        <div className="flex items-center justify-between bg-green-50 rounded-lg px-3 py-2">
-          <span className="text-xs text-green-700 font-medium">Total Sale (auto)</span>
-          <span className="text-sm font-bold text-green-700">${fmt(totalSale)}</span>
+        <div className={`flex items-center justify-between rounded-lg px-3 py-2 ${cashSaleError ? 'bg-red-50' : 'bg-gray-50'}`}>
+          <span className={`text-xs font-medium ${cashSaleError ? 'text-red-600' : 'text-gray-600'}`}>Cash Sale (auto)</span>
+          <span className={`text-sm font-bold ${cashSaleError ? 'text-red-600' : 'text-gray-700'}`}>${fmt(cashSale)}</span>
         </div>
+        {cashSaleError && (
+          <p className="text-[10px] text-red-500 -mt-1">Total Sale ต้องไม่น้อยกว่า Eftpos + Online orders</p>
+        )}
       </div>
     </div>
   )
@@ -225,7 +230,8 @@ export default function RevenueView() {
     if (!recorderName?.trim()) return
     if (formState.isEditing && !auditEditorName.trim()) return
     if ((currentMeal.lfyCards + currentMeal.lfyCash) > currentMeal.eftpos) return
-    const cashSaleVal = currentMeal.cashSale ?? 0
+    const cashSaleVal = currentMeal.totalSale - currentMeal.eftpos - currentMeal.lfyOnline - currentMeal.uberOnline - currentMeal.doorDash
+    if (cashSaleVal < 0) return
     if (currentMeal.cashLeftInBag !== cashSaleVal && !formState.entry.note?.trim()) return
     setSaving(true)
     try {
@@ -396,10 +402,7 @@ export default function RevenueView() {
 
           <div className="flex justify-between items-center text-sm border-t border-gray-100 pt-2">
             <span className="text-gray-500 text-xs">Grand Total</span>
-            <span className="font-bold text-brand-gold">${fmt(
-              (dayEntry.lunch.totalSale > 0 ? dayEntry.lunch.totalSale : calcTotalSale(ensureCashSale(dayEntry.lunch))) +
-              (dayEntry.dinner.totalSale > 0 ? dayEntry.dinner.totalSale : calcTotalSale(ensureCashSale(dayEntry.dinner)))
-            )}</span>
+            <span className="font-bold text-brand-gold">${fmt(dayEntry.lunch.totalSale + dayEntry.dinner.totalSale)}</span>
           </div>
           {dayEntry.note && <div className="text-xs text-gray-400 italic">{dayEntry.note}</div>}
         </div>
@@ -563,12 +566,13 @@ export default function RevenueView() {
             {/* Note — required if cashLeftInBag ≠ cashSale */}
             {(() => {
               const currentMeal = mode === 'lunch' ? form.lunch : form.dinner
-              const cashSaleVal = currentMeal.cashSale ?? 0
+              const cashSaleVal = currentMeal.totalSale - currentMeal.eftpos - currentMeal.lfyOnline - currentMeal.uberOnline - currentMeal.doorDash
+              const cashSaleInvalid = cashSaleVal < 0
               const discrepancy = currentMeal.cashLeftInBag !== cashSaleVal
               const noteRequired = discrepancy && !form.note?.trim()
               const recorderName = (mode === 'lunch' ? form.lunchRecorderName : form.dinnerRecorderName) ?? ''
               const lfyCardsInvalid = (currentMeal.lfyCards + currentMeal.lfyCash) > currentMeal.eftpos
-              const canSave = !saving && !!recorderName.trim() && !noteRequired && !lfyCardsInvalid && (!isEditing || !!auditEditorName.trim())
+              const canSave = !saving && !!recorderName.trim() && !noteRequired && !lfyCardsInvalid && !cashSaleInvalid && (!isEditing || !!auditEditorName.trim())
               return (
                 <>
                   <div>

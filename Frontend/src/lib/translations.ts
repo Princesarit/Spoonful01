@@ -52,7 +52,8 @@ export const translations = {
     no_emp_owner: 'กด "+ พนักงาน" เพื่อเพิ่มพนักงาน',
     no_emp_staff: 'ยังไม่มีพนักงาน — ติดต่อ Manager',
     default_working_days: 'วันทำงานปกติ (default)',
-    add_emp_fail: 'เพิ่มพนักงานไม่สำเร็จ (ต้องเป็น Manager)',
+    add_emp_fail: 'เพิ่มพนักงานไม่สำเร็จ',
+    duplicate_name: 'มีพนักงานชื่อนี้อยู่แล้ว',
     // time record
     time_record_title: 'กรอกเวลา',
     front_back_weekly: 'Front / Kitchen (รายสัปดาห์)',
@@ -155,7 +156,8 @@ export const translations = {
     no_emp_owner: 'Click "+ Employee" to add staff',
     no_emp_staff: 'No employees — contact Manager',
     default_working_days: 'Default working days',
-    add_emp_fail: 'Failed to add employee (Manager only)',
+    add_emp_fail: 'Failed to add employee',
+    duplicate_name: 'An employee with this name already exists',
     // time record
     time_record_title: 'Time Record',
     front_back_weekly: 'Front / Kitchen (Weekly)',

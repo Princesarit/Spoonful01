@@ -4,7 +4,7 @@ import { useState, Fragment } from 'react'
 import Link from 'next/link'
 import { useParams } from 'next/navigation'
 import type { Employee, WeekSchedule, Position } from '@/lib/types'
-import { saveWeekSchedule, saveEmployee, saveAuditLog } from './actions'
+import { saveWeekSchedule, saveAuditLog } from './actions'
 import { useShop } from '@/components/ShopProvider'
 import { translations } from '@/lib/translations'
 
@@ -47,11 +47,6 @@ const POS_COLORS: Record<string, string> = {
   Home: 'text-green-600 bg-green-50',
 }
 
-type NewEmp = {
-  name: string
-  positions: Position[]
-  defaultDays: boolean[]
-}
 
 function ScheduleDailySummary({ employees, weekDates, getEntry, DAYS_SHORT }: {
   employees: Employee[]
@@ -136,16 +131,11 @@ export default function ScheduleView({
   const [weekStart, setWeekStart] = useState(todayMonday)
   const [saving, setSaving] = useState(false)
   const [isEditing, setIsEditing] = useState(false)
-  const [showAdd, setShowAdd] = useState(false)
+  const [showSelect, setShowSelect] = useState(false)
   const [auditModal, setAuditModal] = useState<{
     label: string; editorName: string; note: string
     onConfirm: (name: string, note: string) => void
   } | null>(null)
-  const [newEmp, setNewEmp] = useState<NewEmp>({
-    name: '',
-    positions: ['Front'],
-    defaultDays: [true, true, true, true, true, true, true],
-  })
 
   const weekStr = isoDate(weekStart)
   const isPast = weekStart < todayMonday
@@ -249,47 +239,23 @@ export default function ScheduleView({
     })
   }
 
-  async function handleAddEmployee() {
-    if (!newEmp.name.trim() || newEmp.positions.length === 0) return
-    const trimmed = newEmp.name.trim().toLowerCase()
-    if (employees.some((e) => !e.fired && e.name.toLowerCase() === trimmed)) {
-      alert('มีพนักงานชื่อนี้อยู่แล้ว')
-      return
+  function handleSelectEmployee(emp: Employee) {
+    const primaryPos = emp.positions[0] ?? 'Front'
+    const defaultEntry = {
+      employeeId: emp.id,
+      days: emp.defaultDays.flatMap((d) => [d ? primaryPos : null, d ? primaryPos : null]) as (string | null)[],
     }
-    const emp: Employee = {
-      id: Date.now().toString(),
-      name: newEmp.name.trim(),
-      positions: newEmp.positions,
-      defaultDays: newEmp.defaultDays,
-    }
-    try {
-      await saveEmployee(shopCode, emp)
-      setEmployees((p) => [...p, emp])
-      // Add employee to current week's schedule entries so they appear immediately
-      setSchedules((prev) => {
-        const si = prev.findIndex((s) => s.weekStart === weekStr)
-        const primaryPos = emp.positions[0] ?? 'Front'
-        const defaultEntry = {
-          employeeId: emp.id,
-          days: emp.defaultDays.flatMap((d) => [d ? primaryPos : null, d ? primaryPos : null]) as (string | null)[],
-        }
-        if (si >= 0) {
-          return prev.map((s, i) => i === si
-            ? { ...s, entries: [...s.entries, defaultEntry] }
-            : s
-          )
-        }
-        // No saved schedule yet — create one
-        const allEntries = [...employees, emp].map((e) =>
-          e.id === emp.id ? defaultEntry : { employeeId: e.id, days: getEntry(e.id) as (string | null)[] }
-        )
-        return [...prev, { weekStart: weekStr, entries: allEntries }]
-      })
-      setNewEmp({ name: '', positions: ['Front'], defaultDays: [true, true, true, true, true, true, true] })
-      setShowAdd(false)
-    } catch (err) {
-      alert(err instanceof Error && err.message === 'duplicate' ? 'ชื่อนี้มีอยู่แล้ว' : tr.add_emp_fail)
-    }
+    setSchedules((prev) => {
+      const si = prev.findIndex((s) => s.weekStart === weekStr)
+      if (si >= 0) {
+        return prev.map((s, i) => i === si ? { ...s, entries: [...s.entries, defaultEntry] } : s)
+      }
+      const allEntries = [...employees, emp].map((e) =>
+        e.id === emp.id ? defaultEntry : { employeeId: e.id, days: getEntry(e.id) as (string | null)[] }
+      )
+      return [...prev, { weekStart: weekStr, entries: allEntries }]
+    })
+    setShowSelect(false)
   }
 
   function handleDelete(empId: string) {
@@ -333,10 +299,10 @@ export default function ScheduleView({
         <h2 className="text-lg font-bold text-gray-800 flex-1">{tr.schedule_title}</h2>
         {(role === 'manager' || role === 'owner') && (
           <button
-            onClick={() => setShowAdd(true)}
+            onClick={() => setShowSelect(true)}
             className="text-sm bg-brand-gold text-white px-3 py-1.5 rounded-lg hover:bg-brand-gold-dark cursor-pointer"
           >
-            {tr.add_employee_btn}
+            + Select
           </button>
         )}
       </div>
@@ -533,73 +499,46 @@ export default function ScheduleView({
         </div>
       )}
 
-      {/* Add Employee Modal */}
-      {showAdd && (role === 'manager' || role === 'owner') && (
-        <div className="fixed inset-0 bg-black/40 flex items-end justify-center z-50 p-4">
-          <div className="bg-white rounded-2xl w-full max-w-sm p-6 space-y-4">
-            <h3 className="font-bold text-gray-900">{tr.add_employee}</h3>
-            <input
-              type="text"
-              placeholder={tr.name_placeholder}
-              value={newEmp.name}
-              onChange={(e) => setNewEmp((p) => ({ ...p, name: e.target.value }))}
-              className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-gold"
-            />
-            <div className="flex gap-2">
-              {POSITIONS.map((pos) => (
-                <button
-                  key={pos}
-                  type="button"
-                  onClick={() => setNewEmp((p) => ({ ...p, positions: [pos] }))}
-                  className={`flex-1 py-2 rounded-lg text-xs font-semibold border cursor-pointer transition-colors ${
-                    newEmp.positions[0] === pos
-                      ? 'bg-brand-gold text-white border-brand-gold'
-                      : 'border-brand-accent text-gray-600 hover:border-brand-gold/50'
-                  }`}
-                >
-                  {pos}
-                </button>
-              ))}
-            </div>
-            <div>
-              <label className="text-xs text-gray-500 mb-2 block">{tr.default_working_days}</label>
-              <div className="flex gap-1">
-                {DAYS_SHORT.map((d, i) => (
-                  <button
-                    key={i}
-                    type="button"
-                    onClick={() =>
-                      setNewEmp((p) => ({
-                        ...p,
-                        defaultDays: p.defaultDays.map((v, j) => (j === i ? !v : v)),
-                      }))
-                    }
-                    className={`flex-1 py-1.5 rounded text-xs font-medium cursor-pointer transition-colors ${
-                      newEmp.defaultDays[i] ? 'bg-green-100 text-green-700' : 'bg-brand-parchment text-gray-400'
-                    }`}
-                  >
-                    {d}
-                  </button>
-                ))}
-              </div>
-            </div>
-            <div className="flex gap-2 pt-1">
+      {/* Select Employee Modal */}
+      {showSelect && (role === 'manager' || role === 'owner') && (() => {
+        const savedSched = schedules.find((s) => s.weekStart === weekStr)
+        const shownIds = new Set(
+          savedSched
+            ? savedSched.entries.map((e) => e.employeeId)
+            : employees.filter((e) => !e.fired).map((e) => e.id)
+        )
+        const available = employees.filter((e) => !e.fired && !shownIds.has(e.id))
+        return (
+          <div className="fixed inset-0 bg-black/40 flex items-end justify-center z-50 p-4">
+            <div className="bg-white rounded-2xl w-full max-w-sm p-6 space-y-4">
+              <h3 className="font-bold text-gray-900">Select Employee</h3>
+              {available.length === 0 ? (
+                <p className="text-sm text-gray-400 text-center py-4">All employees are already in this week.</p>
+              ) : (
+                <div className="space-y-2 max-h-64 overflow-y-auto">
+                  {available.map((emp) => (
+                    <button
+                      key={emp.id}
+                      type="button"
+                      onClick={() => handleSelectEmployee(emp)}
+                      className="w-full text-left px-4 py-3 rounded-xl border border-gray-200 hover:border-brand-gold hover:bg-brand-parchment/30 transition-colors cursor-pointer"
+                    >
+                      <div className="font-medium text-sm text-gray-800">{emp.name}</div>
+                      <div className="text-xs text-gray-400">{emp.positions.join(', ')}</div>
+                    </button>
+                  ))}
+                </div>
+              )}
               <button
-                onClick={() => setShowAdd(false)}
-                className="flex-1 py-2.5 border border-brand-accent rounded-xl text-sm text-gray-600 cursor-pointer"
+                onClick={() => setShowSelect(false)}
+                className="w-full py-2.5 border border-brand-accent rounded-xl text-sm text-gray-600 cursor-pointer"
               >
                 {tr.cancel}
               </button>
-              <button
-                onClick={handleAddEmployee}
-                className="flex-1 py-2.5 bg-brand-gold text-white rounded-xl text-sm font-semibold cursor-pointer"
-              >
-                {tr.add}
-              </button>
             </div>
           </div>
-        </div>
-      )}
+        )
+      })()}
     </div>
   )
 }

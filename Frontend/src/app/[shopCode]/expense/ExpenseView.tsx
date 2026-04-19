@@ -302,6 +302,20 @@ export default function ExpenseView() {
               </div>
             )}
 
+            {/* Paid toggle */}
+            <div className="flex items-center gap-3">
+              <label className="text-sm text-gray-700">{tr.status_label}</label>
+              <button
+                type="button"
+                onClick={() => setField('paid', !form.paid)}
+                className={`px-3 py-1.5 rounded-full text-xs font-medium cursor-pointer transition-colors ${
+                  form.paid ? 'bg-green-100 text-green-700' : 'bg-amber-50 text-amber-600'
+                }`}
+              >
+                {form.paid ? tr.paid_status : tr.unpaid_status}
+              </button>
+            </div>
+
             {/* Due Date — shown when Unpaid */}
             {!form.paid && (
               <div>
@@ -325,20 +339,6 @@ export default function ExpenseView() {
                 placeholder="Additional notes..."
                 className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-gold"
               />
-            </div>
-
-            {/* Paid toggle */}
-            <div className="flex items-center gap-3">
-              <label className="text-sm text-gray-700">{tr.status_label}</label>
-              <button
-                type="button"
-                onClick={() => setField('paid', !form.paid)}
-                className={`px-3 py-1.5 rounded-full text-xs font-medium cursor-pointer transition-colors ${
-                  form.paid ? 'bg-green-100 text-green-700' : 'bg-amber-50 text-amber-600'
-                }`}
-              >
-                {form.paid ? tr.paid_status : tr.unpaid_status}
-              </button>
             </div>
 
             <div className="flex gap-2 pt-1">

@@ -30,6 +30,7 @@ export interface Employee {
   deliveryFeePerTrip?: number  // flat fee per delivery trip; overrides distance-based calc
   defaultDays: boolean[]  // [Mon, Tue, Wed, Thu, Fri, Sat, Sun]
   fired?: boolean         // soft-delete: true = ไล่ออก, ยังเก็บข้อมูลประวัติ
+  instanceId?: string     // in-memory only: unique key for homeEmps duplicates (not persisted)
 }
 
 export interface WeekSchedule {
