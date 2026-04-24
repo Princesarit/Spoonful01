@@ -4,7 +4,7 @@ import { useState, useEffect } from 'react'
 import Link from 'next/link'
 import { useParams } from 'next/navigation'
 import type { ExpenseEntry, PaymentMethod } from '@/lib/types'
-import { getExpenses, saveExpenseEntry, deleteExpenseEntry, togglePaid } from './actions'
+import { getExpenses, saveExpenseEntry, deleteExpenseEntry, togglePaid, saveAuditLog } from './actions'
 import { useShop } from '@/components/ShopProvider'
 import { translations } from '@/lib/translations'
 
@@ -52,7 +52,8 @@ export default function ExpenseView() {
   const tr = translations[lang]
 
   const [entries, setEntries] = useState<ExpenseEntry[]>([])
-  const [form, setForm] = useState<(Omit<ExpenseEntry, 'id'> & { id?: string }) | null>(null)
+  const [form, setForm] = useState<(Omit<ExpenseEntry, 'id'> & { id?: string; _editAuditName?: string; _editAuditNote?: string }) | null>(null)
+  const [deleteAudit, setDeleteAudit] = useState<{ entry: ExpenseEntry; editorName: string; note: string } | null>(null)
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [filterDate, setFilterDate] = useState('')
@@ -66,7 +67,7 @@ export default function ExpenseView() {
   }, [shopCode])
 
   function openNew() { setForm(emptyForm()) }
-  function openEdit(entry: ExpenseEntry) { setForm({ ...entry }) }
+  function openEdit(entry: ExpenseEntry) { setForm({ ...entry, _editAuditName: '', _editAuditNote: '' }) }
 
   function setField<K extends keyof ExpenseEntry>(key: K, val: ExpenseEntry[K]) {
     setForm((p) => p && ({ ...p, [key]: val }))
@@ -74,14 +75,26 @@ export default function ExpenseView() {
 
   async function handleSave() {
     if (!form || !form.supplier.trim()) return
+    const isEditing = !!form.id
+    if (isEditing && !form._editAuditName?.trim()) return
     setSaving(true)
-    const entry: ExpenseEntry = { ...form, id: form.id ?? Date.now().toString() }
+    const { _editAuditName, _editAuditNote, ...rest } = form
+    const entry: ExpenseEntry = { ...rest, id: form.id ?? Date.now().toString() }
     try {
       await saveExpenseEntry(shopCode, entry)
       setEntries((prev) => {
         const idx = prev.findIndex((e) => e.id === entry.id)
         return idx >= 0 ? prev.map((e) => (e.id === entry.id ? entry : e)) : [entry, ...prev]
       })
+      if (isEditing) {
+        saveAuditLog(shopCode, {
+          editorName: _editAuditName ?? '',
+          note: _editAuditNote ?? '',
+          employeeName: entry.supplier,
+          shift: entry.date,
+          changes: `Edit expense: ${entry.supplier} $${entry.total}`,
+        }).catch(() => {})
+      }
       setForm(null)
     } catch {
       alert(tr.save_fail)
@@ -90,10 +103,14 @@ export default function ExpenseView() {
     }
   }
 
-  async function handleDelete(id: string) {
-    if (!confirm(tr.confirm_delete)) return
-    await deleteExpenseEntry(shopCode, id)
-    setEntries((p) => p.filter((e) => e.id !== id))
+  async function doDelete(entry: ExpenseEntry, editorName: string, note: string) {
+    setDeleteAudit(null)
+    await deleteExpenseEntry(shopCode, entry.id)
+    saveAuditLog(shopCode, {
+      editorName, note, employeeName: entry.supplier, shift: entry.date,
+      changes: `Delete expense: ${entry.supplier} $${entry.total}`,
+    }).catch(() => {})
+    setEntries((p) => p.filter((e) => e.id !== entry.id))
   }
 
   async function handleTogglePaid(id: string) {
@@ -189,10 +206,54 @@ export default function ExpenseView() {
                   {entry.paid ? tr.paid_status : tr.unpaid_status}
                 </button>
                 <button onClick={() => openEdit(entry)} className="text-xs text-blue-500 cursor-pointer">{tr.edit}</button>
-                <button onClick={() => handleDelete(entry.id)} className="text-xs text-red-400 cursor-pointer">{tr.delete}</button>
+                <button onClick={() => setDeleteAudit({ entry, editorName: '', note: '' })} className="text-xs text-red-400 cursor-pointer">{tr.delete}</button>
               </div>
             </div>
           ))}
+        </div>
+      )}
+
+      {/* Delete Audit Modal */}
+      {deleteAudit && (
+        <div className="fixed inset-0 bg-black/40 flex items-end justify-center z-50 p-4">
+          <div className="bg-white rounded-2xl w-full max-w-sm p-6 space-y-4">
+            <h3 className="font-bold text-red-600">ยืนยันการลบ</h3>
+            <div className="text-xs text-gray-500 bg-red-50 rounded-lg px-3 py-2">
+              ลบ: <span className="font-semibold text-gray-700">{deleteAudit.entry.supplier}</span> ${fmtAUD(deleteAudit.entry.total)}
+            </div>
+            <div className="space-y-3">
+              <div>
+                <label className="text-xs text-gray-500 block mb-1">ชื่อผู้แก้ไข *</label>
+                <input
+                  type="text" autoFocus
+                  value={deleteAudit.editorName}
+                  onChange={(e) => setDeleteAudit((p) => p && ({ ...p, editorName: e.target.value }))}
+                  placeholder="กรอกชื่อ"
+                  className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-red-400"
+                />
+              </div>
+              <div>
+                <label className="text-xs text-gray-500 block mb-1">หมายเหตุ</label>
+                <input
+                  type="text"
+                  value={deleteAudit.note}
+                  onChange={(e) => setDeleteAudit((p) => p && ({ ...p, note: e.target.value }))}
+                  placeholder="เหตุผล (ถ้ามี)"
+                  className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-red-400"
+                />
+              </div>
+            </div>
+            <div className="flex gap-2 pt-1">
+              <button onClick={() => setDeleteAudit(null)} className="flex-1 py-2.5 border border-gray-200 rounded-xl text-sm text-gray-600 cursor-pointer">{tr.cancel}</button>
+              <button
+                onClick={() => doDelete(deleteAudit.entry, deleteAudit.editorName, deleteAudit.note)}
+                disabled={!deleteAudit.editorName.trim()}
+                className="flex-1 py-2.5 bg-red-500 text-white rounded-xl text-sm font-semibold disabled:opacity-50 cursor-pointer"
+              >
+                {tr.delete}
+              </button>
+            </div>
+          </div>
         </div>
       )}
 
@@ -341,6 +402,31 @@ export default function ExpenseView() {
               />
             </div>
 
+            {form.id && (
+              <div className="space-y-2 border-t border-gray-100 pt-3">
+                <div>
+                  <label className="text-xs text-gray-500 block mb-1">ชื่อผู้แก้ไข *</label>
+                  <input
+                    type="text"
+                    value={form._editAuditName ?? ''}
+                    onChange={(e) => setForm((p) => p && ({ ...p, _editAuditName: e.target.value }))}
+                    placeholder="กรอกชื่อ"
+                    className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-gold"
+                  />
+                </div>
+                <div>
+                  <label className="text-xs text-gray-500 block mb-1">หมายเหตุ</label>
+                  <input
+                    type="text"
+                    value={form._editAuditNote ?? ''}
+                    onChange={(e) => setForm((p) => p && ({ ...p, _editAuditNote: e.target.value }))}
+                    placeholder="เหตุผล (ถ้ามี)"
+                    className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-gold"
+                  />
+                </div>
+              </div>
+            )}
+
             <div className="flex gap-2 pt-1">
               <button
                 onClick={() => setForm(null)}
@@ -350,7 +436,7 @@ export default function ExpenseView() {
               </button>
               <button
                 onClick={handleSave}
-                disabled={saving || !form.supplier.trim() || form.total <= 0 || !form.filledBy?.trim()}
+                disabled={saving || !form.supplier.trim() || form.total <= 0 || !form.filledBy?.trim() || (!!form.id && !form._editAuditName?.trim())}
                 className="flex-1 py-2.5 bg-brand-gold text-white rounded-xl text-sm font-semibold disabled:opacity-50 cursor-pointer"
               >
                 {saving ? tr.saving : tr.save}

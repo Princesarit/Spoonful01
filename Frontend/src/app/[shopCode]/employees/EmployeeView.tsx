@@ -115,10 +115,18 @@ export default function EmployeeView({
   }
 
   function togglePosition(pos: Position) {
-    setForm((f) => ({
-      ...f,
-      positions: f.positions.includes(pos) ? f.positions.filter((p) => p !== pos) : [...f.positions, pos],
-    }))
+    setForm((f) => {
+      if (pos === 'Home') {
+        // Home is exclusive — selecting Home clears all other positions
+        return { ...f, positions: f.positions.includes('Home') ? [] : ['Home'] }
+      }
+      // Selecting any non-Home position removes Home
+      const without = f.positions.filter((p) => p !== 'Home')
+      return {
+        ...f,
+        positions: without.includes(pos) ? without.filter((p) => p !== pos) : [...without, pos],
+      }
+    })
   }
 
   async function handleSave() {
@@ -295,17 +303,17 @@ export default function EmployeeView({
                   <div className="flex gap-2 mb-1.5 flex-wrap">
                     {emp.wageLunch != null && (
                       <span className="text-xs text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded-full">
-                        L ฿{emp.wageLunch.toLocaleString()}
+                        L ${emp.wageLunch.toLocaleString()}
                       </span>
                     )}
                     {emp.wageDinner != null && (
                       <span className="text-xs text-amber-600 bg-amber-50 px-2 py-0.5 rounded-full">
-                        D ฿{emp.wageDinner.toLocaleString()}
+                        D ${emp.wageDinner.toLocaleString()}
                       </span>
                     )}
                     {emp.deliveryFeePerTrip && emp.positions.includes('Home') && (
                       <span className="text-xs text-blue-600 bg-blue-50 px-2 py-0.5 rounded-full">
-                        🚚 ฿{emp.deliveryFeePerTrip}/รอบ
+                        🚚 ${emp.deliveryFeePerTrip}/รอบ
                       </span>
                     )}
                   </div>
@@ -421,10 +429,10 @@ export default function EmployeeView({
                 />
               </div>
 
-              {isOwnerOnly && (
+              {isOwnerOnly && !form.positions.includes('Home') && (
                 <div className="grid grid-cols-2 gap-2">
                   <div>
-                    <label className="text-xs text-brand-accent block mb-1">Wage Lunch (฿)</label>
+                    <label className="text-xs text-brand-accent block mb-1">Wage Lunch ($)</label>
                     <input
                       type="number"
                       inputMode="numeric"
@@ -436,7 +444,7 @@ export default function EmployeeView({
                     />
                   </div>
                   <div>
-                    <label className="text-xs text-brand-accent block mb-1">Wage Dinner (฿)</label>
+                    <label className="text-xs text-brand-accent block mb-1">Wage Dinner ($)</label>
                     <input
                       type="number"
                       inputMode="numeric"
@@ -453,7 +461,7 @@ export default function EmployeeView({
               {form.positions.includes('Home') && (
                 <div>
                   <label className="text-xs text-brand-accent block mb-1">
-                    {lang === 'en' ? 'Delivery Fee per Trip (฿)' : 'ค่า Delivery ต่อรอบ (฿)'}
+                    {lang === 'en' ? 'Delivery Fee per Trip ($)' : 'ค่า Delivery ต่อรอบ ($)'}
                   </label>
                   <input
                     type="number"

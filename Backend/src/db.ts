@@ -661,6 +661,7 @@ const REV_HEADERS = [
   'l_eftpos', 'l_lfyOnline', 'l_lfyCards', 'l_lfyCash', 'l_uberOnline', 'l_doorDash', 'l_cashLeftInBag', 'l_cashSale', 'l_totalSale',
   'd_eftpos', 'd_lfyOnline', 'd_lfyCards', 'd_lfyCash', 'd_uberOnline', 'd_doorDash', 'd_cashLeftInBag', 'd_cashSale', 'd_totalSale',
   'note', 'lunchRecorderName', 'dinnerRecorderName', 'deleted',
+  'frontExtra', 'kitchenExtra',
 ]
 
 function emptyMeal(): MealRevenue {
@@ -695,6 +696,8 @@ export async function listRevenue(shopCode: string): Promise<RevenueEntry[]> {
         doorDashBills:Number(r.doorDashBills)|| 0,
         lunch:  rowToMeal(r, 'l'),
         dinner: rowToMeal(r, 'd'),
+        frontExtra: Number(r.frontExtra) || undefined,
+        kitchenExtra: Number(r.kitchenExtra) || undefined,
         note: r.note || undefined,
         lunchRecorderName: r.lunchRecorderName || undefined,
         dinnerRecorderName: r.dinnerRecorderName || undefined,
@@ -739,6 +742,8 @@ export async function listRevenueAll(shopCode: string): Promise<RevenueEntry[]> 
         doorDashBills: Number(r.doorDashBills) || 0,
         lunch: rowToMeal(r, 'l'),
         dinner: rowToMeal(r, 'd'),
+        frontExtra: Number(r.frontExtra) || undefined,
+        kitchenExtra: Number(r.kitchenExtra) || undefined,
         note: r.note || undefined,
         lunchRecorderName: r.lunchRecorderName || undefined,
         dinnerRecorderName: r.dinnerRecorderName || undefined,
@@ -836,6 +841,7 @@ export async function saveRevenue(shopCode: string, entries: RevenueEntry[]): Pr
     e.id, e.date, e.lfyBills, e.uberBills, e.doorDashBills,
     ...mealToRow(e.lunch), ...mealToRow(e.dinner),
     e.note ?? '', e.lunchRecorderName ?? '', e.dinnerRecorderName ?? '', e.deleted ? 'true' : '',
+    e.frontExtra ?? '', e.kitchenExtra ?? '',
   ])
   await setSheetData(sheetName, REV_HEADERS, rows, sid)
 

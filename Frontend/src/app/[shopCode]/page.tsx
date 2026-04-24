@@ -221,7 +221,7 @@ export default function HomePage() {
           </div>
           <div className="text-lg font-bold text-gray-900">
             {stats
-              ? `฿${(shift === 'am' ? stats.lunchSales : shift === 'pm' ? stats.dinnerSales : stats.lunchSales + stats.dinnerSales).toLocaleString()}`
+              ? `$${(shift === 'am' ? stats.lunchSales : shift === 'pm' ? stats.dinnerSales : stats.lunchSales + stats.dinnerSales).toLocaleString()}`
               : '—'}
           </div>
           <div className="text-xs text-gray-400 mt-1">
@@ -346,14 +346,6 @@ export default function HomePage() {
         </Link>
       )}
 
-      {session.role === 'owner' && (
-        <Link
-          href={`/${shopCode}/extra-rate`}
-          className="w-full block text-center py-3 rounded-2xl text-sm font-semibold text-gray-600 border border-gray-200 bg-white hover:border-gray-300 hover:shadow-sm transition-all cursor-pointer"
-        >
-          ✦ Extra Rate Setting
-        </Link>
-      )}
 
       {showManagerModal && (
         <ElevateModal

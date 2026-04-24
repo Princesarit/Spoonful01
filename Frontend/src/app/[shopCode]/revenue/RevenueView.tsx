@@ -186,6 +186,10 @@ export default function RevenueView() {
   const [deleteMealAudit, setDeleteMealAudit] = useState<{ id: string; date: string; mode: FormMode } | null>(null)
   const [deleteMealEditor, setDeleteMealEditor] = useState('')
   const [deleteMealNote, setDeleteMealNote] = useState('')
+  const [showExtra, setShowExtra] = useState(false)
+  const [extraFront, setExtraFront] = useState(0)
+  const [extraKitchen, setExtraKitchen] = useState(0)
+  const [extraSaving, setExtraSaving] = useState(false)
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [filterDate, setFilterDate] = useState(today)
@@ -280,6 +284,28 @@ export default function RevenueView() {
     const { entries: fresh } = await getRevenueData(shopCode)
     setEntries(fresh)
     setDeleteMealAudit(null)
+  }
+
+  function openExtraModal(entry: RevenueEntry) {
+    setExtraFront(entry.frontExtra ?? 0)
+    setExtraKitchen(entry.kitchenExtra ?? 0)
+    setShowExtra(true)
+  }
+
+  async function handleSaveExtra() {
+    if (!dayEntry) return
+    setExtraSaving(true)
+    try {
+      const updated: RevenueEntry = { ...dayEntry, frontExtra: extraFront || undefined, kitchenExtra: extraKitchen || undefined }
+      await saveRevenueEntry(shopCode, updated)
+      const { entries: fresh } = await getRevenueData(shopCode)
+      setEntries(fresh)
+      setShowExtra(false)
+    } catch {
+      alert(tr.save_fail)
+    } finally {
+      setExtraSaving(false)
+    }
   }
 
   function openEdit(entry: RevenueEntry, mode: FormMode) {
@@ -404,7 +430,68 @@ export default function RevenueView() {
             <span className="text-gray-500 text-xs">Grand Total</span>
             <span className="font-bold text-brand-gold">${fmt(dayEntry.lunch.totalSale + dayEntry.dinner.totalSale)}</span>
           </div>
+          {(dayEntry.frontExtra || dayEntry.kitchenExtra) ? (
+            <div className="flex justify-between items-center text-xs text-purple-600 bg-purple-50 rounded-lg px-3 py-2">
+              <span>Extra: Front ${fmt(dayEntry.frontExtra ?? 0)} / Kitchen ${fmt(dayEntry.kitchenExtra ?? 0)}</span>
+              <button onClick={() => openExtraModal(dayEntry)} className="text-blue-500 cursor-pointer">Edit</button>
+            </div>
+          ) : (lunchDone || dinnerDone) ? (
+            <button
+              onClick={() => openExtraModal(dayEntry)}
+              className="w-full py-2 rounded-xl text-sm font-semibold border-2 border-dashed border-purple-300 text-purple-500 hover:bg-purple-50 transition-colors cursor-pointer"
+            >
+              + Extra (ค่าแรงพิเศษ)
+            </button>
+          ) : null}
           {dayEntry.note && <div className="text-xs text-gray-400 italic">{dayEntry.note}</div>}
+        </div>
+      )}
+
+      {/* Extra Modal */}
+      {showExtra && dayEntry && (
+        <div className="fixed inset-0 bg-black/40 flex items-end justify-center z-50 p-4">
+          <div className="bg-white rounded-2xl w-full max-w-sm p-6 space-y-4">
+            <h3 className="font-bold text-purple-700">Extra — ค่าแรงพิเศษ</h3>
+            <p className="text-xs text-gray-400">{dayEntry.date}</p>
+            <div className="space-y-3">
+              <div>
+                <label className="text-xs text-gray-500 block mb-1">Front Extra ($)</label>
+                <div className="flex items-center gap-1">
+                  <span className="text-sm text-gray-400">$</span>
+                  <input
+                    type="number" min="0" step="0.5"
+                    value={extraFront || ''}
+                    onChange={(e) => setExtraFront(parseFloat(e.target.value) || 0)}
+                    placeholder="0"
+                    className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-purple-400"
+                  />
+                </div>
+              </div>
+              <div>
+                <label className="text-xs text-gray-500 block mb-1">Kitchen Extra ($)</label>
+                <div className="flex items-center gap-1">
+                  <span className="text-sm text-gray-400">$</span>
+                  <input
+                    type="number" min="0" step="0.5"
+                    value={extraKitchen || ''}
+                    onChange={(e) => setExtraKitchen(parseFloat(e.target.value) || 0)}
+                    placeholder="0"
+                    className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-purple-400"
+                  />
+                </div>
+              </div>
+            </div>
+            <div className="flex gap-2 pt-1">
+              <button onClick={() => setShowExtra(false)} className="flex-1 py-2.5 border border-gray-200 rounded-xl text-sm text-gray-600 cursor-pointer">{tr.cancel}</button>
+              <button
+                onClick={handleSaveExtra}
+                disabled={extraSaving}
+                className="flex-1 py-2.5 bg-purple-500 text-white rounded-xl text-sm font-semibold disabled:opacity-50 cursor-pointer"
+              >
+                {extraSaving ? tr.saving : tr.save}
+              </button>
+            </div>
+          </div>
         </div>
       )}
 

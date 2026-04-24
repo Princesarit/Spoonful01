@@ -9,6 +9,19 @@ function authHeader(token: string) {
   return { Authorization: `Bearer ${token}` }
 }
 
+export async function saveAuditLog(
+  shopCode: string,
+  log: { editorName: string; note: string; employeeName: string; shift: string; changes: string },
+): Promise<void> {
+  const session = await getSession()
+  if (!session || session.shopCode !== shopCode) return
+  await fetch(`${BACKEND_URL}/${shopCode}/config/audit-log`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...authHeader(session.token) },
+    body: JSON.stringify(log),
+  }).catch(() => {})
+}
+
 export async function getExpenses(shopCode: string) {
   const session = await getSession()
   if (!session || session.shopCode !== shopCode) throw new Error('Unauthorized')

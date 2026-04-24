@@ -192,7 +192,8 @@ function calcDay(
       return sum + rec.morning + rec.evening
     }, 0)
   const deliveryLabor = dayTrips.reduce((s, t) => s + t.fee, 0)
-  const labor = staffLabor + deliveryLabor
+  const extraLabor = dayRevenue.reduce((s, e) => s + (e.frontExtra ?? 0) + (e.kitchenExtra ?? 0), 0)
+  const labor = staffLabor + deliveryLabor + extraLabor
 
   const cashLeave = cashRevenue - cashExpense - labor
 
@@ -411,7 +412,7 @@ function TotalsGrid({ totals }: { totals: Totals }) {
       ].map(({ label, value, color }) => (
         <div key={label} className="p-3">
           <div className="text-xs text-gray-400 mb-0.5">{label}</div>
-          <div className={`text-sm font-bold ${color}`}>{fmt(value)} ฿</div>
+          <div className={`text-sm font-bold ${color}`}>{fmt(value)} $</div>
         </div>
       ))}
     </div>
@@ -682,19 +683,19 @@ export default function SummaryView() {
                     <div className="flex items-center justify-between mb-3">
                       <span className="text-sm font-semibold text-gray-700">{weekPovLabel(wg.weekStart)}</span>
                       <div className="text-right">
-                        <div className="text-sm font-bold text-brand-gold">{fmt(wt.totalSale)} ฿</div>
+                        <div className="text-sm font-bold text-brand-gold">{fmt(wt.totalSale)} $</div>
                         <div className="text-xs text-gray-400">{wg.days.length} days</div>
                       </div>
                     </div>
                     <div className="grid grid-cols-2 gap-y-2 text-xs">
-                      <div><span className="text-gray-400">Net sales</span><div className="font-semibold text-gray-700">{fmt(wt.netSales)} ฿</div></div>
-                      <div><span className="text-gray-400">Online Orders</span><div className="font-semibold text-gray-700">{fmt(wt.onlineOrders)} ฿</div></div>
-                      <div><span className="text-gray-400">Total eftpos</span><div className="font-semibold text-blue-600">{fmt(wt.totalEftpos)} ฿</div></div>
-                      <div><span className="text-gray-400">{tr.labor_label}</span><div className="font-semibold text-brand-gold">{fmt(wt.labor)} ฿</div></div>
-                      <div><span className="text-gray-400">Cash Expense</span><div className="font-semibold text-red-500">{fmt(wt.cashExpense)} ฿</div></div>
+                      <div><span className="text-gray-400">Net sales</span><div className="font-semibold text-gray-700">{fmt(wt.netSales)} $</div></div>
+                      <div><span className="text-gray-400">Online Orders</span><div className="font-semibold text-gray-700">{fmt(wt.onlineOrders)} $</div></div>
+                      <div><span className="text-gray-400">Total eftpos</span><div className="font-semibold text-blue-600">{fmt(wt.totalEftpos)} $</div></div>
+                      <div><span className="text-gray-400">{tr.labor_label}</span><div className="font-semibold text-brand-gold">{fmt(wt.labor)} $</div></div>
+                      <div><span className="text-gray-400">Cash Expense</span><div className="font-semibold text-red-500">{fmt(wt.cashExpense)} $</div></div>
                       <div>
                         <span className="text-gray-400">{tr.cash_leave_day}</span>
-                        <div className={`font-semibold ${wt.cashLeave >= 0 ? 'text-green-600' : 'text-red-500'}`}>{fmt(wt.cashLeave)} ฿</div>
+                        <div className={`font-semibold ${wt.cashLeave >= 0 ? 'text-green-600' : 'text-red-500'}`}>{fmt(wt.cashLeave)} $</div>
                       </div>
                     </div>
                   </div>
@@ -708,14 +709,14 @@ export default function SummaryView() {
               <div className="text-center py-12 text-gray-400 text-sm">{tr.no_data_month}</div>
             ) : (
               <div className="space-y-3">
-                {activeRows.map((d) => {
+                {[...activeRows].reverse().map((d) => {
                   const dv = getDayDisplay(d, shift)
                   return (
                   <div key={d.date} className="bg-white rounded-xl border border-gray-100 shadow-sm p-4">
                     <div className="flex items-center justify-between mb-3">
                       <span className="text-sm font-semibold text-gray-700">{dayPovLabel(d.date)}</span>
                       <div className="text-right">
-                        <div className="text-sm font-bold text-brand-gold">{fmt(dv.totalSale)} ฿</div>
+                        <div className="text-sm font-bold text-brand-gold">{fmt(dv.totalSale)} $</div>
                         <div className="text-xs text-gray-400">Total sale</div>
                       </div>
                     </div>
@@ -723,28 +724,28 @@ export default function SummaryView() {
                     <div className="grid grid-cols-2 gap-y-2 text-xs">
                       <div>
                         <span className="text-gray-400">Net sales</span>
-                        <div className="font-semibold text-gray-700">{fmt(dv.netSales)} ฿</div>
+                        <div className="font-semibold text-gray-700">{fmt(dv.netSales)} $</div>
                       </div>
                       <div>
                         <span className="text-gray-400">Online Orders</span>
-                        <div className="font-semibold text-gray-700">{fmt(dv.onlineOrders)} ฿</div>
+                        <div className="font-semibold text-gray-700">{fmt(dv.onlineOrders)} $</div>
                       </div>
                       <div>
                         <span className="text-gray-400">Total eftpos</span>
-                        <div className="font-semibold text-blue-600">{fmt(dv.totalEftpos)} ฿</div>
+                        <div className="font-semibold text-blue-600">{fmt(dv.totalEftpos)} $</div>
                       </div>
                       <div>
                         <span className="text-gray-400">{tr.labor_label}</span>
-                        <div className="font-semibold text-brand-gold">{fmt(dv.labor)} ฿</div>
+                        <div className="font-semibold text-brand-gold">{fmt(dv.labor)} $</div>
                       </div>
                       <div>
                         <span className="text-gray-400">Cash Expense</span>
-                        <div className="font-semibold text-red-500">{fmt(dv.cashExpense)} ฿</div>
+                        <div className="font-semibold text-red-500">{fmt(dv.cashExpense)} $</div>
                       </div>
                       <div>
                         <span className="text-gray-400">{tr.cash_leave_day}</span>
                         <div className={`font-semibold ${dv.cashLeave >= 0 ? 'text-green-600' : 'text-red-500'}`}>
-                          {fmt(dv.cashLeave)} ฿
+                          {fmt(dv.cashLeave)} $
                         </div>
                       </div>
                     </div>

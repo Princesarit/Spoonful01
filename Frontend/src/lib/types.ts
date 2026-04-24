@@ -80,6 +80,8 @@ export interface RevenueEntry {
   doorDashBills: number // DoorDash bill count
   lunch: MealRevenue
   dinner: MealRevenue
+  frontExtra?: number   // extra pay for Front staff that day
+  kitchenExtra?: number // extra pay for Kitchen staff that day
   note?: string
   lunchRecorderName?: string   // staff who filled in lunch
   dinnerRecorderName?: string  // staff who filled in dinner

@@ -6,7 +6,7 @@ import { useParams } from 'next/navigation'
 import type { Employee, TimeRecord, DeliveryTrip, DeliveryRate } from '@/lib/types'
 import { DEFAULT_DELIVERY_RATES, calcDeliveryFee } from '@/lib/config'
 import { getWeekTimeRecords, getTimeRecordData, saveTimeRecords, getWeekSchedule } from './actions'
-import { getDeliveryRates, getDeliveryFee } from '../config/actions'
+import { getDeliveryRates } from '../config/actions'
 import { saveAuditLog } from './actions'
 import { useShop } from '@/components/ShopProvider'
 import { translations } from '@/lib/translations'
@@ -77,13 +77,11 @@ export default function TimeRecordView() {
   // Map<empId, days[]> = schedule loaded — filter employees and lock unchecked cells
   const [weekScheduleMap, setWeekScheduleMap] = useState<Map<string, (string | null)[]> | null>(null)
 
-  // ── Delivery rates & fee ──
+  // ── Delivery rates ──
   const [deliveryRates, setDeliveryRates] = useState<DeliveryRate[]>(DEFAULT_DELIVERY_RATES)
-  const [deliveryFee, setDeliveryFee] = useState<number>(0)
 
   useEffect(() => {
     getDeliveryRates(shopCode).then(setDeliveryRates).catch(() => {})
-    getDeliveryFee(shopCode).then(setDeliveryFee).catch(() => {})
   }, [shopCode])
 
   // ── Daily state (Home) ──
@@ -157,6 +155,7 @@ export default function TimeRecordView() {
         const isToday = date >= today()
         const home = employees
           .filter((e) => e.positions.includes('Home') && (!isToday || !e.fired))
+          .filter((e) => deliveryTrips.some((tr) => tr.employeeId === e.id))
           .map((e) => ({ ...e, instanceId: e.id }))
         setHomeEmps(home)
         const t: TripMap = {}
@@ -649,9 +648,6 @@ export default function TimeRecordView() {
                         </div>
                         <div className="text-xs text-gray-400">
                           {tr.total_col}: ${(trips[iid] ?? []).reduce((s, t) => s + t.fee, 0).toFixed(2)}
-                          {deliveryFee > 0 && (
-                            <span className="ml-1 text-orange-500">+ ${deliveryFee.toFixed(2)} fee = ${((trips[iid] ?? []).reduce((s, t) => s + t.fee, 0) + deliveryFee).toFixed(2)}</span>
-                          )}
                         </div>
                       </div>
                       <div className="flex items-center gap-2">
@@ -880,18 +876,25 @@ export default function TimeRecordView() {
                 <>
                   <h3 className="font-bold text-gray-900">{selectingEmp.name} — เลือก Shift</h3>
                   <div className="flex gap-3">
-                    <button
-                      onClick={() => handleSelectEmployee(selectingEmp, 'lunch')}
-                      className="flex-1 py-4 rounded-xl border-2 border-orange-300 bg-orange-50 text-orange-600 font-semibold text-sm hover:bg-orange-100 cursor-pointer transition-colors"
-                    >
-                      ☀️ Lunch
-                    </button>
-                    <button
-                      onClick={() => handleSelectEmployee(selectingEmp, 'dinner')}
-                      className="flex-1 py-4 rounded-xl border-2 border-blue-300 bg-blue-50 text-blue-600 font-semibold text-sm hover:bg-blue-100 cursor-pointer transition-colors"
-                    >
-                      🌙 Dinner
-                    </button>
+                    {(['lunch', 'dinner'] as const).map((shift) => {
+                      const iid = `${selectingEmp.id}_${shift}`
+                      const taken = homeEmps.some((e) => (e.instanceId ?? e.id) === iid)
+                      return (
+                        <button
+                          key={shift}
+                          onClick={() => !taken && handleSelectEmployee(selectingEmp, shift)}
+                          disabled={taken}
+                          className={`flex-1 py-4 rounded-xl border-2 font-semibold text-sm transition-colors ${
+                            shift === 'lunch'
+                              ? taken ? 'border-gray-200 bg-gray-50 text-gray-300 cursor-not-allowed' : 'border-orange-300 bg-orange-50 text-orange-600 hover:bg-orange-100 cursor-pointer'
+                              : taken ? 'border-gray-200 bg-gray-50 text-gray-300 cursor-not-allowed' : 'border-blue-300 bg-blue-50 text-blue-600 hover:bg-blue-100 cursor-pointer'
+                          }`}
+                        >
+                          {shift === 'lunch' ? '☀️ Lunch' : '🌙 Dinner'}
+                          {taken && <span className="block text-[10px] mt-0.5">เลือกแล้ว</span>}
+                        </button>
+                      )
+                    })}
                   </div>
                   <button
                     onClick={() => setSelectingEmp(null)}
