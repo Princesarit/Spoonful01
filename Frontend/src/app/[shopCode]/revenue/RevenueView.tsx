@@ -57,6 +57,12 @@ function fmt(n: number): string {
   return n.toLocaleString('en-AU', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 }
 
+function mealDisplayTotal(m: MealRevenue): number {
+  return m.totalSale > 0
+    ? m.totalSale
+    : m.eftpos + m.lfyOnline + m.uberOnline + m.doorDash + Math.max(0, m.cashSale ?? 0)
+}
+
 // ── Numeric input ──────────────────────────────────────────────────────────────
 function NumInput({
   value, onChange, yellow = false, error = false,
@@ -122,20 +128,10 @@ function MealDetailRows({ meal }: { meal: MealRevenue }) {
 
 // ── Meal form section ──────────────────────────────────────────────────────────
 function MealSection({
-  label, color, meal, onChange,
+  label, color, meal, onFieldChange,
 }: {
-  label: string; color: string; meal: MealRevenue; onChange: (m: MealRevenue) => void
+  label: string; color: string; meal: MealRevenue; onFieldChange: (key: keyof MealRevenue, val: number) => void
 }) {
-  function set(key: keyof MealRevenue, val: number) {
-    const updated = { ...meal, [key]: val }
-    // Auto-fill Total Sale when user enters Cash Left in Bag and Total Sale is still 0
-    if (key === 'cashLeftInBag' && updated.totalSale === 0 && val > 0) {
-      updated.totalSale = updated.eftpos + updated.lfyOnline + updated.uberOnline + updated.doorDash + val
-    }
-    updated.cashSale = updated.totalSale - updated.eftpos - updated.lfyOnline - updated.uberOnline - updated.doorDash
-    onChange(updated)
-  }
-
   const fields: Array<{ key: keyof MealRevenue; label: string; yellow?: boolean }> = [
     { key: 'eftpos', label: 'Eftpos' },
     { key: 'lfyOnline', label: 'LFY Paid Online' },
@@ -161,7 +157,7 @@ function MealSection({
             <div key={key}>
               <div className="flex items-center gap-3">
                 <label className={`text-xs w-36 shrink-0 ${isError ? 'text-red-500 font-medium' : 'text-gray-500'}`}>{lbl}</label>
-                <NumInput value={(meal[key] as number) ?? 0} onChange={(v) => set(key, v)} yellow={yellow} error={isError} />
+                <NumInput value={(meal[key] as number) ?? 0} onChange={(v) => onFieldChange(key, v)} yellow={yellow} error={isError} />
               </div>
               {isError && (
                 <p className="text-[10px] text-red-500 mt-0.5 ml-39">LFY Cards + LFY Cash ต้องไม่เกิน Eftpos</p>
@@ -240,10 +236,16 @@ export default function RevenueView() {
     setFormState({ entry: base, mode, isEditing: false })
   }
 
-  function setMeal(m: MealRevenue) {
+  function setMealField(key: keyof MealRevenue, val: number) {
     setFormState((prev) => {
       if (!prev) return prev
-      return { ...prev, entry: { ...prev.entry, [prev.mode]: m } }
+      const base: MealRevenue = prev.mode === 'lunch' ? prev.entry.lunch : prev.entry.dinner
+      const updated = { ...base, [key]: val }
+      if (key === 'cashLeftInBag' && updated.totalSale === 0 && val > 0) {
+        updated.totalSale = updated.eftpos + updated.lfyOnline + updated.uberOnline + updated.doorDash + val
+      }
+      updated.cashSale = updated.totalSale - updated.eftpos - updated.lfyOnline - updated.uberOnline - updated.doorDash
+      return { ...prev, entry: { ...prev.entry, [prev.mode]: updated } }
     })
   }
 
@@ -500,7 +502,7 @@ export default function RevenueView() {
 
           <div className="flex justify-between items-center text-sm border-t border-gray-100 pt-2">
             <span className="text-gray-500 text-xs">Grand Total</span>
-            <span className="font-bold text-brand-gold">${fmt(dayEntry.lunch.totalSale + dayEntry.dinner.totalSale)}</span>
+            <span className="font-bold text-brand-gold">${fmt(mealDisplayTotal(dayEntry.lunch) + mealDisplayTotal(dayEntry.dinner))}</span>
           </div>
           {dayEntry.note && <div className="text-xs text-gray-400 italic">{dayEntry.note}</div>}
         </div>
@@ -698,14 +700,14 @@ export default function RevenueView() {
                 label="🌞 LUNCH"
                 color="bg-yellow-50 text-yellow-800"
                 meal={form.lunch}
-                onChange={setMeal}
+                onFieldChange={setMealField}
               />
             ) : (
               <MealSection
                 label="🌙 DINNER"
                 color="bg-blue-50 text-blue-800"
                 meal={form.dinner}
-                onChange={setMeal}
+                onFieldChange={setMealField}
               />
             )}
 
@@ -718,7 +720,7 @@ export default function RevenueView() {
               const noteRequired = discrepancy && !form.note?.trim()
               const recorderName = (mode === 'lunch' ? form.lunchRecorderName : form.dinnerRecorderName) ?? ''
               const lfyCardsInvalid = (currentMeal.lfyCards + currentMeal.lfyCash) > currentMeal.eftpos
-              const canSave = !saving && !!recorderName.trim() && !lfyCardsInvalid && !cashSaleInvalid && (!isEditing || !!auditEditorName.trim())
+              const canSave = !saving && !!recorderName.trim() && !lfyCardsInvalid && !cashSaleInvalid && !noteRequired && (!isEditing || !!auditEditorName.trim())
               return (
                 <>
                   <div>
@@ -731,7 +733,7 @@ export default function RevenueView() {
                       type="text"
                       value={form.note ?? ''}
                       onChange={(e) => setEntryField('note', e.target.value || undefined)}
-                      placeholder={noteRequired ? 'ยอด Cash in Bag ไม่ตรงกัน (optional)' : '—'}
+                      placeholder={noteRequired ? 'กรอก Note ก่อน Save (required)' : '—'}
                       className={`w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-gold ${noteRequired ? 'border-orange-300 bg-orange-50' : 'border-gray-300'}`}
                     />
                   </div>

@@ -1999,6 +1999,23 @@ export async function syncWageSheet(shopCode: string): Promise<void> {
           if (dinnerColor) fmtRules.push({ startRow: rowIdx, endRow: rowIdx + 1, startCol: 3 + d * 2, endCol: 3 + d * 2 + 1, backgroundColor: dinnerColor })
         }
       }
+      // Extra per employee: Front gets lunchFrontExtra/dinnerFrontExtra, Kitchen gets lunchKitchenExtra/dinnerKitchenExtra
+      let empExtra = 0
+      for (let d = 0; d < 7; d++) {
+        const rec = weekRecords.find((r) => r.date === weekDates[d] && r.employeeId === emp.id)
+        if (!rec) continue
+        const dayEntries = revenueByDate.get(weekDates[d]) ?? []
+        if (rec.morning > 0) {
+          if (isFront)   empExtra += dayEntries.reduce((s, e) => s + (e.lunchFrontExtra   ?? 0), 0)
+          if (isKitchen) empExtra += dayEntries.reduce((s, e) => s + (e.lunchKitchenExtra ?? 0), 0)
+        }
+        if (rec.evening > 0) {
+          if (isFront)   empExtra += dayEntries.reduce((s, e) => s + (e.dinnerFrontExtra   ?? 0), 0)
+          if (isKitchen) empExtra += dayEntries.reduce((s, e) => s + (e.dinnerKitchenExtra ?? 0), 0)
+        }
+      }
+      if (empExtra > 0) empRow[16] = empExtra
+
       empRow[17] = `=SUM(C${rn}:Q${rn})`
       const pmt = allPayments.get(monday)?.get(emp.id)
       empRow[18] = pmt?.tax  ?? ''
@@ -2143,7 +2160,7 @@ export async function syncSumSheet(shopCode: string): Promise<void> {
   }
 
   const mealCredit = (m: MealRevenue) => m.eftpos + m.lfyOnline + m.uberOnline + m.doorDash
-  const mealCash   = (m: MealRevenue) => m.totalSale - mealCredit(m)
+  const mealCash   = (m: MealRevenue) => effectiveMealTotal(m) - mealCredit(m)
 
   const DAY_FULL = ['Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday']
 
@@ -2204,7 +2221,7 @@ export async function syncSumSheet(shopCode: string): Promise<void> {
         blk[rel][3] = lC    || ''; blk[rel][4] = lCash        || ''
         blk[rel][5] = dC    || ''; blk[rel][6] = dCash        || ''
         blk[rel][7] = lC+dC || ''; blk[rel][8] = lCash+dCash || ''
-        blk[rel][9] = (rev.lunch.totalSale + rev.dinner.totalSale) || ''
+        blk[rel][9] = (effectiveMealTotal(rev.lunch) + effectiveMealTotal(rev.dinner)) || ''
       }
     }
 

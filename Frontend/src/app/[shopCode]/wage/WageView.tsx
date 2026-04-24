@@ -56,7 +56,7 @@ export default function WageView() {
   const [weekStart, setWeekStart] = useState(() => getMondayStr(new Date()))
   const [employees, setEmployees] = useState<Employee[]>([])
   const [timeRecords, setTimeRecords] = useState<TimeRecord[]>([])
-  const [extraRate, setExtraRate] = useState(0)
+  const [revenueByDate, setRevenueByDate] = useState<Map<string, { lf: number; lk: number; df: number; dk: number }>>(new Map())
   const [loading, setLoading] = useState(true)
   const [wageTax, setWageTax] = useState<Record<string, number>>({})
   const [wagePaid, setWagePaid] = useState<Record<string, number>>({})
@@ -78,7 +78,16 @@ export default function WageView() {
       ])
       setEmployees(data.employees.filter((e) => !e.positions?.includes('Home') && !e.fired))
       setTimeRecords(data.timeRecords)
-      setExtraRate(data.extraRate)
+      const rbd = new Map<string, { lf: number; lk: number; df: number; dk: number }>()
+      for (const r of data.revenue ?? []) {
+        rbd.set(r.date, {
+          lf: (rbd.get(r.date)?.lf ?? 0) + (r.lunchFrontExtra ?? 0),
+          lk: (rbd.get(r.date)?.lk ?? 0) + (r.lunchKitchenExtra ?? 0),
+          df: (rbd.get(r.date)?.df ?? 0) + (r.dinnerFrontExtra ?? 0),
+          dk: (rbd.get(r.date)?.dk ?? 0) + (r.dinnerKitchenExtra ?? 0),
+        })
+      }
+      setRevenueByDate(rbd)
 
       const tax: Record<string, number> = {}
       const paid: Record<string, number> = {}
@@ -137,8 +146,6 @@ export default function WageView() {
     attend[r.date][r.employeeId] = { morning: r.morning, evening: r.evening }
   }
 
-  const sundayDate = dates[6]
-
   const empRows = employees.map((emp) => {
     let lunchWage = 0, dinnerWage = 0
     const dayAmounts = dates.map((d, di) => {
@@ -151,9 +158,16 @@ export default function WageView() {
       dinnerWage += dn
       return { lunch: l, dinner: dn, calcLunch: calcL, calcDinner: calcD }
     })
-    const sunA = attend[sundayDate]?.[emp.id] ?? { morning: 0, evening: 0 }
-    const sunShifts = (sunA.morning > 0 ? 1 : 0) + (sunA.evening > 0 ? 1 : 0)
-    const extra = sunShifts * extraRate
+    const isFront = emp.positions?.some((p) => ['Front', 'Cashier', 'Owner', 'Manager'].includes(p)) ?? false
+    const isKitchen = emp.positions?.some((p) => ['Kitchen', 'Back'].includes(p)) ?? false
+    let extra = 0
+    for (const d of dates) {
+      const a = attend[d]?.[emp.id] ?? { morning: 0, evening: 0 }
+      const rev = revenueByDate.get(d)
+      if (!rev) continue
+      if (a.morning > 0) extra += isFront ? rev.lf : isKitchen ? rev.lk : 0
+      if (a.evening > 0) extra += isFront ? rev.df : isKitchen ? rev.dk : 0
+    }
     const wage = lunchWage + dinnerWage + extra
     return { emp, dayAmounts, lunchWage, dinnerWage, extra, wage }
   })
@@ -391,15 +405,19 @@ export default function WageView() {
                   {/* Extra row */}
                   <tr className="bg-gray-100 text-gray-500">
                     <td className="border border-gray-200 px-2 py-1.5 font-medium text-gray-600">Extra</td>
-                    <td className="border border-gray-200 px-2 py-1.5 text-center text-gray-400">${extraRate}/shift</td>
-                    {dates.map((d, i) => {
-                      const isSunday = i === 6
-                      const dayExtra = isSunday
-                        ? empRows.reduce((s, r) => {
-                            const a = attend[d]?.[r.emp.id] ?? { morning: 0, evening: 0 }
-                            return s + ((a.morning > 0 ? 1 : 0) + (a.evening > 0 ? 1 : 0)) * extraRate
-                          }, 0)
-                        : 0
+                    <td className="border border-gray-200 px-2 py-1.5 text-center text-gray-400" />
+                    {dates.map((d) => {
+                      const dayExtra = empRows.reduce((s, r) => {
+                        const a = attend[d]?.[r.emp.id] ?? { morning: 0, evening: 0 }
+                        const rev = revenueByDate.get(d)
+                        if (!rev) return s
+                        const isFront = r.emp.positions?.some((p) => ['Front', 'Cashier', 'Owner', 'Manager'].includes(p)) ?? false
+                        const isKitchen = r.emp.positions?.some((p) => ['Kitchen', 'Back'].includes(p)) ?? false
+                        let e = 0
+                        if (a.morning > 0) e += isFront ? rev.lf : isKitchen ? rev.lk : 0
+                        if (a.evening > 0) e += isFront ? rev.df : isKitchen ? rev.dk : 0
+                        return s + e
+                      }, 0)
                       return (
                         <td key={d} colSpan={2} className={`border border-gray-200 px-1 py-1.5 text-center ${dayExtra > 0 ? 'text-gray-700 font-semibold' : ''}`}>
                           {dayExtra > 0 ? dayExtra.toFixed(0) : ''}

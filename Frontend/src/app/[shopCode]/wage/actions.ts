@@ -1,7 +1,7 @@
 'use server'
 
 import { getSession } from '@/lib/session'
-import type { Employee, TimeRecord } from '@/lib/types'
+import type { Employee, TimeRecord, RevenueEntry } from '@/lib/types'
 
 const BACKEND_URL = (process.env.BACKEND_URL ?? 'http://localhost:4000').replace(/\/$/, '')
 function authHeader(token: string) { return { Authorization: `Bearer ${token}` } }
@@ -38,15 +38,28 @@ export async function getWageData(shopCode: string, weekStart: string) {
     timeRecords.push(...(data.timeRecords ?? []))
   }
 
-  const extraRateRes = await fetch(`${BACKEND_URL}/${shopCode}/config/extra-rate`, {
-    headers: authHeader(session.token),
-    cache: 'no-store',
-  })
+  const [extraRateRes, revenueRes] = await Promise.all([
+    fetch(`${BACKEND_URL}/${shopCode}/config/extra-rate`, {
+      headers: authHeader(session.token),
+      cache: 'no-store',
+    }),
+    fetch(`${BACKEND_URL}/${shopCode}/revenue`, {
+      headers: authHeader(session.token),
+      cache: 'no-store',
+    }),
+  ])
+
   const extraRate: number = extraRateRes.ok
     ? ((await extraRateRes.json()) as { rate: number }).rate ?? 0
     : 0
 
-  return { employees, timeRecords, extraRate }
+  const allRevenue: RevenueEntry[] = revenueRes.ok
+    ? ((await revenueRes.json()) as { entries: RevenueEntry[] }).entries ?? []
+    : []
+  const dateSet = new Set(dates)
+  const revenue = allRevenue.filter((r) => dateSet.has(r.date))
+
+  return { employees, timeRecords, extraRate, revenue }
 }
 
 export interface WagePaymentEntry {
