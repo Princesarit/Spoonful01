@@ -1,5 +1,5 @@
 import { Router, Response } from 'express'
-import { syncAllReportSheets, syncIncomeSheet, syncWageSheet, syncSumSheet, syncOverAllSheet } from '../db'
+import { syncAllReportSheets, syncIncomeSheet, syncWageSheet, syncSumSheet, syncOverAllSheet, hideShopInternalSheets } from '../db'
 import { requireShopAuth } from '../middleware/auth'
 import type { AuthRequest } from '../middleware/auth'
 
@@ -32,6 +32,11 @@ router.post('/sync/sum', requireShopAuth, async (req: AuthRequest, res: Response
 
 router.post('/sync/overall', requireShopAuth, async (req: AuthRequest, res: Response) => {
   try { await syncOverAllSheet(req.params.shopCode); res.json({ ok: true }) }
+  catch (err) { res.status(500).json({ error: String(err) }) }
+})
+
+router.post('/sync/hide', requireShopAuth, async (req: AuthRequest, res: Response) => {
+  try { await hideShopInternalSheets(req.params.shopCode); res.json({ ok: true }) }
   catch (err) { res.status(500).json({ error: String(err) }) }
 })
 

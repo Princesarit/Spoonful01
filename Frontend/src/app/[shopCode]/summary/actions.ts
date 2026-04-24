@@ -61,6 +61,43 @@ export async function syncReportSheets(shopCode: string) {
   return res.json() as Promise<{ ok: boolean; message: string }>
 }
 
+export async function hideReportSheets(shopCode: string) {
+  const session = await getSession()
+  if (!session || session.shopCode !== shopCode) throw new Error('Unauthorized')
+
+  const res = await fetch(`${BACKEND_URL}/${shopCode}/sheets/sync/hide`, {
+    method: 'POST',
+    headers: authHeader(session.token),
+  })
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}))
+    throw new Error(body.error ?? 'Hide failed')
+  }
+  return res.json() as Promise<{ ok: boolean }>
+}
+
+export async function syncSumSheet(shopCode: string) {
+  const session = await getSession()
+  if (!session || session.shopCode !== shopCode) throw new Error('Unauthorized')
+  const res = await fetch(`${BACKEND_URL}/${shopCode}/sheets/sync/sum`, {
+    method: 'POST',
+    headers: authHeader(session.token),
+  })
+  if (!res.ok) throw new Error('Sum sync failed')
+}
+
+export async function saveExpenseEntry(shopCode: string, entry: ExpenseEntry) {
+  const session = await getSession()
+  if (!session || session.shopCode !== shopCode) throw new Error('Unauthorized')
+
+  const res = await fetch(`${BACKEND_URL}/${shopCode}/expenses`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...authHeader(session.token) },
+    body: JSON.stringify(entry),
+  })
+  if (!res.ok) throw new Error('Failed to save expense')
+}
+
 export async function saveDailyNote(shopCode: string, date: string, note: string) {
   const session = await getSession()
   if (!session || session.shopCode !== shopCode) throw new Error('Unauthorized')

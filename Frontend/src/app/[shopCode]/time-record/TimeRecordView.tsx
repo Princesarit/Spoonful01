@@ -303,10 +303,8 @@ export default function TimeRecordView() {
     setTrips((p) => ({ ...p, [iid]: [...(p[iid] ?? []), trip] }))
   }
 
-  function updateTrip(iid: string, emp: Employee, tripId: string, km: number) {
-    const fee = emp.deliveryFeePerTrip != null
-      ? emp.deliveryFeePerTrip
-      : calcDeliveryFee(km, deliveryRates)
+  function updateTrip(iid: string, _emp: Employee, tripId: string, km: number) {
+    const fee = calcDeliveryFee(km, deliveryRates)
     setTrips((p) => ({
       ...p,
       [iid]: p[iid].map((t) => (t.id === tripId ? { ...t, distance: km, fee } : t)),
@@ -356,7 +354,12 @@ export default function TimeRecordView() {
         const empTrips = (trips[eiid] ?? []).filter((t) => t.distance > 0)
         const cod = codByEmp[eiid] ?? 0
         if (empTrips.length === 0) return []
-        return empTrips.map((t, i) => ({ ...t, employeeId: e.id, cod: i === 0 && cod > 0 ? cod : undefined }))
+        return empTrips.map((t, i) => ({
+          ...t,
+          employeeId: e.id,
+          fee: t.fee + (i === 0 ? (e.deliveryFeePerTrip ?? 0) : 0),
+          cod: i === 0 && cod > 0 ? cod : undefined,
+        }))
       })
       await saveTimeRecords(shopCode, date, [], allTrips)
       const shift = emp.defaultDays[0] ? 'Lunch' : emp.defaultDays[1] ? 'Dinner' : ''
@@ -647,7 +650,7 @@ export default function TimeRecordView() {
                           )}
                         </div>
                         <div className="text-xs text-gray-400">
-                          {tr.total_col}: ${(trips[iid] ?? []).reduce((s, t) => s + t.fee, 0).toFixed(2)}
+                          {tr.total_col}: ${((trips[iid] ?? []).reduce((s, t) => s + t.fee, 0) + (emp.deliveryFeePerTrip ?? 0)).toFixed(2)}
                         </div>
                       </div>
                       <div className="flex items-center gap-2">

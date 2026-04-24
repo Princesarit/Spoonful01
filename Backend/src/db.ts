@@ -362,10 +362,7 @@ export async function saveSchedules(shopCode: string, schedules: WeekSchedule[])
 const TR_DAY_NAMES = ['MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT', 'SUN']
 
 function getWeekMonday(dateStr: string): string {
-  const d = new Date(dateStr + 'T00:00:00')
-  const day = d.getDay()
-  d.setDate(d.getDate() + (day === 0 ? -6 : 1 - day))
-  return d.toISOString().slice(0, 10)
+  return getMondayStr(dateStr)
 }
 
 // Read pivot format (front_time_records / back_time_records)
@@ -452,11 +449,7 @@ async function writeTimeRecordsTab(
   for (let wi = 0; wi < weeks.length; wi++) {
     const monday = weeks[wi]
     const weekRecords = weekMap.get(monday)!
-    const dates = Array.from({ length: 7 }, (_, i) => {
-      const d = new Date(monday + 'T00:00:00')
-      d.setDate(d.getDate() + i)
-      return d.toISOString().slice(0, 10)
-    })
+    const dates = Array.from({ length: 7 }, (_, i) => addDays(monday, i))
 
     // DATE row: DATE | date0 | date0 | date1 | date1 | ... | TOTAL
     const dateRow: (string | number)[] = ['DATE']
@@ -657,11 +650,14 @@ export async function savePlatforms(shopCode: string, platforms: DeliveryPlatfor
 
 // Individual columns for lunch and dinner (no JSON blobs)
 const REV_HEADERS = [
-  'id', 'date', 'lfyBills', 'uberBills', 'doorDashBills',
+  'id', 'date',
   'l_eftpos', 'l_lfyOnline', 'l_lfyCards', 'l_lfyCash', 'l_uberOnline', 'l_doorDash', 'l_cashLeftInBag', 'l_cashSale', 'l_totalSale',
   'd_eftpos', 'd_lfyOnline', 'd_lfyCards', 'd_lfyCash', 'd_uberOnline', 'd_doorDash', 'd_cashLeftInBag', 'd_cashSale', 'd_totalSale',
   'note', 'lunchRecorderName', 'dinnerRecorderName', 'deleted',
   'frontExtra', 'kitchenExtra',
+  'lunchLfyBills', 'lunchUberBills', 'lunchDoorDashBills',
+  'dinnerLfyBills', 'dinnerUberBills', 'dinnerDoorDashBills',
+  'lunchFrontExtra', 'lunchKitchenExtra', 'dinnerFrontExtra', 'dinnerKitchenExtra',
 ]
 
 function emptyMeal(): MealRevenue {
@@ -688,16 +684,29 @@ export async function listRevenue(shopCode: string): Promise<RevenueEntry[]> {
   return rows.map((r) => {
     // New flat format: individual l_* and d_* columns
     if ('l_eftpos' in r) {
+      const lLfy = Number(r.lunchLfyBills) || undefined
+      const lUber = Number(r.lunchUberBills) || undefined
+      const lDD = Number(r.lunchDoorDashBills) || undefined
+      const dLfy = Number(r.dinnerLfyBills) || undefined
+      const dUber = Number(r.dinnerUberBills) || undefined
+      const dDD = Number(r.dinnerDoorDashBills) || undefined
       return {
         id: r.id,
         date: r.date,
-        lfyBills:     Number(r.lfyBills)     || 0,
-        uberBills:    Number(r.uberBills)    || 0,
-        doorDashBills:Number(r.doorDashBills)|| 0,
+        // Compute combined from per-meal; fall back to stored column for old rows
+        lfyBills:      (lLfy || dLfy) ? (lLfy ?? 0) + (dLfy ?? 0) : (Number(r.lfyBills) || 0),
+        uberBills:     (lUber || dUber) ? (lUber ?? 0) + (dUber ?? 0) : (Number(r.uberBills) || 0),
+        doorDashBills: (lDD || dDD) ? (lDD ?? 0) + (dDD ?? 0) : (Number(r.doorDashBills) || 0),
+        lunchLfyBills: lLfy, lunchUberBills: lUber, lunchDoorDashBills: lDD,
+        dinnerLfyBills: dLfy, dinnerUberBills: dUber, dinnerDoorDashBills: dDD,
         lunch:  rowToMeal(r, 'l'),
         dinner: rowToMeal(r, 'd'),
         frontExtra: Number(r.frontExtra) || undefined,
         kitchenExtra: Number(r.kitchenExtra) || undefined,
+        lunchFrontExtra:   Number(r.lunchFrontExtra)   || undefined,
+        lunchKitchenExtra: Number(r.lunchKitchenExtra) || undefined,
+        dinnerFrontExtra:  Number(r.dinnerFrontExtra)  || undefined,
+        dinnerKitchenExtra:Number(r.dinnerKitchenExtra)|| undefined,
         note: r.note || undefined,
         lunchRecorderName: r.lunchRecorderName || undefined,
         dinnerRecorderName: r.dinnerRecorderName || undefined,
@@ -735,15 +744,27 @@ export async function listRevenueAll(shopCode: string): Promise<RevenueEntry[]> 
   const rows = await getSheetData(tab('revenue'), sid)
   return rows.map((r) => {
     if ('l_eftpos' in r) {
+      const lLfy = Number(r.lunchLfyBills) || undefined
+      const lUber = Number(r.lunchUberBills) || undefined
+      const lDD = Number(r.lunchDoorDashBills) || undefined
+      const dLfy = Number(r.dinnerLfyBills) || undefined
+      const dUber = Number(r.dinnerUberBills) || undefined
+      const dDD = Number(r.dinnerDoorDashBills) || undefined
       return {
         id: r.id, date: r.date,
-        lfyBills: Number(r.lfyBills) || 0,
-        uberBills: Number(r.uberBills) || 0,
-        doorDashBills: Number(r.doorDashBills) || 0,
+        lfyBills:      (lLfy || dLfy) ? (lLfy ?? 0) + (dLfy ?? 0) : (Number(r.lfyBills) || 0),
+        uberBills:     (lUber || dUber) ? (lUber ?? 0) + (dUber ?? 0) : (Number(r.uberBills) || 0),
+        doorDashBills: (lDD || dDD) ? (lDD ?? 0) + (dDD ?? 0) : (Number(r.doorDashBills) || 0),
+        lunchLfyBills: lLfy, lunchUberBills: lUber, lunchDoorDashBills: lDD,
+        dinnerLfyBills: dLfy, dinnerUberBills: dUber, dinnerDoorDashBills: dDD,
         lunch: rowToMeal(r, 'l'),
         dinner: rowToMeal(r, 'd'),
         frontExtra: Number(r.frontExtra) || undefined,
         kitchenExtra: Number(r.kitchenExtra) || undefined,
+        lunchFrontExtra:   Number(r.lunchFrontExtra)   || undefined,
+        lunchKitchenExtra: Number(r.lunchKitchenExtra) || undefined,
+        dinnerFrontExtra:  Number(r.dinnerFrontExtra)  || undefined,
+        dinnerKitchenExtra:Number(r.dinnerKitchenExtra)|| undefined,
         note: r.note || undefined,
         lunchRecorderName: r.lunchRecorderName || undefined,
         dinnerRecorderName: r.dinnerRecorderName || undefined,
@@ -793,13 +814,27 @@ export async function migrateRevenueSchema(shopCode: string): Promise<[RevenueEn
   if (rawRows.length === 0 || 'lunchRecorderName' in rawRows[0]) {
     return [rawRows.map((r) => {
       if ('l_eftpos' in r) {
+        const lLfy = Number(r.lunchLfyBills) || undefined
+        const lUber = Number(r.lunchUberBills) || undefined
+        const lDD = Number(r.lunchDoorDashBills) || undefined
+        const dLfy = Number(r.dinnerLfyBills) || undefined
+        const dUber = Number(r.dinnerUberBills) || undefined
+        const dDD = Number(r.dinnerDoorDashBills) || undefined
         return {
           id: r.id, date: r.date,
-          lfyBills: Number(r.lfyBills) || 0,
-          uberBills: Number(r.uberBills) || 0,
-          doorDashBills: Number(r.doorDashBills) || 0,
+          lfyBills:      (lLfy || dLfy) ? (lLfy ?? 0) + (dLfy ?? 0) : (Number(r.lfyBills) || 0),
+          uberBills:     (lUber || dUber) ? (lUber ?? 0) + (dUber ?? 0) : (Number(r.uberBills) || 0),
+          doorDashBills: (lDD || dDD) ? (lDD ?? 0) + (dDD ?? 0) : (Number(r.doorDashBills) || 0),
+          lunchLfyBills: lLfy, lunchUberBills: lUber, lunchDoorDashBills: lDD,
+          dinnerLfyBills: dLfy, dinnerUberBills: dUber, dinnerDoorDashBills: dDD,
           lunch: rowToMeal(r, 'l'),
           dinner: rowToMeal(r, 'd'),
+          frontExtra: Number(r.frontExtra) || undefined,
+          kitchenExtra: Number(r.kitchenExtra) || undefined,
+          lunchFrontExtra:   Number(r.lunchFrontExtra)   || undefined,
+          lunchKitchenExtra: Number(r.lunchKitchenExtra) || undefined,
+          dinnerFrontExtra:  Number(r.dinnerFrontExtra)  || undefined,
+          dinnerKitchenExtra:Number(r.dinnerKitchenExtra)|| undefined,
           note: r.note || undefined,
           lunchRecorderName: r.lunchRecorderName || undefined,
           dinnerRecorderName: r.dinnerRecorderName || undefined,
@@ -838,10 +873,14 @@ export async function saveRevenue(shopCode: string, entries: RevenueEntry[]): Pr
   const { sid, tab } = await getShopDb(shopCode)
   const sheetName = tab('revenue')
   const rows = entries.map((e) => [
-    e.id, e.date, e.lfyBills, e.uberBills, e.doorDashBills,
+    e.id, e.date,
     ...mealToRow(e.lunch), ...mealToRow(e.dinner),
     e.note ?? '', e.lunchRecorderName ?? '', e.dinnerRecorderName ?? '', e.deleted ? 'true' : '',
     e.frontExtra ?? '', e.kitchenExtra ?? '',
+    e.lunchLfyBills || '', e.lunchUberBills || '', e.lunchDoorDashBills || '',
+    e.dinnerLfyBills || '', e.dinnerUberBills || '', e.dinnerDoorDashBills || '',
+    e.lunchFrontExtra ?? '', e.lunchKitchenExtra ?? '',
+    e.dinnerFrontExtra ?? '', e.dinnerKitchenExtra ?? '',
   ])
   await setSheetData(sheetName, REV_HEADERS, rows, sid)
 
@@ -902,7 +941,7 @@ export async function listExpenses(shopCode: string): Promise<ExpenseEntry[]> {
     paymentMethod: r.paymentMethod as ExpenseEntry['paymentMethod'],
     bankAccount: r.bankAccount || undefined,
     dueDate: r.dueDate || undefined,
-    paid: r.paid === 'true',
+    paid: String(r.paid).toLowerCase() === 'true',
     filledBy: r.filledBy || undefined,
   }))
 }
@@ -1545,9 +1584,9 @@ export async function syncIncomeSheet(shopCode: string): Promise<void> {
 
       const l    = entry?.lunch    ?? emptyMeal()
       const d    = entry?.dinner   ?? emptyMeal()
-      const lfyB = entry?.lfyBills ?? 0
-      const ubrB = entry?.uberBills ?? 0
-      const ddB  = entry?.doorDashBills ?? 0
+      const lfyB = (entry?.lunchLfyBills ?? 0) + (entry?.dinnerLfyBills ?? 0)
+      const ubrB = (entry?.lunchUberBills ?? 0) + (entry?.dinnerUberBills ?? 0)
+      const ddB  = (entry?.lunchDoorDashBills ?? 0) + (entry?.dinnerDoorDashBills ?? 0)
 
       const dayTrips = deliveryTrips.filter((t) => t.date === date)
 
@@ -1827,11 +1866,18 @@ async function applyWageFullFormat(
 
 export async function syncWageSheet(shopCode: string): Promise<void> {
   const { sid } = await getShopDb(shopCode)
-  const [employees, timeRecords, allPayments] = await Promise.all([
+  const [employees, timeRecords, allPayments, revenue] = await Promise.all([
     listEmployees(shopCode),
     listTimeRecords(shopCode),
     getAllWagePayments(shopCode),
+    listRevenue(shopCode),
   ])
+  // Group revenue by date for extra lookup
+  const revenueByDate = new Map<string, RevenueEntry[]>()
+  for (const e of revenue) {
+    if (!revenueByDate.has(e.date)) revenueByDate.set(e.date, [])
+    revenueByDate.get(e.date)!.push(e)
+  }
   const staffEmps = employees.filter((e) => !e.positions.includes('Home'))
   if (staffEmps.length === 0) return
 
@@ -1986,6 +2032,13 @@ export async function syncWageSheet(shopCode: string): Promise<void> {
     // ── Extra row ─────────────────────────────────────────────────────────────
     const lwRow: (string | number | null)[] = new Array(WAGE_COL_COUNT).fill('')
     lwRow[0]  = 'Extra'
+    for (let d = 0; d < 7; d++) {
+      const dayEntries = revenueByDate.get(weekDates[d]) ?? []
+      const lunchExtra = dayEntries.reduce((s, e) => s + (e.lunchFrontExtra ?? 0) + (e.lunchKitchenExtra ?? 0), 0)
+      const dinnerExtra = dayEntries.reduce((s, e) => s + (e.dinnerFrontExtra ?? 0) + (e.dinnerKitchenExtra ?? 0), 0)
+      if (lunchExtra > 0) lwRow[2 + d * 2] = lunchExtra
+      if (dinnerExtra > 0) lwRow[3 + d * 2] = dinnerExtra
+    }
     lwRow[17] = 'Lunch Wage'
     const lunchSum = [0, 2, 4, 6, 8, 10, 12].map((d) => `${colLetter(2 + d)}${sumRn}`).join('+')
     lwRow[18] = `=${lunchSum}`
@@ -2446,5 +2499,10 @@ export async function syncAllReportSheets(shopCode: string): Promise<void> {
   await syncWageSheet(shopCode)
   await syncSumSheet(shopCode)
   await syncOverAllSheet(shopCode)
+  await hideInternalSheets(sid)
+}
+
+export async function hideShopInternalSheets(shopCode: string): Promise<void> {
+  const { sid } = await getShopDb(shopCode)
   await hideInternalSheets(sid)
 }

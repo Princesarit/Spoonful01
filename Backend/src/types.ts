@@ -75,14 +75,24 @@ export interface RevenueEntry {
   lfyBills: number
   uberBills: number
   doorDashBills: number
+  lunchLfyBills?: number
+  lunchUberBills?: number
+  lunchDoorDashBills?: number
+  dinnerLfyBills?: number
+  dinnerUberBills?: number
+  dinnerDoorDashBills?: number
   lunch: MealRevenue
   dinner: MealRevenue
   frontExtra?: number
   kitchenExtra?: number
+  lunchFrontExtra?: number
+  lunchKitchenExtra?: number
+  dinnerFrontExtra?: number
+  dinnerKitchenExtra?: number
   note?: string
-  lunchRecorderName?: string   // staff who filled in lunch
-  dinnerRecorderName?: string  // staff who filled in dinner
-  deleted?: boolean            // soft-delete: true = ถูกลบแล้ว ยังเก็บไว้ใน Sheet
+  lunchRecorderName?: string
+  dinnerRecorderName?: string
+  deleted?: boolean
 }
 
 export interface ExpenseEntry {

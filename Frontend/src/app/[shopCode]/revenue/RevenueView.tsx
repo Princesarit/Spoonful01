@@ -83,7 +83,11 @@ function NumInput({
 
 // ── Meal detail rows (card display) ───────────────────────────────────────────
 function MealDetailRows({ meal }: { meal: MealRevenue }) {
-  const displayTotal = meal.totalSale
+  // If totalSale was saved as 0 but breakdown fields have values, compute from breakdowns
+  // totalSale = eftpos + lfyOnline + uberOnline + doorDash + cashSale  (lfyCash is already inside eftpos)
+  const displayTotal = meal.totalSale > 0
+    ? meal.totalSale
+    : meal.eftpos + meal.lfyOnline + meal.uberOnline + meal.doorDash + Math.max(0, meal.cashSale ?? 0)
   const displayCashSale = meal.cashSale ?? calcCashSale(meal)
   const rows: Array<{ label: string; value: number; dim?: boolean }> = [
     { label: 'Eftpos', value: meal.eftpos, dim: true },
@@ -124,6 +128,10 @@ function MealSection({
 }) {
   function set(key: keyof MealRevenue, val: number) {
     const updated = { ...meal, [key]: val }
+    // Auto-fill Total Sale when user enters Cash Left in Bag and Total Sale is still 0
+    if (key === 'cashLeftInBag' && updated.totalSale === 0 && val > 0) {
+      updated.totalSale = updated.eftpos + updated.lfyOnline + updated.uberOnline + updated.doorDash + val
+    }
     updated.cashSale = updated.totalSale - updated.eftpos - updated.lfyOnline - updated.uberOnline - updated.doorDash
     onChange(updated)
   }
@@ -186,7 +194,10 @@ export default function RevenueView() {
   const [deleteMealAudit, setDeleteMealAudit] = useState<{ id: string; date: string; mode: FormMode } | null>(null)
   const [deleteMealEditor, setDeleteMealEditor] = useState('')
   const [deleteMealNote, setDeleteMealNote] = useState('')
-  const [showExtra, setShowExtra] = useState(false)
+  const [billLfy, setBillLfy] = useState(0)
+  const [billUber, setBillUber] = useState(0)
+  const [billDD, setBillDD] = useState(0)
+  const [extraMealMode, setExtraMealMode] = useState<FormMode | null>(null)
   const [extraFront, setExtraFront] = useState(0)
   const [extraKitchen, setExtraKitchen] = useState(0)
   const [extraSaving, setExtraSaving] = useState(false)
@@ -207,12 +218,25 @@ export default function RevenueView() {
   const lunchDone = dayEntry ? mealHasData(dayEntry.lunch) : false
   const dinnerDone = dayEntry ? mealHasData(dayEntry.dinner) : false
 
+  function initBillCounts(entry: RevenueEntry, mode: FormMode) {
+    if (mode === 'lunch') {
+      setBillLfy(entry.lunchLfyBills ?? 0)
+      setBillUber(entry.lunchUberBills ?? 0)
+      setBillDD(entry.lunchDoorDashBills ?? 0)
+    } else {
+      setBillLfy(entry.dinnerLfyBills ?? 0)
+      setBillUber(entry.dinnerUberBills ?? 0)
+      setBillDD(entry.dinnerDoorDashBills ?? 0)
+    }
+  }
+
   function openForm(mode: FormMode) {
     const base = dayEntry
       ? { ...dayEntry, lunch: ensureCashSale(dayEntry.lunch), dinner: ensureCashSale(dayEntry.dinner) }
       : emptyEntry(filterDate)
     setAuditEditorName('')
     setAuditNote('')
+    initBillCounts(base, mode)
     setFormState({ entry: base, mode, isEditing: false })
   }
 
@@ -236,10 +260,12 @@ export default function RevenueView() {
     if ((currentMeal.lfyCards + currentMeal.lfyCash) > currentMeal.eftpos) return
     const cashSaleVal = currentMeal.totalSale - currentMeal.eftpos - currentMeal.lfyOnline - currentMeal.uberOnline - currentMeal.doorDash
     if (cashSaleVal < 0) return
-    if (currentMeal.cashLeftInBag !== cashSaleVal && !formState.entry.note?.trim()) return
     setSaving(true)
     try {
-      const toSave = formState.entry
+      const billPatch = formState.mode === 'lunch'
+        ? { lunchLfyBills: billLfy || undefined, lunchUberBills: billUber || undefined, lunchDoorDashBills: billDD || undefined }
+        : { dinnerLfyBills: billLfy || undefined, dinnerUberBills: billUber || undefined, dinnerDoorDashBills: billDD || undefined }
+      const toSave = { ...formState.entry, ...billPatch }
       await saveRevenueEntry(shopCode, toSave)
       // Audit log
       const recorderName = formState.mode === 'lunch' ? toSave.lunchRecorderName : toSave.dinnerRecorderName
@@ -286,21 +312,23 @@ export default function RevenueView() {
     setDeleteMealAudit(null)
   }
 
-  function openExtraModal(entry: RevenueEntry) {
-    setExtraFront(entry.frontExtra ?? 0)
-    setExtraKitchen(entry.kitchenExtra ?? 0)
-    setShowExtra(true)
+  function openExtraModal(entry: RevenueEntry, meal: FormMode) {
+    setExtraFront(meal === 'lunch' ? (entry.lunchFrontExtra ?? 0) : (entry.dinnerFrontExtra ?? 0))
+    setExtraKitchen(meal === 'lunch' ? (entry.lunchKitchenExtra ?? 0) : (entry.dinnerKitchenExtra ?? 0))
+    setExtraMealMode(meal)
   }
 
   async function handleSaveExtra() {
-    if (!dayEntry) return
+    if (!dayEntry || !extraMealMode) return
     setExtraSaving(true)
     try {
-      const updated: RevenueEntry = { ...dayEntry, frontExtra: extraFront || undefined, kitchenExtra: extraKitchen || undefined }
+      const updated: RevenueEntry = extraMealMode === 'lunch'
+        ? { ...dayEntry, lunchFrontExtra: extraFront || undefined, lunchKitchenExtra: extraKitchen || undefined }
+        : { ...dayEntry, dinnerFrontExtra: extraFront || undefined, dinnerKitchenExtra: extraKitchen || undefined }
       await saveRevenueEntry(shopCode, updated)
       const { entries: fresh } = await getRevenueData(shopCode)
       setEntries(fresh)
-      setShowExtra(false)
+      setExtraMealMode(null)
     } catch {
       alert(tr.save_fail)
     } finally {
@@ -311,6 +339,7 @@ export default function RevenueView() {
   function openEdit(entry: RevenueEntry, mode: FormMode) {
     setAuditEditorName('')
     setAuditNote('')
+    initBillCounts(entry, mode)
     setFormState({
       entry: { ...entry, lunch: ensureCashSale(entry.lunch), dinner: ensureCashSale(entry.dinner) },
       mode,
@@ -376,21 +405,22 @@ export default function RevenueView() {
         <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-4 space-y-3">
           <div className="text-xs text-gray-400">{dayEntry.date}</div>
 
-          {/* Bill counts */}
-          {(dayEntry.lfyBills > 0 || dayEntry.uberBills > 0 || dayEntry.doorDashBills > 0) && (
-            <div className="flex gap-2 text-xs flex-wrap">
-              {dayEntry.lfyBills > 0 && <span className="bg-orange-50 text-orange-600 px-2 py-0.5 rounded-full">LFY ×{dayEntry.lfyBills}</span>}
-              {dayEntry.uberBills > 0 && <span className="bg-blue-50 text-blue-600 px-2 py-0.5 rounded-full">Uber ×{dayEntry.uberBills}</span>}
-              {dayEntry.doorDashBills > 0 && <span className="bg-red-50 text-red-600 px-2 py-0.5 rounded-full">DoorDash ×{dayEntry.doorDashBills}</span>}
-            </div>
-          )}
-
           {/* Lunch & Dinner detail */}
           <div className="space-y-2">
             {/* LUNCH */}
             <div className="bg-yellow-50 rounded-lg p-3">
               <div className="flex items-center justify-between mb-1.5">
-                <span className="font-semibold text-yellow-700 text-sm">LUNCH</span>
+                <div className="flex items-center gap-2">
+                  <span className="font-semibold text-yellow-700 text-sm">LUNCH</span>
+                  {/* Per-meal bill counts */}
+                  {((dayEntry.lunchLfyBills ?? 0) > 0 || (dayEntry.lunchUberBills ?? 0) > 0 || (dayEntry.lunchDoorDashBills ?? 0) > 0) && (
+                    <div className="flex gap-1 text-[10px]">
+                      {(dayEntry.lunchLfyBills ?? 0) > 0 && <span className="bg-orange-100 text-orange-600 px-1.5 py-0.5 rounded-full">LFY ×{dayEntry.lunchLfyBills}</span>}
+                      {(dayEntry.lunchUberBills ?? 0) > 0 && <span className="bg-blue-100 text-blue-600 px-1.5 py-0.5 rounded-full">Uber ×{dayEntry.lunchUberBills}</span>}
+                      {(dayEntry.lunchDoorDashBills ?? 0) > 0 && <span className="bg-red-100 text-red-600 px-1.5 py-0.5 rounded-full">DD ×{dayEntry.lunchDoorDashBills}</span>}
+                    </div>
+                  )}
+                </div>
                 <div className="flex items-center gap-2">
                   {dayEntry.lunchRecorderName && (
                     <span className="text-[10px] text-yellow-600">👤 {dayEntry.lunchRecorderName}</span>
@@ -404,12 +434,38 @@ export default function RevenueView() {
                 </div>
               </div>
               <MealDetailRows meal={dayEntry.lunch} />
+              {/* Lunch Extra */}
+              {lunchDone && (
+                (dayEntry.lunchFrontExtra || dayEntry.lunchKitchenExtra) ? (
+                  <div className="flex justify-between items-center text-[10px] text-purple-600 bg-purple-50 rounded-md px-2 py-1 mt-2">
+                    <span>Extra: Front ${fmt(dayEntry.lunchFrontExtra ?? 0)} / Kitchen ${fmt(dayEntry.lunchKitchenExtra ?? 0)}</span>
+                    <button onClick={() => openExtraModal(dayEntry, 'lunch')} className="text-blue-500 cursor-pointer">Edit</button>
+                  </div>
+                ) : (
+                  <button
+                    onClick={() => openExtraModal(dayEntry, 'lunch')}
+                    className="w-full mt-2 py-1 rounded-lg text-[10px] font-semibold border border-dashed border-purple-300 text-purple-400 hover:bg-purple-50 transition-colors cursor-pointer"
+                  >
+                    + Extra (ค่าแรงพิเศษ)
+                  </button>
+                )
+              )}
             </div>
 
             {/* DINNER */}
             <div className="bg-blue-50 rounded-lg p-3">
               <div className="flex items-center justify-between mb-1.5">
-                <span className="font-semibold text-blue-700 text-sm">DINNER</span>
+                <div className="flex items-center gap-2">
+                  <span className="font-semibold text-blue-700 text-sm">DINNER</span>
+                  {/* Per-meal bill counts */}
+                  {((dayEntry.dinnerLfyBills ?? 0) > 0 || (dayEntry.dinnerUberBills ?? 0) > 0 || (dayEntry.dinnerDoorDashBills ?? 0) > 0) && (
+                    <div className="flex gap-1 text-[10px]">
+                      {(dayEntry.dinnerLfyBills ?? 0) > 0 && <span className="bg-orange-100 text-orange-600 px-1.5 py-0.5 rounded-full">LFY ×{dayEntry.dinnerLfyBills}</span>}
+                      {(dayEntry.dinnerUberBills ?? 0) > 0 && <span className="bg-blue-100 text-blue-600 px-1.5 py-0.5 rounded-full">Uber ×{dayEntry.dinnerUberBills}</span>}
+                      {(dayEntry.dinnerDoorDashBills ?? 0) > 0 && <span className="bg-red-100 text-red-600 px-1.5 py-0.5 rounded-full">DD ×{dayEntry.dinnerDoorDashBills}</span>}
+                    </div>
+                  )}
+                </div>
                 <div className="flex items-center gap-2">
                   {dayEntry.dinnerRecorderName && (
                     <span className="text-[10px] text-blue-600">👤 {dayEntry.dinnerRecorderName}</span>
@@ -423,6 +479,22 @@ export default function RevenueView() {
                 </div>
               </div>
               <MealDetailRows meal={dayEntry.dinner} />
+              {/* Dinner Extra */}
+              {dinnerDone && (
+                (dayEntry.dinnerFrontExtra || dayEntry.dinnerKitchenExtra) ? (
+                  <div className="flex justify-between items-center text-[10px] text-purple-600 bg-purple-50 rounded-md px-2 py-1 mt-2">
+                    <span>Extra: Front ${fmt(dayEntry.dinnerFrontExtra ?? 0)} / Kitchen ${fmt(dayEntry.dinnerKitchenExtra ?? 0)}</span>
+                    <button onClick={() => openExtraModal(dayEntry, 'dinner')} className="text-blue-500 cursor-pointer">Edit</button>
+                  </div>
+                ) : (
+                  <button
+                    onClick={() => openExtraModal(dayEntry, 'dinner')}
+                    className="w-full mt-2 py-1 rounded-lg text-[10px] font-semibold border border-dashed border-purple-300 text-purple-400 hover:bg-purple-50 transition-colors cursor-pointer"
+                  >
+                    + Extra (ค่าแรงพิเศษ)
+                  </button>
+                )
+              )}
             </div>
           </div>
 
@@ -430,59 +502,48 @@ export default function RevenueView() {
             <span className="text-gray-500 text-xs">Grand Total</span>
             <span className="font-bold text-brand-gold">${fmt(dayEntry.lunch.totalSale + dayEntry.dinner.totalSale)}</span>
           </div>
-          {(dayEntry.frontExtra || dayEntry.kitchenExtra) ? (
-            <div className="flex justify-between items-center text-xs text-purple-600 bg-purple-50 rounded-lg px-3 py-2">
-              <span>Extra: Front ${fmt(dayEntry.frontExtra ?? 0)} / Kitchen ${fmt(dayEntry.kitchenExtra ?? 0)}</span>
-              <button onClick={() => openExtraModal(dayEntry)} className="text-blue-500 cursor-pointer">Edit</button>
-            </div>
-          ) : (lunchDone || dinnerDone) ? (
-            <button
-              onClick={() => openExtraModal(dayEntry)}
-              className="w-full py-2 rounded-xl text-sm font-semibold border-2 border-dashed border-purple-300 text-purple-500 hover:bg-purple-50 transition-colors cursor-pointer"
-            >
-              + Extra (ค่าแรงพิเศษ)
-            </button>
-          ) : null}
           {dayEntry.note && <div className="text-xs text-gray-400 italic">{dayEntry.note}</div>}
         </div>
       )}
 
       {/* Extra Modal */}
-      {showExtra && dayEntry && (
+      {extraMealMode && dayEntry && (
         <div className="fixed inset-0 bg-black/40 flex items-end justify-center z-50 p-4">
           <div className="bg-white rounded-2xl w-full max-w-sm p-6 space-y-4">
-            <h3 className="font-bold text-purple-700">Extra — ค่าแรงพิเศษ</h3>
+            <h3 className="font-bold text-purple-700">
+              Extra — {extraMealMode === 'lunch' ? '🌞 Lunch' : '🌙 Dinner'}
+            </h3>
             <p className="text-xs text-gray-400">{dayEntry.date}</p>
-            <div className="space-y-3">
-              <div>
-                <label className="text-xs text-gray-500 block mb-1">Front Extra ($)</label>
-                <div className="flex items-center gap-1">
-                  <span className="text-sm text-gray-400">$</span>
-                  <input
-                    type="number" min="0" step="0.5"
-                    value={extraFront || ''}
-                    onChange={(e) => setExtraFront(parseFloat(e.target.value) || 0)}
-                    placeholder="0"
-                    className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-purple-400"
-                  />
+            {(['front', 'kitchen'] as const).map((role) => {
+              const val = role === 'front' ? extraFront : extraKitchen
+              const setVal = role === 'front' ? setExtraFront : setExtraKitchen
+              return (
+                <div key={role}>
+                  <label className="text-xs text-gray-500 block mb-2">
+                    {role === 'front' ? 'Front' : 'Kitchen'} Extra ($)
+                  </label>
+                  <div className="flex gap-2">
+                    <button
+                      onClick={() => setVal(0)}
+                      className={`flex-1 py-2 rounded-xl text-sm font-semibold border transition-colors cursor-pointer ${val === 0 ? 'bg-gray-200 border-gray-300 text-gray-700' : 'border-gray-200 text-gray-400 hover:bg-gray-50'}`}
+                    >
+                      $0
+                    </button>
+                    {[5, 10, 15].map((amt) => (
+                      <button
+                        key={amt}
+                        onClick={() => setVal(val === amt ? 0 : amt)}
+                        className={`flex-1 py-2 rounded-xl text-sm font-semibold border transition-colors cursor-pointer ${val === amt ? 'bg-purple-500 border-purple-500 text-white' : 'border-gray-200 text-gray-600 hover:bg-purple-50 hover:border-purple-200'}`}
+                      >
+                        ${amt}
+                      </button>
+                    ))}
+                  </div>
                 </div>
-              </div>
-              <div>
-                <label className="text-xs text-gray-500 block mb-1">Kitchen Extra ($)</label>
-                <div className="flex items-center gap-1">
-                  <span className="text-sm text-gray-400">$</span>
-                  <input
-                    type="number" min="0" step="0.5"
-                    value={extraKitchen || ''}
-                    onChange={(e) => setExtraKitchen(parseFloat(e.target.value) || 0)}
-                    placeholder="0"
-                    className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-purple-400"
-                  />
-                </div>
-              </div>
-            </div>
+              )
+            })}
             <div className="flex gap-2 pt-1">
-              <button onClick={() => setShowExtra(false)} className="flex-1 py-2.5 border border-gray-200 rounded-xl text-sm text-gray-600 cursor-pointer">{tr.cancel}</button>
+              <button onClick={() => setExtraMealMode(null)} className="flex-1 py-2.5 border border-gray-200 rounded-xl text-sm text-gray-600 cursor-pointer">{tr.cancel}</button>
               <button
                 onClick={handleSaveExtra}
                 disabled={extraSaving}
@@ -607,31 +668,29 @@ export default function RevenueView() {
               </div>
             )}
 
-            {/* Bill counts — shown only in Lunch form */}
-            {mode === 'lunch' && (
-              <div>
-                <div className="text-xs text-gray-500 font-medium mb-2">Bill Counts</div>
-                <div className="grid grid-cols-3 gap-2">
-                  {([
-                    { key: 'lfyBills', label: 'LFY' },
-                    { key: 'uberBills', label: 'Uber' },
-                    { key: 'doorDashBills', label: 'DoorDash' },
-                  ] as const).map(({ key, label }) => (
-                    <div key={key}>
-                      <label className="text-[10px] text-gray-400 block mb-1">{label}</label>
-                      <input
-                        type="number"
-                        min="0"
-                        value={form[key] || ''}
-                        onChange={(e) => setEntryField(key, parseInt(e.target.value) || 0)}
-                        placeholder="0"
-                        className="w-full border border-gray-300 rounded-lg px-2 py-1.5 text-sm text-center focus:outline-none focus:ring-2 focus:ring-brand-gold"
-                      />
-                    </div>
-                  ))}
-                </div>
+            {/* Bill Counts — per meal, independent state to avoid meal-field interference */}
+            <div>
+              <div className="text-xs text-gray-500 font-medium mb-2">Bill Counts</div>
+              <div className="grid grid-cols-3 gap-2">
+                {([
+                  { label: 'LFY', val: billLfy, set: setBillLfy },
+                  { label: 'Uber', val: billUber, set: setBillUber },
+                  { label: 'DoorDash', val: billDD, set: setBillDD },
+                ] as const).map(({ label, val, set }) => (
+                  <div key={label}>
+                    <label className="text-[10px] text-gray-400 block mb-1">{label}</label>
+                    <input
+                      type="number"
+                      min="0"
+                      value={val || ''}
+                      onChange={(e) => set(parseInt(e.target.value) || 0)}
+                      placeholder="0"
+                      className="w-full border border-gray-300 rounded-lg px-2 py-1.5 text-sm text-center focus:outline-none focus:ring-2 focus:ring-brand-gold"
+                    />
+                  </div>
+                ))}
               </div>
-            )}
+            </div>
 
             {/* Meal section */}
             {mode === 'lunch' ? (
@@ -659,21 +718,21 @@ export default function RevenueView() {
               const noteRequired = discrepancy && !form.note?.trim()
               const recorderName = (mode === 'lunch' ? form.lunchRecorderName : form.dinnerRecorderName) ?? ''
               const lfyCardsInvalid = (currentMeal.lfyCards + currentMeal.lfyCash) > currentMeal.eftpos
-              const canSave = !saving && !!recorderName.trim() && !noteRequired && !lfyCardsInvalid && !cashSaleInvalid && (!isEditing || !!auditEditorName.trim())
+              const canSave = !saving && !!recorderName.trim() && !lfyCardsInvalid && !cashSaleInvalid && (!isEditing || !!auditEditorName.trim())
               return (
                 <>
                   <div>
                     <label className="text-xs block mb-1">
-                      <span className={noteRequired ? 'text-red-500 font-medium' : 'text-gray-500'}>
-                        Note{noteRequired ? ' * (Cash in Bag ≠ Cash Sale — required)' : ' (optional)'}
+                      <span className={noteRequired ? 'text-orange-500 font-medium' : 'text-gray-500'}>
+                        Note{noteRequired ? ' (Cash in Bag ≠ Cash Sale)' : ' (optional)'}
                       </span>
                     </label>
                     <input
                       type="text"
                       value={form.note ?? ''}
                       onChange={(e) => setEntryField('note', e.target.value || undefined)}
-                      placeholder={noteRequired ? 'ต้องกรอก — ยอดไม่ตรงกัน' : '—'}
-                      className={`w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-gold ${noteRequired ? 'border-red-400 bg-red-50' : 'border-gray-300'}`}
+                      placeholder={noteRequired ? 'ยอด Cash in Bag ไม่ตรงกัน (optional)' : '—'}
+                      className={`w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-gold ${noteRequired ? 'border-orange-300 bg-orange-50' : 'border-gray-300'}`}
                     />
                   </div>
                   <div className="flex gap-2">

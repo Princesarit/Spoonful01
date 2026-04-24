@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, Fragment } from 'react'
 import Link from 'next/link'
 import { useParams } from 'next/navigation'
 import type { Employee, TimeRecord } from '@/lib/types'
@@ -285,8 +285,8 @@ export default function WageView() {
                         <td className="border border-gray-200 px-2 py-1.5 font-medium text-gray-800 whitespace-nowrap">{emp.name}</td>
                         <td className="border border-gray-200 px-2 py-1.5 text-center text-gray-500 whitespace-nowrap">{rateLabel}</td>
                         {dayAmounts.map((a, di) => (
-                          <>
-                            <td key={di + 'L'} className={`border border-gray-200 px-1 py-1 text-center w-12 ${a.lunch > 0 ? 'bg-orange-50' : ''}`}>
+                          <Fragment key={di}>
+                            <td className={`border border-gray-200 px-1 py-1 text-center w-12 ${a.lunch > 0 ? 'bg-orange-50' : ''}`}>
                               {editMode ? (
                                 <input
                                   type="number" min="0"
@@ -301,7 +301,7 @@ export default function WageView() {
                                 </span>
                               )}
                             </td>
-                            <td key={di + 'D'} className={`border border-gray-200 px-1 py-1 text-center w-12 ${a.dinner > 0 ? 'bg-blue-50' : ''}`}>
+                            <td className={`border border-gray-200 px-1 py-1 text-center w-12 ${a.dinner > 0 ? 'bg-blue-50' : ''}`}>
                               {editMode ? (
                                 <input
                                   type="number" min="0"
@@ -316,7 +316,7 @@ export default function WageView() {
                                 </span>
                               )}
                             </td>
-                          </>
+                          </Fragment>
                         ))}
                         <td className="border border-gray-200 px-2 py-1.5 text-center text-gray-600">
                           {extra > 0 ? extra.toFixed(0) : ''}
@@ -359,14 +359,14 @@ export default function WageView() {
                   <tr className="bg-orange-50 font-bold border-t-2 border-orange-200">
                     <td className="border border-gray-300 px-2 py-1.5 text-gray-700" colSpan={2}>TOTAL</td>
                     {dayTotals.map((dt, i) => (
-                      <>
-                        <td key={i + 'L'} className="border border-gray-300 px-1 py-1.5 text-center text-orange-700">
+                      <Fragment key={i}>
+                        <td className="border border-gray-300 px-1 py-1.5 text-center text-orange-700">
                           {dt.lunch > 0 ? dt.lunch.toFixed(0) : ''}
                         </td>
-                        <td key={i + 'D'} className="border border-gray-300 px-1 py-1.5 text-center text-blue-600">
+                        <td className="border border-gray-300 px-1 py-1.5 text-center text-blue-600">
                           {dt.dinner > 0 ? dt.dinner.toFixed(0) : ''}
                         </td>
-                      </>
+                      </Fragment>
                     ))}
                     <td className="border border-gray-300 px-2 py-1.5 text-center text-gray-600">{totalExtra > 0 ? totalExtra.toFixed(0) : ''}</td>
                     <td className="border border-gray-300 px-2 py-1.5 text-center text-green-700">{totalWage.toFixed(0)}</td>

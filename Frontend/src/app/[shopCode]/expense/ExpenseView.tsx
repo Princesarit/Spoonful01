@@ -383,6 +383,7 @@ export default function ExpenseView() {
                 <label className="text-xs text-gray-500 block mb-1">Due Date</label>
                 <input
                   type="date"
+                  min={form.date}
                   value={form.dueDate ?? ''}
                   onChange={(e) => setField('dueDate', e.target.value)}
                   className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-gold"

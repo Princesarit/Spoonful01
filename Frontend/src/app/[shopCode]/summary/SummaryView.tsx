@@ -12,7 +12,7 @@ import type {
   DailyNote,
   MealRevenue,
 } from '@/lib/types'
-import { getSummaryData, getSummaryDataAll, saveDailyNote, syncReportSheets } from './actions'
+import { getSummaryData, getSummaryDataAll, saveDailyNote, syncReportSheets, hideReportSheets, saveExpenseEntry, syncSumSheet } from './actions'
 import { useShop } from '@/components/ShopProvider'
 import { translations } from '@/lib/translations'
 
@@ -192,7 +192,10 @@ function calcDay(
       return sum + rec.morning + rec.evening
     }, 0)
   const deliveryLabor = dayTrips.reduce((s, t) => s + t.fee, 0)
-  const extraLabor = dayRevenue.reduce((s, e) => s + (e.frontExtra ?? 0) + (e.kitchenExtra ?? 0), 0)
+  const extraLabor = dayRevenue.reduce((s, e) => s
+    + (e.lunchFrontExtra ?? 0) + (e.lunchKitchenExtra ?? 0)
+    + (e.dinnerFrontExtra ?? 0) + (e.dinnerKitchenExtra ?? 0)
+    + (e.frontExtra ?? 0) + (e.kitchenExtra ?? 0), 0)
   const labor = staffLabor + deliveryLabor + extraLabor
 
   const cashLeave = cashRevenue - cashExpense - labor
@@ -504,6 +507,10 @@ export default function SummaryView() {
   function nextShift() { setShift((s) => s === 'am' ? 'pm' : s === 'pm' ? 'total' : 'am') }
   const [loading, setLoading] = useState(true)
   const [syncing, setSyncing] = useState(false)
+  const [hiding, setHiding] = useState(false)
+  const [showExpense, setShowExpense] = useState(false)
+  const [panelExpenses, setPanelExpenses] = useState<ExpenseEntry[]>([])
+  const [panelSaving, setPanelSaving] = useState(false)
   const [employees, setEmployees] = useState<Employee[]>([])
   const [timeRecords, setTimeRecords] = useState<TimeRecord[]>([])
   const [deliveryTrips, setDeliveryTrips] = useState<DeliveryTrip[]>([])
@@ -527,6 +534,11 @@ export default function SummaryView() {
       .catch(console.error)
       .finally(() => setLoading(false))
   }, [shopCode, month])
+
+  // Sync panel expenses snapshot when panel opens
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => { if (showExpense) setPanelExpenses([...expenses]) }, [showExpense])
 
   useEffect(() => {
     if (pov !== 'monthly') return
@@ -558,6 +570,57 @@ export default function SummaryView() {
   )
   const weekGroups = groupByWeek(activeRows)
 
+  function updatePanelExp<K extends keyof ExpenseEntry>(id: string, key: K, val: ExpenseEntry[K]) {
+    setPanelExpenses((prev) => prev.map((e) => (e.id === id ? { ...e, [key]: val } : e)))
+  }
+
+  async function handlePanelSave() {
+    setPanelSaving(true)
+    try {
+      const changed = panelExpenses.filter((pe) => {
+        const orig = expenses.find((e) => e.id === pe.id)
+        return !orig || JSON.stringify(orig) !== JSON.stringify(pe)
+      })
+      await Promise.all(changed.map((e) => saveExpenseEntry(shopCode, e)))
+      setExpenses(panelExpenses)
+      syncSumSheet(shopCode).catch(() => {})
+    } catch {
+      alert('Save failed')
+    } finally {
+      setPanelSaving(false)
+    }
+  }
+
+  function fmtDateShort(dateStr: string): string {
+    const [y, m, d] = dateStr.split('-')
+    return `${parseInt(d)}/${parseInt(m)}/${y}`
+  }
+  function dayShort(dateStr: string): string {
+    return new Date(dateStr + 'T00:00:00').toLocaleDateString('en-AU', { weekday: 'short' })
+  }
+  function addDaysLocal(dateStr: string, n: number): string {
+    const d = new Date(dateStr + 'T00:00:00')
+    d.setDate(d.getDate() + n)
+    return d.toISOString().split('T')[0]
+  }
+  const expenseWeekGroups = (() => {
+    const source = panelExpenses.length > 0 ? panelExpenses : expenses
+    const map = new Map<string, ExpenseEntry[]>()
+    for (const e of source) {
+      const ws = getWeekStart(e.date)
+      if (!map.has(ws)) map.set(ws, [])
+      map.get(ws)!.push(e)
+    }
+    return [...map.entries()]
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([ws, entries]) => ({
+        weekStart: ws,
+        weekEnd: addDaysLocal(ws, 6),
+        entries: [...entries].sort((a, b) => a.date.localeCompare(b.date)),
+        total: entries.reduce((s, e) => s + e.total, 0),
+      }))
+  })()
+
   return (
     <div className="space-y-4">
       {/* Header */}
@@ -566,6 +629,12 @@ export default function SummaryView() {
           {tr.back}
         </Link>
         <h2 className="text-lg font-bold text-gray-800 flex-1">{tr.summary_title}</h2>
+        <button
+          onClick={() => setShowExpense(true)}
+          className="text-xs px-3 py-1.5 rounded-lg cursor-pointer border transition-colors bg-white text-gray-600 border-gray-200 hover:border-gray-300"
+        >
+          Expense
+        </button>
         <Link
           href={`/${shopCode}/wage`}
           className="text-xs px-3 py-1.5 rounded-lg cursor-pointer border transition-colors bg-white text-gray-600 border-gray-200 hover:border-gray-300"
@@ -573,23 +642,42 @@ export default function SummaryView() {
           Wage
         </Link>
         {session.role === 'owner' && (
-          <button
-            onClick={async () => {
-              setSyncing(true)
-              try {
-                await syncReportSheets(shopCode)
-                alert('Synced to Google Sheets!')
-              } catch (e) {
-                alert('Sync failed: ' + (e instanceof Error ? e.message : String(e)))
-              } finally {
-                setSyncing(false)
-              }
-            }}
-            disabled={syncing}
-            className="text-xs bg-green-600 text-white px-3 py-1.5 rounded-lg hover:bg-green-700 disabled:opacity-50 cursor-pointer"
-          >
-            {syncing ? 'Syncing...' : 'Sync Sheets'}
-          </button>
+          <div className="flex gap-2">
+            <button
+              onClick={async () => {
+                setHiding(true)
+                try {
+                  await hideReportSheets(shopCode)
+                  alert('Internal sheets hidden!')
+                } catch (e) {
+                  alert('Failed: ' + (e instanceof Error ? e.message : String(e)))
+                } finally {
+                  setHiding(false)
+                }
+              }}
+              disabled={hiding}
+              className="text-xs bg-gray-500 text-white px-3 py-1.5 rounded-lg hover:bg-gray-600 disabled:opacity-50 cursor-pointer"
+            >
+              {hiding ? 'Hiding...' : 'Hide Sheets'}
+            </button>
+            <button
+              onClick={async () => {
+                setSyncing(true)
+                try {
+                  await syncReportSheets(shopCode)
+                  alert('Synced to Google Sheets!')
+                } catch (e) {
+                  alert('Sync failed: ' + (e instanceof Error ? e.message : String(e)))
+                } finally {
+                  setSyncing(false)
+                }
+              }}
+              disabled={syncing}
+              className="text-xs bg-green-600 text-white px-3 py-1.5 rounded-lg hover:bg-green-700 disabled:opacity-50 cursor-pointer"
+            >
+              {syncing ? 'Syncing...' : 'Sync Sheets'}
+            </button>
+          </div>
         )}
       </div>
 
@@ -760,6 +848,151 @@ export default function SummaryView() {
         </>
       )}
 
+      {/* Expense Panel */}
+      {showExpense && (
+        <div className="fixed inset-0 bg-black/40 flex flex-col items-center justify-end z-50">
+          <div className="bg-white rounded-t-2xl w-full max-w-lg max-h-[85vh] flex flex-col">
+            {/* Header */}
+            <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100 shrink-0">
+              <h3 className="font-bold text-gray-900">Expenses — {monthLabel(month, locale)}</h3>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={handlePanelSave}
+                  disabled={panelSaving}
+                  className="text-xs bg-brand-gold text-white px-3 py-1.5 rounded-lg font-semibold disabled:opacity-50 cursor-pointer"
+                >
+                  {panelSaving ? 'Saving...' : 'Save'}
+                </button>
+                <button onClick={() => setShowExpense(false)} className="text-gray-400 hover:text-gray-600 cursor-pointer text-xl leading-none">✕</button>
+              </div>
+            </div>
+            {/* Content */}
+            <div className="overflow-y-auto flex-1 px-4 py-3 space-y-4">
+              {/* Due Date Calendar */}
+              {(() => {
+                const [cy, cm] = month.split('-').map(Number)
+                const daysCount = new Date(cy, cm, 0).getDate()
+                const firstDow = new Date(cy, cm - 1, 1).getDay() // 0=Sun
+                const startOffset = firstDow === 0 ? 6 : firstDow - 1 // Mon-first
+                const allPanel = panelExpenses.length > 0 ? panelExpenses : expenses
+                const dueMap = new Map<string, ExpenseEntry[]>()
+                for (const e of allPanel) {
+                  if (e.dueDate && !e.paid) {
+                    if (!dueMap.has(e.dueDate)) dueMap.set(e.dueDate, [])
+                    dueMap.get(e.dueDate)!.push(e)
+                  }
+                }
+                const todayStr = new Date().toISOString().split('T')[0]
+                const cells: (number | null)[] = [
+                  ...Array.from({ length: startOffset }, () => null as null),
+                  ...Array.from({ length: daysCount }, (_, i) => i + 1),
+                ]
+                while (cells.length % 7 !== 0) cells.push(null)
+                return (
+                  <div className="border border-gray-200 rounded-xl overflow-hidden">
+                    <div className="bg-amber-50 px-3 py-2 text-xs font-bold text-amber-700 border-b border-amber-100">
+                      {monthLabel(month, locale)} — Due Dates
+                    </div>
+                    <div className="p-2">
+                      <div className="grid grid-cols-7 text-center mb-1">
+                        {['Mo','Tu','We','Th','Fr','Sa','Su'].map((d) => (
+                          <div key={d} className="text-[10px] font-semibold text-gray-400">{d}</div>
+                        ))}
+                      </div>
+                      <div className="grid grid-cols-7 gap-y-1">
+                        {cells.map((day, idx) => {
+                          if (day === null) return <div key={idx} />
+                          const dateStr = `${month}-${String(day).padStart(2, '0')}`
+                          const due = dueMap.get(dateStr) ?? []
+                          const isToday = dateStr === todayStr
+                          const hasDue = due.length > 0
+                          return (
+                            <div
+                              key={idx}
+                              className={`rounded text-center px-0.5 py-0.5 ${isToday ? 'ring-1 ring-brand-gold' : ''} ${hasDue ? 'bg-red-50' : ''}`}
+                            >
+                              <div className={`text-[11px] font-semibold leading-tight ${isToday ? 'text-brand-gold' : hasDue ? 'text-red-600' : 'text-gray-600'}`}>{day}</div>
+                              {due.map((e, i) => (
+                                <div key={i} className="text-[8px] leading-tight truncate text-red-600 font-semibold">
+                                  {e.supplier}
+                                  <span className="text-gray-500 font-normal"> · {e.paymentMethod === 'Online Banking' ? 'Online' : e.paymentMethod === 'Credit Card' ? 'CC' : 'Cash'} ${e.total.toFixed(0)}</span>
+                                </div>
+                              ))}
+                            </div>
+                          )
+                        })}
+                      </div>
+                    </div>
+                  </div>
+                )
+              })()}
+
+              {/* Week tables */}
+              {expenseWeekGroups.length === 0 ? (
+                <div className="text-center py-8 text-gray-400 text-sm">No expenses this month</div>
+              ) : [...expenseWeekGroups].reverse().map((wg) => (
+                <div key={wg.weekStart}>
+                  <div className="bg-yellow-200 px-3 py-1.5 text-xs font-bold text-gray-800 rounded-t">
+                    EXPENSES {fmtDateShort(wg.weekStart)} to {fmtDateShort(wg.weekEnd)}
+                  </div>
+                  <div className="border border-gray-200 rounded-b overflow-hidden">
+                    <table className="w-full text-xs">
+                      <thead>
+                        <tr className="bg-gray-50 text-gray-500 text-left">
+                          <th className="px-2 py-1.5 font-medium">Day</th>
+                          <th className="px-2 py-1.5 font-medium">Date</th>
+                          <th className="px-2 py-1.5 font-medium">By</th>
+                          <th className="px-2 py-1.5 font-medium">Description</th>
+                          <th className="px-2 py-1.5 font-medium text-right">$</th>
+                          <th className="px-2 py-1.5 font-medium text-center">Status</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {wg.entries.map((origEntry, i) => {
+                          const e = panelExpenses.find((p) => p.id === origEntry.id) ?? origEntry
+                          const showDate = i === 0 || wg.entries[i - 1].date !== origEntry.date
+                          return (
+                            <tr key={e.id} className="border-t border-gray-100">
+                              <td className="px-2 py-2 text-gray-500">{showDate ? dayShort(e.date) : ''}</td>
+                              <td className="px-2 py-2 text-gray-500 whitespace-nowrap">{showDate ? fmtDateShort(e.date) : ''}</td>
+                              <td className="px-2 py-2 text-gray-400">{e.filledBy ?? ''}</td>
+                              <td className="px-2 py-2 font-medium text-gray-800">
+                                <div>{e.supplier}</div>
+                                {e.dueDate && <div className="text-[10px] text-gray-400">Due: {fmtDateShort(e.dueDate)}</div>}
+                              </td>
+                              <td className="px-2 py-2 text-right font-semibold text-gray-800 whitespace-nowrap">{e.total.toFixed(2)}</td>
+                              <td className="px-2 py-2 text-center">
+                                <button
+                                  onClick={() => updatePanelExp(e.id, 'paid', !e.paid)}
+                                  className={`px-1.5 py-0.5 rounded text-white text-[10px] font-bold cursor-pointer ${e.paid ? 'bg-green-500' : 'bg-red-500'}`}
+                                >
+                                  {e.paid ? 'Paid' : 'Unpaid'}
+                                </button>
+                              </td>
+                            </tr>
+                          )
+                        })}
+                      </tbody>
+                      <tfoot>
+                        <tr className="border-t-2 border-gray-300 bg-green-50">
+                          <td colSpan={4} className="px-2 py-2 font-bold text-gray-700 text-right">Total Expenses</td>
+                          <td className="px-2 py-2 text-right font-bold text-gray-900">
+                            {wg.entries.reduce((s, origEntry) => {
+                              const e = panelExpenses.find((p) => p.id === origEntry.id) ?? origEntry
+                              return s + e.total
+                            }, 0).toFixed(2)}
+                          </td>
+                          <td />
+                        </tr>
+                      </tfoot>
+                    </table>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

@@ -75,17 +75,27 @@ export interface MealRevenue {
 export interface RevenueEntry {
   id: string
   date: string
-  lfyBills: number    // LFY bill count
-  uberBills: number   // Uber Eat bill count
-  doorDashBills: number // DoorDash bill count
+  lfyBills: number    // combined total (lunchLfyBills + dinnerLfyBills)
+  uberBills: number
+  doorDashBills: number
+  lunchLfyBills?: number
+  lunchUberBills?: number
+  lunchDoorDashBills?: number
+  dinnerLfyBills?: number
+  dinnerUberBills?: number
+  dinnerDoorDashBills?: number
   lunch: MealRevenue
   dinner: MealRevenue
-  frontExtra?: number   // extra pay for Front staff that day
-  kitchenExtra?: number // extra pay for Kitchen staff that day
+  frontExtra?: number   // legacy — kept for backward compat
+  kitchenExtra?: number // legacy — kept for backward compat
+  lunchFrontExtra?: number
+  lunchKitchenExtra?: number
+  dinnerFrontExtra?: number
+  dinnerKitchenExtra?: number
   note?: string
-  lunchRecorderName?: string   // staff who filled in lunch
-  dinnerRecorderName?: string  // staff who filled in dinner
-  deleted?: boolean            // soft-delete: true = ถูกลบแล้ว แต่ยังเก็บไว้ใน Sheet
+  lunchRecorderName?: string
+  dinnerRecorderName?: string
+  deleted?: boolean
 }
 
 export interface ExpenseEntry {
