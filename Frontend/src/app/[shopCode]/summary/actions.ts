@@ -76,6 +76,17 @@ export async function hideReportSheets(shopCode: string) {
   return res.json() as Promise<{ ok: boolean }>
 }
 
+export async function getAllExpenses(shopCode: string) {
+  const session = await getSession()
+  if (!session || session.shopCode !== shopCode) throw new Error('Unauthorized')
+  const res = await fetch(`${BACKEND_URL}/${shopCode}/expenses`, {
+    headers: { Authorization: `Bearer ${session.token}` },
+    cache: 'no-store',
+  })
+  if (!res.ok) throw new Error('Failed to fetch expenses')
+  return res.json() as Promise<ExpenseEntry[]>
+}
+
 export async function syncSumSheet(shopCode: string) {
   const session = await getSession()
   if (!session || session.shopCode !== shopCode) throw new Error('Unauthorized')

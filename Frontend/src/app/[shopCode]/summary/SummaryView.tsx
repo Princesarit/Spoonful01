@@ -12,7 +12,7 @@ import type {
   DailyNote,
   MealRevenue,
 } from '@/lib/types'
-import { getSummaryData, getSummaryDataAll, saveDailyNote, syncReportSheets, hideReportSheets, saveExpenseEntry, syncSumSheet } from './actions'
+import { getSummaryData, getSummaryDataAll, saveDailyNote, syncReportSheets, hideReportSheets, saveExpenseEntry, syncSumSheet, getAllExpenses } from './actions'
 import { useShop } from '@/components/ShopProvider'
 import { translations } from '@/lib/translations'
 
@@ -511,6 +511,8 @@ export default function SummaryView() {
   const [showExpense, setShowExpense] = useState(false)
   const [panelExpenses, setPanelExpenses] = useState<ExpenseEntry[]>([])
   const [panelSaving, setPanelSaving] = useState(false)
+  const [calendarMonth, setCalendarMonth] = useState(currentMonth)
+  const [calendarAllExp, setCalendarAllExp] = useState<ExpenseEntry[]>([])
   const [employees, setEmployees] = useState<Employee[]>([])
   const [timeRecords, setTimeRecords] = useState<TimeRecord[]>([])
   const [deliveryTrips, setDeliveryTrips] = useState<DeliveryTrip[]>([])
@@ -538,7 +540,13 @@ export default function SummaryView() {
   // Sync panel expenses snapshot when panel opens
   // eslint-disable-next-line react-hooks/exhaustive-deps
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  useEffect(() => { if (showExpense) setPanelExpenses([...expenses]) }, [showExpense])
+  useEffect(() => {
+    if (showExpense) {
+      setPanelExpenses([...expenses])
+      setCalendarMonth(month)
+      getAllExpenses(shopCode).then(setCalendarAllExp).catch(() => {})
+    }
+  }, [showExpense])
 
   useEffect(() => {
     if (pov !== 'monthly') return
@@ -870,13 +878,16 @@ export default function SummaryView() {
             <div className="overflow-y-auto flex-1 px-4 py-3 space-y-4">
               {/* Due Date Calendar */}
               {(() => {
-                const [cy, cm] = month.split('-').map(Number)
+                const [cy, cm] = calendarMonth.split('-').map(Number)
                 const daysCount = new Date(cy, cm, 0).getDate()
-                const firstDow = new Date(cy, cm - 1, 1).getDay() // 0=Sun
-                const startOffset = firstDow === 0 ? 6 : firstDow - 1 // Mon-first
-                const allPanel = panelExpenses.length > 0 ? panelExpenses : expenses
+                const firstDow = new Date(cy, cm - 1, 1).getDay()
+                const startOffset = firstDow === 0 ? 6 : firstDow - 1
+                // Use all-expenses if loaded, else fall back to panel expenses
+                const sourceExp = calendarAllExp.length > 0
+                  ? calendarAllExp.map((e) => panelExpenses.find((p) => p.id === e.id) ?? e)
+                  : (panelExpenses.length > 0 ? panelExpenses : expenses)
                 const dueMap = new Map<string, ExpenseEntry[]>()
-                for (const e of allPanel) {
+                for (const e of sourceExp) {
                   if (e.dueDate && !e.paid) {
                     if (!dueMap.has(e.dueDate)) dueMap.set(e.dueDate, [])
                     dueMap.get(e.dueDate)!.push(e)
@@ -890,8 +901,16 @@ export default function SummaryView() {
                 while (cells.length % 7 !== 0) cells.push(null)
                 return (
                   <div className="border border-gray-200 rounded-xl overflow-hidden">
-                    <div className="bg-amber-50 px-3 py-2 text-xs font-bold text-amber-700 border-b border-amber-100">
-                      {monthLabel(month, locale)} — Due Dates
+                    <div className="bg-amber-50 px-3 py-2 border-b border-amber-100 flex items-center justify-between">
+                      <button
+                        onClick={() => setCalendarMonth((m) => addMonth(m, -1))}
+                        className="text-amber-600 hover:text-amber-800 w-7 h-7 flex items-center justify-center rounded cursor-pointer text-base leading-none"
+                      >◀</button>
+                      <span className="text-xs font-bold text-amber-700">{monthLabel(calendarMonth, locale)} — Due Dates</span>
+                      <button
+                        onClick={() => setCalendarMonth((m) => addMonth(m, 1))}
+                        className="text-amber-600 hover:text-amber-800 w-7 h-7 flex items-center justify-center rounded cursor-pointer text-base leading-none"
+                      >▶</button>
                     </div>
                     <div className="p-2">
                       <div className="grid grid-cols-7 text-center mb-1">
@@ -902,7 +921,7 @@ export default function SummaryView() {
                       <div className="grid grid-cols-7 gap-y-1">
                         {cells.map((day, idx) => {
                           if (day === null) return <div key={idx} />
-                          const dateStr = `${month}-${String(day).padStart(2, '0')}`
+                          const dateStr = `${calendarMonth}-${String(day).padStart(2, '0')}`
                           const due = dueMap.get(dateStr) ?? []
                           const isToday = dateStr === todayStr
                           const hasDue = due.length > 0
