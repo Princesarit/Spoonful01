@@ -536,42 +536,82 @@ export async function applyEmployeeSheetFormatting(
     },
   })
 
-  // 3. Header row: bold text
+  const GRAY   = { red: 0.8,   green: 0.8,   blue: 0.8   }  // #CCCCCC — hourlyWage
+  const YELLOW = { red: 1,     green: 0.949, blue: 0.8   }  // #FFF2CC — wageLunch
+  const BLUE   = { red: 0.678, green: 0.847, blue: 0.933 }  // #ADD8E6 — wageDinner
+  const GREEN  = { red: 0.851, green: 0.918, blue: 0.827 }  // #D9EAD3 — deliveryFee
+
+  // 3. Header row: all gray + bold
   requests.push({
     repeatCell: {
       range: { sheetId, startRowIndex: 0, endRowIndex: 1, startColumnIndex: 0, endColumnIndex: COL_COUNT },
-      cell: { userEnteredFormat: { textFormat: { bold: true } } },
-      fields: 'userEnteredFormat.textFormat.bold',
+      cell: { userEnteredFormat: { backgroundColor: GRAY, textFormat: { bold: true } } },
+      fields: 'userEnteredFormat.backgroundColor,userEnteredFormat.textFormat.bold',
     },
   })
 
-  // 4. Row colors for each data row (only columns A–K so L+ stays white)
+  // 4. Row/column colors:
+  //   - fired rows → entire row red
+  //   - non-fired rows → column-fixed colors: D(5)=gray, E(6)=yellow, F(7)=blue, G(8)=green
+  const dataRowCount = categories.length
   categories.forEach((cat, i) => {
-    requests.push({
-      repeatCell: {
-        range: {
-          sheetId,
-          startRowIndex: i + 1, endRowIndex: i + 2,
-          startColumnIndex: 0, endColumnIndex: COL_COUNT,
+    if (cat === 'fired') {
+      requests.push({
+        repeatCell: {
+          range: { sheetId, startRowIndex: i + 1, endRowIndex: i + 2, startColumnIndex: 0, endColumnIndex: COL_COUNT },
+          cell: { userEnteredFormat: { backgroundColor: COLOR_MAP.fired } },
+          fields: 'userEnteredFormat.backgroundColor',
         },
-        cell: { userEnteredFormat: { backgroundColor: COLOR_MAP[cat] } },
-        fields: 'userEnteredFormat.backgroundColor',
-      },
-    })
+      })
+    }
   })
+  // Apply column colors to all non-fired rows at once (batch per column)
+  const nonFiredStart = categories.findIndex((c) => c !== 'fired') + 1  // sheet row (1-based offset)
+  if (nonFiredStart > 0 && nonFiredStart <= dataRowCount) {
+    const nonFiredEnd = dataRowCount + 1  // last data row + 1
+    for (const [colIdx, bg] of [[5, GRAY], [6, YELLOW], [7, BLUE], [8, GREEN]] as const) {
+      requests.push({
+        repeatCell: {
+          range: { sheetId, startRowIndex: nonFiredStart, endRowIndex: nonFiredEnd, startColumnIndex: colIdx, endColumnIndex: colIdx + 1 },
+          cell: { userEnteredFormat: { backgroundColor: bg } },
+          fields: 'userEnteredFormat.backgroundColor',
+        },
+      })
+    }
+  }
 
-  // 5. Black borders for entire data range (A1:K{totalRows}) — outer + inner grid
-  const solidThin = { style: 'SOLID', color: BLACK }
+  // 5. Black thin borders for entire data range (A1:K{totalRows})
+  const solidThin   = { style: 'SOLID',       color: BLACK }
+  const solidThick  = { style: 'SOLID_THICK',  color: BLACK }
+  // 5a. Thin inner grid
   requests.push({
     updateBorders: {
-      range: {
-        sheetId,
-        startRowIndex: 0, endRowIndex: totalRows,
-        startColumnIndex: 0, endColumnIndex: COL_COUNT,
-      },
+      range: { sheetId, startRowIndex: 0, endRowIndex: totalRows, startColumnIndex: 0, endColumnIndex: COL_COUNT },
       top: solidThin, bottom: solidThin, left: solidThin, right: solidThin,
       innerHorizontal: solidThin, innerVertical: solidThin,
     },
+  })
+  // 5b. Thick outer border around entire table
+  requests.push({
+    updateBorders: {
+      range: { sheetId, startRowIndex: 0, endRowIndex: totalRows, startColumnIndex: 0, endColumnIndex: COL_COUNT },
+      top: solidThick, bottom: solidThick, left: solidThick, right: solidThick,
+    },
+  })
+
+  // 6. Thick borders between category sections (fired→front, front→kitchen, kitchen→home)
+  const sectionOrder: EmpCategory[] = ['fired', 'front', 'kitchen', 'home', 'other']
+  let prevCat = categories[0]
+  categories.forEach((cat, i) => {
+    if (i > 0 && cat !== prevCat) {
+      requests.push({
+        updateBorders: {
+          range: { sheetId, startRowIndex: i + 1, endRowIndex: i + 2, startColumnIndex: 0, endColumnIndex: COL_COUNT },
+          top: solidThick,
+        },
+      })
+    }
+    prevCat = cat
   })
 
   // 6. Unhide all columns first, then hide A (0), B (1), J (9)

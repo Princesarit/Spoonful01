@@ -92,7 +92,8 @@ export interface RevenueEntry {
   lunchKitchenExtra?: number
   dinnerFrontExtra?: number
   dinnerKitchenExtra?: number
-  note?: string
+  lunchNote?: string
+  dinnerNote?: string
   lunchRecorderName?: string
   dinnerRecorderName?: string
   deleted?: boolean
@@ -110,6 +111,7 @@ export interface ExpenseEntry {
   dueDate?: string
   paid: boolean
   filledBy?: string
+  deleted?: boolean
 }
 
 export interface DailyNote {

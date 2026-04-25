@@ -79,6 +79,8 @@ type Shift = 'am' | 'pm' | 'total'
 interface Stats {
   lunchSales: number
   dinnerSales: number
+  lunchBills: number
+  dinnerBills: number
   totalBills: number
 }
 
@@ -106,10 +108,14 @@ export default function HomePage() {
     const todayDate = today()
     getRevenueData(shopCode).then(({ entries }) => {
       const todayEntries = entries.filter((e) => e.date === todayDate)
+      const lunchBills = todayEntries.reduce((s, e) => s + (e.lunchLfyBills ?? 0) + (e.lunchUberBills ?? 0) + (e.lunchDoorDashBills ?? 0), 0)
+      const dinnerBills = todayEntries.reduce((s, e) => s + (e.dinnerLfyBills ?? 0) + (e.dinnerUberBills ?? 0) + (e.dinnerDoorDashBills ?? 0), 0)
       setStats({
         lunchSales: todayEntries.reduce((s, e) => s + mealTotal(e.lunch), 0),
         dinnerSales: todayEntries.reduce((s, e) => s + mealTotal(e.dinner), 0),
-        totalBills: todayEntries.reduce((s, e) => s + e.lfyBills + e.uberBills + e.doorDashBills, 0),
+        lunchBills,
+        dinnerBills,
+        totalBills: lunchBills + dinnerBills,
       })
     }).catch(() => {})
 
@@ -270,7 +276,7 @@ export default function HomePage() {
             </span>
           </div>
           <div className="text-lg font-bold text-gray-900">
-            {stats ? stats.totalBills : '—'}
+            {stats ? (shift === 'am' ? stats.lunchBills : shift === 'pm' ? stats.dinnerBills : stats.totalBills) : '—'}
           </div>
           <div className="text-xs text-gray-400 mt-1">
             {lang === 'th' ? 'จำนวน Bill' : 'total bills'}

@@ -683,13 +683,16 @@ export async function savePlatforms(shopCode: string, platforms: DeliveryPlatfor
 // Individual columns for lunch and dinner (no JSON blobs)
 const REV_HEADERS = [
   'id', 'date',
-  'l_eftpos', 'l_lfyOnline', 'l_lfyCards', 'l_lfyCash', 'l_uberOnline', 'l_doorDash', 'l_cashLeftInBag', 'l_cashSale', 'l_totalSale',
-  'd_eftpos', 'd_lfyOnline', 'd_lfyCards', 'd_lfyCash', 'd_uberOnline', 'd_doorDash', 'd_cashLeftInBag', 'd_cashSale', 'd_totalSale',
-  'note', 'lunchRecorderName', 'dinnerRecorderName', 'deleted',
-  'frontExtra', 'kitchenExtra',
+  // LUNCH (cols 2-17)
   'lunchLfyBills', 'lunchUberBills', 'lunchDoorDashBills',
+  'l_eftpos', 'l_lfyOnline', 'l_lfyCards', 'l_lfyCash', 'l_uberOnline', 'l_doorDash', 'l_cashLeftInBag', 'l_cashSale', 'l_totalSale',
+  'lunchFrontExtra', 'lunchKitchenExtra', 'lunchNote', 'lunchRecorderName',
+  // DINNER (cols 18-33)
   'dinnerLfyBills', 'dinnerUberBills', 'dinnerDoorDashBills',
-  'lunchFrontExtra', 'lunchKitchenExtra', 'dinnerFrontExtra', 'dinnerKitchenExtra',
+  'd_eftpos', 'd_lfyOnline', 'd_lfyCards', 'd_lfyCash', 'd_uberOnline', 'd_doorDash', 'd_cashLeftInBag', 'd_cashSale', 'd_totalSale',
+  'dinnerFrontExtra', 'dinnerKitchenExtra', 'dinnerNote', 'dinnerRecorderName',
+  // Meta (col 34)
+  'deleted',
 ]
 
 function emptyMeal(): MealRevenue {
@@ -739,7 +742,8 @@ export async function listRevenue(shopCode: string): Promise<RevenueEntry[]> {
         lunchKitchenExtra: Number(r.lunchKitchenExtra) || undefined,
         dinnerFrontExtra:  Number(r.dinnerFrontExtra)  || undefined,
         dinnerKitchenExtra:Number(r.dinnerKitchenExtra)|| undefined,
-        note: r.note || undefined,
+        lunchNote: r.lunchNote || undefined,
+        dinnerNote: r.dinnerNote || r.note || undefined,
         lunchRecorderName: r.lunchRecorderName || undefined,
         dinnerRecorderName: r.dinnerRecorderName || undefined,
         deleted: r.deleted === 'true' || undefined,
@@ -755,7 +759,7 @@ export async function listRevenue(shopCode: string): Promise<RevenueEntry[]> {
         doorDashBills:Number(r.doorDashBills)|| 0,
         lunch:  JSON.parse(r.lunch  || 'null') as MealRevenue || emptyMeal(),
         dinner: JSON.parse(r.dinner || 'null') as MealRevenue || emptyMeal(),
-        note: r.note || undefined,
+        dinnerNote: r.note || undefined,
       }
     }
     // Legacy format (very old: netSales, card columns)
@@ -765,7 +769,6 @@ export async function listRevenue(shopCode: string): Promise<RevenueEntry[]> {
       lfyBills: 0, uberBills: 0, doorDashBills: 0,
       lunch:  { ...emptyMeal(), totalSale: Number(r.netSales) || 0, eftpos: Number(r.card) || 0 },
       dinner: emptyMeal(),
-      note: r.note || undefined,
     }
   }).filter((e) => !e.deleted)
 }
@@ -797,7 +800,8 @@ export async function listRevenueAll(shopCode: string): Promise<RevenueEntry[]> 
         lunchKitchenExtra: Number(r.lunchKitchenExtra) || undefined,
         dinnerFrontExtra:  Number(r.dinnerFrontExtra)  || undefined,
         dinnerKitchenExtra:Number(r.dinnerKitchenExtra)|| undefined,
-        note: r.note || undefined,
+        lunchNote: r.lunchNote || undefined,
+        dinnerNote: r.dinnerNote || r.note || undefined,
         lunchRecorderName: r.lunchRecorderName || undefined,
         dinnerRecorderName: r.dinnerRecorderName || undefined,
         deleted: r.deleted === 'true' || undefined,
@@ -811,7 +815,7 @@ export async function listRevenueAll(shopCode: string): Promise<RevenueEntry[]> 
         doorDashBills: Number(r.doorDashBills) || 0,
         lunch: JSON.parse(r.lunch || 'null') as MealRevenue || emptyMeal(),
         dinner: JSON.parse(r.dinner || 'null') as MealRevenue || emptyMeal(),
-        note: r.note || undefined,
+        dinnerNote: r.note || undefined,
       }
     }
     return {
@@ -819,7 +823,6 @@ export async function listRevenueAll(shopCode: string): Promise<RevenueEntry[]> 
       lfyBills: 0, uberBills: 0, doorDashBills: 0,
       lunch: { ...emptyMeal(), totalSale: Number(r.netSales) || 0, eftpos: Number(r.card) || 0 },
       dinner: emptyMeal(),
-      note: r.note || undefined,
     }
   })
 }
@@ -906,25 +909,33 @@ export async function saveRevenue(shopCode: string, entries: RevenueEntry[]): Pr
   const sheetName = tab('revenue')
   const rows = entries.map((e) => [
     e.id, e.date,
-    ...mealToRow(e.lunch), ...mealToRow(e.dinner),
-    e.note ?? '', e.lunchRecorderName ?? '', e.dinnerRecorderName ?? '', e.deleted ? 'true' : '',
-    e.frontExtra ?? '', e.kitchenExtra ?? '',
+    // LUNCH
     e.lunchLfyBills || '', e.lunchUberBills || '', e.lunchDoorDashBills || '',
+    ...mealToRow(e.lunch),
+    e.lunchFrontExtra ?? '', e.lunchKitchenExtra ?? '', e.lunchNote ?? '', e.lunchRecorderName ?? '',
+    // DINNER
     e.dinnerLfyBills || '', e.dinnerUberBills || '', e.dinnerDoorDashBills || '',
-    e.lunchFrontExtra ?? '', e.lunchKitchenExtra ?? '',
-    e.dinnerFrontExtra ?? '', e.dinnerKitchenExtra ?? '',
+    ...mealToRow(e.dinner),
+    e.dinnerFrontExtra ?? '', e.dinnerKitchenExtra ?? '', e.dinnerNote ?? '', e.dinnerRecorderName ?? '',
+    // Meta
+    e.deleted ? 'true' : '',
   ])
   await setSheetData(sheetName, REV_HEADERS, rows, sid)
 
   // Apply formatting — non-fatal: if formatting fails, data is already written correctly
   try {
-    const LUNCH_YELLOW   = { red: 1,     green: 0.949, blue: 0.8   }  // #FFF2CC
-    const DINNER_BLUE    = { red: 0.678, green: 0.847, blue: 0.933 }  // #ADD8E6
-    const HEADER_BG      = { red: 0.851, green: 0.918, blue: 0.827 }  // #D9EAD3
-    const DELETED_RED    = { red: 0.918, green: 0.298, blue: 0.298  }  // #EA4C4C — สีแดง
+    const HEADER_GREEN  = { red: 0.851, green: 0.918, blue: 0.827 }  // #D9EAD3
+    const LUNCH_YELLOW  = { red: 1,     green: 0.949, blue: 0.8   }  // #FFF2CC
+    const DINNER_BLUE   = { red: 0.678, green: 0.847, blue: 0.933 }  // #ADD8E6
+    const DELETED_RED   = { red: 0.957, green: 0.800, blue: 0.800 }  // #F4CCCC — light red
     const totalRows = rows.length + 1
 
-    // Highlight deleted rows — row 0 = header, row i+1 = entries[i]
+    // col ranges (0-indexed, endCol exclusive):
+    // 0-1: id, date
+    // 2-17: LUNCH (2-4 bills, 5-13 meal $, 14-15 extra $, 16-17 text)
+    // 18-33: DINNER (18-20 bills, 21-29 meal $, 30-31 extra $, 32-33 text)
+    // 34: deleted
+
     const deletedRules = entries
       .map((e, i) => ({ deleted: e.deleted, row: i + 1 }))
       .filter(({ deleted }) => deleted)
@@ -935,19 +946,24 @@ export async function saveRevenue(shopCode: string, entries: RevenueEntry[]): Pr
       }))
 
     await applyFormattingRules(sheetName, sid, [
-      // Header row: green + bold
-      { startRow: 0, endRow: 1, startCol: 0, endCol: REV_HEADERS.length, backgroundColor: HEADER_BG, bold: true },
-      // Lunch section header cells: yellow (cols 5-13, 9 fields incl cashSale)
-      { startRow: 0, endRow: 1, startCol: 5, endCol: 14, backgroundColor: LUNCH_YELLOW },
-      // Dinner section header cells: blue (cols 14-22, 9 fields incl cashSale)
-      { startRow: 0, endRow: 1, startCol: 14, endCol: 23, backgroundColor: DINNER_BLUE },
-      // AUD format for meal amounts (cols 5-22)
-      ...(totalRows > 1 ? [{ startRow: 1, endRow: totalRows, startCol: 5, endCol: 23, numberFormat: AUD_FORMAT }] : []),
-      // Integer format for bill counts (cols 2-4)
-      ...(totalRows > 1 ? [{ startRow: 1, endRow: totalRows, startCol: 2, endCol: 5, numberFormat: INT_FORMAT }] : []),
-      // Deleted rows: orange/curry highlight (applied last so it overrides row colors)
+      // 1. Clear all backgrounds (overlap prevention)
+      { startRow: 0, endRow: totalRows, startCol: 0, endCol: REV_HEADERS.length, backgroundColor: { red: 1, green: 1, blue: 1 } },
+      // 2. Header: id + date = green bold
+      { startRow: 0, endRow: 1, startCol: 0, endCol: 2, backgroundColor: HEADER_GREEN, bold: true },
+      // 3. Header: LUNCH = yellow bold
+      { startRow: 0, endRow: 1, startCol: 2, endCol: 18, backgroundColor: LUNCH_YELLOW, bold: true },
+      // 4. Header: DINNER = blue bold
+      { startRow: 0, endRow: 1, startCol: 18, endCol: 34, backgroundColor: DINNER_BLUE, bold: true },
+      // 5. AUD format — lunch meal $ (cols 5-13) + lunch extra (14-15)
+      ...(totalRows > 1 ? [{ startRow: 1, endRow: totalRows, startCol: 5, endCol: 16, numberFormat: AUD_FORMAT }] : []),
+      // 6. AUD format — dinner meal $ (cols 21-29) + dinner extra (30-31)
+      ...(totalRows > 1 ? [{ startRow: 1, endRow: totalRows, startCol: 21, endCol: 32, numberFormat: AUD_FORMAT }] : []),
+      // 7. INT format — lunch bills (cols 2-4) + dinner bills (18-20)
+      ...(totalRows > 1 ? [{ startRow: 1, endRow: totalRows, startCol: 2,  endCol: 5,  numberFormat: INT_FORMAT }] : []),
+      ...(totalRows > 1 ? [{ startRow: 1, endRow: totalRows, startCol: 18, endCol: 21, numberFormat: INT_FORMAT }] : []),
+      // 8. Deleted rows: red (applied last to override)
       ...deletedRules,
-    ])
+    ], totalRows)
   } catch (err) {
     console.warn('[saveRevenue] formatting failed (data was saved):', err)
   }
@@ -957,7 +973,7 @@ export async function saveRevenue(shopCode: string, entries: RevenueEntry[]): Pr
 
 const EXP_HEADERS = [
   'id', 'date', 'category', 'supplier', 'description', 'total',
-  'paymentMethod', 'bankAccount', 'dueDate', 'paid', 'filledBy',
+  'paymentMethod', 'bankAccount', 'dueDate', 'paid', 'filledBy', 'deleted',
 ]
 
 export async function listExpenses(shopCode: string): Promise<ExpenseEntry[]> {
@@ -975,16 +991,60 @@ export async function listExpenses(shopCode: string): Promise<ExpenseEntry[]> {
     dueDate: r.dueDate || undefined,
     paid: String(r.paid).toLowerCase() === 'true',
     filledBy: r.filledBy || undefined,
+    deleted: r.deleted === 'true' || undefined,
+  })).filter((e) => !e.deleted)
+}
+
+export async function listExpensesAll(shopCode: string): Promise<ExpenseEntry[]> {
+  const { sid, tab } = await getShopDb(shopCode)
+  const rows = await getSheetData(tab('expenses'), sid)
+  return rows.map((r) => ({
+    id: r.id,
+    date: r.date,
+    category: r.category,
+    supplier: r.supplier,
+    description: r.description,
+    total: Number(r.total),
+    paymentMethod: r.paymentMethod as ExpenseEntry['paymentMethod'],
+    bankAccount: r.bankAccount || undefined,
+    dueDate: r.dueDate || undefined,
+    paid: String(r.paid).toLowerCase() === 'true',
+    filledBy: r.filledBy || undefined,
+    deleted: r.deleted === 'true' || undefined,
   }))
 }
 
 export async function saveExpenses(shopCode: string, entries: ExpenseEntry[]): Promise<void> {
   const { sid, tab } = await getShopDb(shopCode)
+  const sheetName = tab('expenses')
   const rows = entries.map((e) => [
     e.id, e.date, e.category, e.supplier, e.description, e.total,
     e.paymentMethod, e.bankAccount ?? '', e.dueDate ?? '', e.paid, e.filledBy ?? '',
+    e.deleted ? 'true' : '',
   ])
-  await setSheetData(tab('expenses'), EXP_HEADERS, rows, sid)
+  await setSheetData(sheetName, EXP_HEADERS, rows, sid)
+
+  try {
+    const DELETED_RED = { red: 0.957, green: 0.800, blue: 0.800 }
+    const WHITE       = { red: 1, green: 1, blue: 1 }
+    const totalRows   = rows.length + 1
+    const deletedRules = entries
+      .map((e, i) => ({ deleted: e.deleted, row: i + 1 }))
+      .filter(({ deleted }) => deleted)
+      .map(({ row }) => ({
+        startRow: row, endRow: row + 1,
+        startCol: 0, endCol: EXP_HEADERS.length,
+        backgroundColor: DELETED_RED,
+      }))
+    await applyFormattingRules(sheetName, sid, [
+      // Clear all backgrounds first (overlap prevention)
+      { startRow: 0, endRow: totalRows, startCol: 0, endCol: EXP_HEADERS.length, backgroundColor: WHITE },
+      // Deleted rows: red (applied last)
+      ...deletedRules,
+    ], totalRows)
+  } catch (err) {
+    console.warn('[saveExpenses] formatting failed (data was saved):', err)
+  }
 }
 
 // ─── Delivery Rates (Shop Config) ─────────────────────────────────────────────
@@ -1119,6 +1179,42 @@ export async function getAllWagePayments(
   } catch {
     return new Map()
   }
+}
+
+export async function calcWageWeekSummary(
+  shopCode: string,
+  weekStart: string,
+): Promise<{ totalWage: number; tax: number; paid: number; wageCash: number }> {
+  const [employees, timeRecords, { payments }] = await Promise.all([
+    listEmployees(shopCode, true),
+    listTimeRecords(shopCode),
+    getWagePayments(shopCode, weekStart),
+  ])
+  const weekDates = Array.from({ length: 7 }, (_, i) => addDays(weekStart, i))
+  const wRec = timeRecords.filter((r) => weekDates.includes(r.date))
+  const staff = employees.filter((e) => !e.fired && !e.positions.includes('Home'))
+
+  function sw(emp: Employee, hrs: number, isLunch: boolean): number {
+    if (hrs <= 0) return 0
+    const h = emp.hourlyWage ?? 0
+    return isLunch ? (emp.wageLunch ?? h * hrs) : (emp.wageDinner ?? h * hrs)
+  }
+
+  let totalWage = 0, totalTax = 0, totalPaid = 0
+  for (const emp of staff) {
+    const pmt = payments.get(emp.id)
+    const ov = pmt?.overrides ?? {}
+    let empWage = 0
+    for (let d = 0; d < 7; d++) {
+      const rec = wRec.find((r) => r.date === weekDates[d] && r.employeeId === emp.id)
+      empWage += ov[`${d}L`] ?? (rec ? sw(emp, rec.morning, true)  : 0)
+      empWage += ov[`${d}D`] ?? (rec ? sw(emp, rec.evening, false) : 0)
+    }
+    totalWage += empWage
+    totalTax  += pmt?.tax  ?? 0
+    totalPaid += pmt?.paid ?? 0
+  }
+  return { totalWage, tax: totalTax, paid: totalPaid, wageCash: totalWage - totalTax - totalPaid }
 }
 
 export async function saveWagePayments(

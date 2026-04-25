@@ -1,5 +1,5 @@
 import { Router, Response } from 'express'
-import { getWagePayments, saveWagePayments, syncWageSheet } from '../db'
+import { getWagePayments, saveWagePayments, syncWageSheet, syncSumSheet, calcWageWeekSummary } from '../db'
 import { requireShopAuth, requireManager } from '../middleware/auth'
 import type { AuthRequest } from '../middleware/auth'
 
@@ -17,6 +17,17 @@ router.get('/payments', requireShopAuth, async (req: AuthRequest, res: Response)
   }
 })
 
+// GET /:shopCode/wages/week-summary?weekStart=YYYY-MM-DD
+router.get('/week-summary', requireShopAuth, async (req: AuthRequest, res: Response) => {
+  try {
+    const weekStart = req.query.weekStart as string
+    if (!weekStart) { res.status(400).json({ error: 'weekStart required' }); return }
+    res.json(await calcWageWeekSummary(req.params.shopCode, weekStart))
+  } catch {
+    res.status(500).json({ error: 'Server error' })
+  }
+})
+
 // POST /:shopCode/wages/payments
 router.post('/payments', requireManager, async (req: AuthRequest, res: Response) => {
   try {
@@ -27,6 +38,7 @@ router.post('/payments', requireManager, async (req: AuthRequest, res: Response)
     }
     await saveWagePayments(req.params.shopCode, weekStart, payments, weekNote ?? '')
     await syncWageSheet(req.params.shopCode)
+    await syncSumSheet(req.params.shopCode)
     res.json({ ok: true })
   } catch (err) {
     res.status(500).json({ error: String(err) })

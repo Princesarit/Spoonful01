@@ -12,8 +12,8 @@ import type {
   DailyNote,
   MealRevenue,
 } from '@/lib/types'
-import { getSummaryData, getSummaryDataAll, saveDailyNote, syncReportSheets, hideReportSheets, saveExpenseEntry, syncSumSheet, getAllExpenses, getCashReportAll, saveCashReportWeek } from './actions'
-import type { CashReportRow } from './actions'
+import { getSummaryData, getSummaryDataAll, saveDailyNote, syncReportSheets, hideReportSheets, saveExpenseEntry, syncSumSheet, getAllExpenses, getCashReportAll, saveCashReportWeek, getWageWeekSummary } from './actions'
+import type { CashReportRow, WageWeekSummary } from './actions'
 import { useShop } from '@/components/ShopProvider'
 import { translations } from '@/lib/translations'
 
@@ -91,6 +91,8 @@ interface DaySummary {
   cashExpense: number
   cashLeave: number
   labor: number
+  lunchLabor: number
+  dinnerLabor: number
   // lunch only
   lunchSale: number
   lunchEftpos: number
@@ -110,6 +112,7 @@ interface Totals {
   onlineOrders: number
   totalSale: number
   totalEftpos: number
+  cashRevenue: number
   cashExpense: number
   cashLeave: number
   labor: number
@@ -128,11 +131,12 @@ function sumTotals(rows: DaySummary[]): Totals {
       onlineOrders: acc.onlineOrders + d.onlineOrders,
       totalSale: acc.totalSale + d.totalSale,
       totalEftpos: acc.totalEftpos + d.totalEftpos,
+      cashRevenue: acc.cashRevenue + d.cashRevenue,
       cashExpense: acc.cashExpense + d.cashExpense,
       cashLeave: acc.cashLeave + d.cashLeave,
       labor: acc.labor + d.labor,
     }),
-    { netSales: 0, onlineOrders: 0, totalSale: 0, totalEftpos: 0, cashExpense: 0, cashLeave: 0, labor: 0 },
+    { netSales: 0, onlineOrders: 0, totalSale: 0, totalEftpos: 0, cashRevenue: 0, cashExpense: 0, cashLeave: 0, labor: 0 },
   )
 }
 
@@ -185,19 +189,20 @@ function calcDay(
     .filter((e) => e.paymentMethod === 'Cash')
     .reduce((s, e) => s + e.total, 0)
 
-  const staffLabor = employees
-    .filter((e) => !e.positions.includes('Home'))
-    .reduce((sum, emp) => {
-      const rec = dayRecords.find((r) => r.employeeId === emp.id)
-      if (!rec || (rec.morning === 0 && rec.evening === 0)) return sum
-      return sum + rec.morning + rec.evening
-    }, 0)
+  let staffLunchLabor = 0, staffDinnerLabor = 0
+  employees.filter((e) => !e.positions.includes('Home')).forEach((emp) => {
+    const rec = dayRecords.find((r) => r.employeeId === emp.id)
+    if (!rec) return
+    const h = emp.hourlyWage ?? 0
+    if (rec.morning > 0) staffLunchLabor  += emp.wageLunch  ?? h * rec.morning
+    if (rec.evening > 0) staffDinnerLabor += emp.wageDinner ?? h * rec.evening
+  })
   const deliveryLabor = dayTrips.reduce((s, t) => s + t.fee, 0)
-  const extraLabor = dayRevenue.reduce((s, e) => s
-    + (e.lunchFrontExtra ?? 0) + (e.lunchKitchenExtra ?? 0)
-    + (e.dinnerFrontExtra ?? 0) + (e.dinnerKitchenExtra ?? 0)
-    + (e.frontExtra ?? 0) + (e.kitchenExtra ?? 0), 0)
-  const labor = staffLabor + deliveryLabor + extraLabor
+  const lunchExtra  = dayRevenue.reduce((s, e) => s + (e.lunchFrontExtra ?? 0)  + (e.lunchKitchenExtra ?? 0),  0)
+  const dinnerExtra = dayRevenue.reduce((s, e) => s + (e.dinnerFrontExtra ?? 0) + (e.dinnerKitchenExtra ?? 0) + (e.frontExtra ?? 0) + (e.kitchenExtra ?? 0), 0)
+  const lunchLabor  = staffLunchLabor  + lunchExtra
+  const dinnerLabor = staffDinnerLabor + dinnerExtra
+  const labor = lunchLabor + dinnerLabor + deliveryLabor
 
   const cashLeave = cashRevenue - cashExpense - labor
 
@@ -216,6 +221,7 @@ function calcDay(
 
   return {
     date, netSales, onlineOrders, totalSale, totalEftpos, cashRevenue, cashExpense, cashLeave, labor,
+    lunchLabor, dinnerLabor,
     lunchSale, lunchEftpos, lunchOnline, lunchCash,
     dinnerSale, dinnerEftpos, dinnerOnline, dinnerCash,
     note, hasData,
@@ -233,8 +239,9 @@ function getDayDisplay(d: DaySummary, shift: Shift) {
     totalSale = d.totalSale; totalEftpos = d.totalEftpos; onlineOrders = d.onlineOrders; cashRevenue = d.cashRevenue
   }
   const netSales = totalSale - onlineOrders
-  const cashLeave = cashRevenue - d.cashExpense - d.labor
-  return { totalSale, totalEftpos, onlineOrders, netSales, cashRevenue, cashExpense: d.cashExpense, labor: d.labor, cashLeave }
+  const labor = shift === 'am' ? d.lunchLabor : shift === 'pm' ? d.dinnerLabor : d.labor
+  const cashLeave = cashRevenue - d.cashExpense - labor
+  return { totalSale, totalEftpos, onlineOrders, netSales, cashRevenue, cashExpense: d.cashExpense, labor, cashLeave }
 }
 
 function fmt(n: number): string {
@@ -255,10 +262,11 @@ function RevenueExpenseChart({
 }) {
   const fmtY = (v: number) => v >= 1000 ? `${(v / 1000).toFixed(v % 1000 === 0 ? 0 : 1)}k` : String(v)
 
+  const DOW_SHORT = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
   const data = pov === 'daily'
     ? rows.map((d) => {
         const dv = getDayDisplay(d, shift)
-        return { label: String(parseInt(d.date.split('-')[2])), revenue: dv.totalSale, expense: dv.cashExpense }
+        return { label: String(parseInt(d.date.split('-')[2])), dayOfWeek: DOW_SHORT[new Date(d.date + 'T00:00:00').getDay()], revenue: dv.totalSale, expense: dv.cashExpense }
       })
     : pov === 'weekly'
     ? weekGroups.map((wg, i) => {
@@ -270,7 +278,7 @@ function RevenueExpenseChart({
           { revenue: 0, expense: 0 },
         )
         const startDay = parseInt(wg.weekStart.split('-')[2])
-        return { label: `W${i + 1} (${startDay})`, revenue: wt.revenue, expense: wt.expense }
+        return { label: `W${i + 1} (${startDay})`, dayOfWeek: undefined as string | undefined, revenue: wt.revenue, expense: wt.expense }
       })
     : (() => {
         // Monthly: one point per month from all data
@@ -290,7 +298,7 @@ function RevenueExpenseChart({
           .sort(([a], [b]) => a.localeCompare(b))
           .map(([m, v]) => {
             const [, mm] = m.split('-')
-            return { label: MONTH_SHORT[parseInt(mm) - 1], revenue: v.revenue, expense: v.expense }
+            return { label: MONTH_SHORT[parseInt(mm) - 1], dayOfWeek: undefined as string | undefined, revenue: v.revenue, expense: v.expense }
           })
       })()
 
@@ -346,6 +354,12 @@ function RevenueExpenseChart({
           </linearGradient>
         </defs>
 
+        {/* Axis labels */}
+        <text x={10} y={padT + chartH / 2} textAnchor="middle" fontSize="9" fill="#9ca3af" fontFamily="sans-serif" transform={`rotate(-90 10 ${padT + chartH / 2})`}>Amount ($)</text>
+        <text x={padL + chartW / 2} y={H - 1} textAnchor="middle" fontSize="9" fill="#9ca3af" fontFamily="sans-serif">
+          {pov === 'daily' ? 'Date' : pov === 'weekly' ? 'Week' : 'Month'}
+        </text>
+
         {/* Horizontal grid lines + Y labels */}
         {yTicks.map((v) => (
           <g key={v}>
@@ -391,12 +405,225 @@ function RevenueExpenseChart({
         {data.map((d, i) => {
           if (i % xStep !== 0 && i !== data.length - 1) return null
           return (
-            <text key={i} x={xScale(i)} y={H - 8} textAnchor="middle" fontSize="10" fill="#9ca3af" fontFamily="sans-serif">
-              {d.label}
-            </text>
+            <g key={i}>
+              <text x={xScale(i)} y={H - (d.dayOfWeek ? 20 : 8)} textAnchor="middle" fontSize="10" fill="#9ca3af" fontFamily="sans-serif">
+                {d.label}
+              </text>
+              {d.dayOfWeek && (
+                <text x={xScale(i)} y={H - 8} textAnchor="middle" fontSize="9" fill="#9ca3af" fontFamily="sans-serif">
+                  {d.dayOfWeek}
+                </text>
+              )}
+            </g>
           )
         })}
       </svg>
+    </div>
+  )
+}
+
+function LunchDinnerBarChart({
+  rows, weekGroups, allRevenue, shift, pov,
+}: {
+  rows: DaySummary[]
+  weekGroups: WeekGroup[]
+  allRevenue: RevenueEntry[]
+  shift: Shift
+  pov: Pov
+}) {
+  const fmtY = (v: number) => v >= 1000 ? `${(v / 1000).toFixed(v % 1000 === 0 ? 0 : 1)}k` : String(Math.round(v))
+
+  const DOW_SHORT2 = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
+  const data: { label: string; dayOfWeek?: string; lunch: number; dinner: number }[] =
+    pov === 'daily'
+      ? rows.map((d) => ({
+          label: String(parseInt(d.date.split('-')[2])),
+          dayOfWeek: DOW_SHORT2[new Date(d.date + 'T00:00:00').getDay()],
+          lunch: d.lunchSale,
+          dinner: d.dinnerSale,
+        }))
+      : pov === 'weekly'
+      ? weekGroups.map((wg, i) => ({
+          label: `W${i + 1}`,
+          lunch: wg.days.reduce((s, d) => s + d.lunchSale, 0),
+          dinner: wg.days.reduce((s, d) => s + d.dinnerSale, 0),
+        }))
+      : (() => {
+          const monthMap = new Map<string, { lunch: number; dinner: number }>()
+          for (const r of allRevenue) {
+            const m = r.date.slice(0, 7)
+            const prev = monthMap.get(m) ?? { lunch: 0, dinner: 0 }
+            monthMap.set(m, { lunch: prev.lunch + mealTotal(r.lunch), dinner: prev.dinner + mealTotal(r.dinner) })
+          }
+          return [...monthMap.entries()]
+            .sort(([a], [b]) => a.localeCompare(b))
+            .map(([m, v]) => {
+              const [, mm] = m.split('-')
+              return { label: MONTH_SHORT[parseInt(mm) - 1], lunch: v.lunch, dinner: v.dinner }
+            })
+        })()
+
+  if (data.length === 0) return null
+
+  const W = 360, H = 240
+  const padL = 52, padR = 16, padT = 24, padB = 36
+  const chartW = W - padL - padR
+  const chartH = H - padT - padB
+  const n = data.length
+  const barW = Math.max(4, Math.min(28, (chartW / n) * 0.65))
+  const gap = chartW / n
+
+  const maxVal = Math.max(...data.map((d) =>
+    shift === 'am' ? d.lunch : shift === 'pm' ? d.dinner : d.lunch + d.dinner
+  ), 1)
+  const niceMax = Math.ceil(maxVal / 500) * 500 || 500
+  const yScale = (v: number) => padT + chartH - (v / niceMax) * chartH
+  const yH = (v: number) => (v / niceMax) * chartH
+
+  const yTicks = [0, Math.round(niceMax / 2), niceMax]
+  const xStep = n > 20 ? 7 : n > 14 ? 5 : n > 7 ? 3 : 1
+
+  const YELLOW = '#f59e0b'
+  const BLUE   = '#60a5fa'
+  const YELLOW_LABEL = '#92400e'
+  const BLUE_LABEL   = '#1e40af'
+
+  return (
+    <div className="bg-white rounded-2xl border border-gray-100 shadow-sm px-4 pt-4 pb-2">
+      <div className="flex items-center justify-between mb-3">
+        <span className="text-sm font-bold text-gray-700">Lunch / Dinner Revenue</span>
+        <div className="flex items-center gap-4">
+          {shift !== 'pm'  && <div className="flex items-center gap-1.5"><div className="w-3 h-3 rounded-sm" style={{ background: YELLOW }} /><span className="text-xs text-gray-500">Lunch</span></div>}
+          {shift !== 'am'  && <div className="flex items-center gap-1.5"><div className="w-3 h-3 rounded-sm" style={{ background: BLUE }}   /><span className="text-xs text-gray-500">Dinner</span></div>}
+        </div>
+      </div>
+      <svg viewBox={`0 0 ${W} ${H}`} className="w-full" style={{ height: H }}>
+        {/* Axis labels */}
+        <text x={10} y={padT + chartH / 2} textAnchor="middle" fontSize="9" fill="#9ca3af" fontFamily="sans-serif" transform={`rotate(-90 10 ${padT + chartH / 2})`}>Amount ($)</text>
+        <text x={padL + chartW / 2} y={H - 1} textAnchor="middle" fontSize="9" fill="#9ca3af" fontFamily="sans-serif">
+          {pov === 'daily' ? 'Date' : pov === 'weekly' ? 'Week' : 'Month'}
+        </text>
+
+        {/* Y grid + labels */}
+        {yTicks.map((v) => (
+          <g key={v}>
+            <line x1={padL} y1={yScale(v)} x2={padL + chartW} y2={yScale(v)} stroke={v === 0 ? '#e5e7eb' : '#f3f4f6'} strokeWidth={v === 0 ? 1.5 : 1} />
+            <text x={padL - 6} y={yScale(v) + 4} textAnchor="end" fontSize="9" fill="#9ca3af" fontFamily="sans-serif">{fmtY(v)}</text>
+          </g>
+        ))}
+
+        {/* Bars */}
+        {data.map((d, i) => {
+          const cx = padL + i * gap + gap / 2
+          const x = cx - barW / 2
+
+          const lunchH = shift !== 'pm' ? yH(d.lunch)  : 0
+          const dinnerH = shift !== 'am' ? yH(d.dinner) : 0
+          const baseY = padT + chartH
+
+          return (
+            <g key={i}>
+              {/* Lunch bar (bottom) */}
+              {lunchH > 0 && (
+                <>
+                  <rect x={x} y={baseY - lunchH} width={barW} height={lunchH} fill={YELLOW} rx="2" />
+                  {lunchH > 14 && (
+                    <text x={cx} y={baseY - lunchH / 2 + 4} textAnchor="middle" fontSize="8" fill={YELLOW_LABEL} fontWeight="700" fontFamily="sans-serif">
+                      {fmtY(d.lunch)}
+                    </text>
+                  )}
+                </>
+              )}
+              {/* Dinner bar (top) */}
+              {dinnerH > 0 && (
+                <>
+                  <rect x={x} y={baseY - lunchH - dinnerH} width={barW} height={dinnerH} fill={BLUE} rx="2" />
+                  {dinnerH > 14 && (
+                    <text x={cx} y={baseY - lunchH - dinnerH / 2 + 4} textAnchor="middle" fontSize="8" fill={BLUE_LABEL} fontWeight="700" fontFamily="sans-serif">
+                      {fmtY(d.dinner)}
+                    </text>
+                  )}
+                </>
+              )}
+              {/* Total label above bar */}
+              <text x={cx} y={baseY - lunchH - dinnerH - 4} textAnchor="middle" fontSize="9" fill="#374151" fontWeight="600" fontFamily="sans-serif">
+                {fmtY((shift === 'am' ? d.lunch : shift === 'pm' ? d.dinner : d.lunch + d.dinner))}
+              </text>
+            </g>
+          )
+        })}
+
+        {/* X-axis labels */}
+        {data.map((d, i) => {
+          if (i % xStep !== 0 && i !== n - 1) return null
+          const bx = padL + i * gap + gap / 2
+          return (
+            <g key={i}>
+              <text x={bx} y={H - (d.dayOfWeek ? 18 : 6)} textAnchor="middle" fontSize="9" fill="#9ca3af" fontFamily="sans-serif">
+                {d.label}
+              </text>
+              {d.dayOfWeek && (
+                <text x={bx} y={H - 6} textAnchor="middle" fontSize="8" fill="#9ca3af" fontFamily="sans-serif">
+                  {d.dayOfWeek}
+                </text>
+              )}
+            </g>
+          )
+        })}
+      </svg>
+    </div>
+  )
+}
+
+function DonutChart({ netSales, onlineOrders }: { netSales: number; onlineOrders: number }) {
+  const total = netSales + onlineOrders
+  if (total <= 0) return null
+
+  const r = 32, cx = 44, cy = 44
+  const C = 2 * Math.PI * r
+  const dineLen = (netSales / total) * C
+  const delivLen = (onlineOrders / total) * C
+  const dinePct = Math.round((netSales / total) * 100)
+
+  return (
+    <div className="flex flex-col items-center shrink-0">
+      <svg width="88" height="88" viewBox="0 0 88 88">
+        <circle cx={cx} cy={cy} r={r} fill="none" stroke="#f3f4f6" strokeWidth={13} />
+        {dineLen > 0 && (
+          <circle
+            cx={cx} cy={cy} r={r} fill="none"
+            stroke="#22c55e" strokeWidth={13}
+            strokeDasharray={`${dineLen} ${C}`}
+            strokeDashoffset={0}
+            transform={`rotate(-90 ${cx} ${cy})`}
+          />
+        )}
+        {delivLen > 0 && (
+          <circle
+            cx={cx} cy={cy} r={r} fill="none"
+            stroke="#f97316" strokeWidth={13}
+            strokeDasharray={`${delivLen} ${C}`}
+            strokeDashoffset={C - dineLen}
+            transform={`rotate(-90 ${cx} ${cy})`}
+          />
+        )}
+        <text x={cx} y={cy - 2} textAnchor="middle" fontSize="14" fontWeight="bold" fill="#374151" fontFamily="sans-serif">
+          {dinePct}%
+        </text>
+        <text x={cx} y={cy + 11} textAnchor="middle" fontSize="9" fill="#9ca3af" fontFamily="sans-serif">
+          dine-in
+        </text>
+      </svg>
+      <div className="flex flex-col gap-0.5 mt-0.5">
+        <div className="flex items-center gap-1">
+          <div className="w-2 h-2 rounded-full bg-green-500" />
+          <span className="text-[9px] text-gray-500">Dine-in</span>
+        </div>
+        <div className="flex items-center gap-1">
+          <div className="w-2 h-2 rounded-full bg-orange-400" />
+          <span className="text-[9px] text-gray-500">Delivery</span>
+        </div>
+      </div>
     </div>
   )
 }
@@ -515,6 +742,7 @@ export default function SummaryView() {
   const [panelSaving, setPanelSaving] = useState(false)
   const [showReport, setShowReport] = useState(false)
   const [reportData, setReportData] = useState<Record<string, CashReportRow>>({})
+  const [wageWeekSummaries, setWageWeekSummaries] = useState<Record<string, WageWeekSummary>>({})
   type ItemEdit = { label: string; amount: string; note: string }
   type WeekEdit = { cashFromBank: string; cashLeftInBag: string; incomeItems: ItemEdit[]; expenseItems: ItemEdit[] }
   const [reportEdits, setReportEdits] = useState<Record<string, WeekEdit>>({})
@@ -587,13 +815,23 @@ export default function SummaryView() {
       onlineOrders: acc.onlineOrders + d.onlineOrders,
       totalSale:    acc.totalSale    + d.totalSale,
       totalEftpos:  acc.totalEftpos  + d.totalEftpos,
+      cashRevenue:  acc.cashRevenue  + d.cashRevenue,
       cashExpense:  acc.cashExpense  + d.cashExpense,
       cashLeave:    acc.cashLeave    + d.cashLeave,
       labor:        acc.labor        + d.labor,
     }),
-    { netSales: 0, onlineOrders: 0, totalSale: 0, totalEftpos: 0, cashExpense: 0, cashLeave: 0, labor: 0 },
+    { netSales: 0, onlineOrders: 0, totalSale: 0, totalEftpos: 0, cashRevenue: 0, cashExpense: 0, cashLeave: 0, labor: 0 },
   )
   const weekGroups = groupByWeek(activeRows)
+
+  // Fetch actual wage cash (Total Wage - TAX - PAID) for each week when Report is open
+  useEffect(() => {
+    if (!showReport || weekGroups.length === 0) return
+    Promise.all(weekGroups.map((wg) => getWageWeekSummary(shopCode, wg.weekStart).then((s) => [wg.weekStart, s] as const)))
+      .then((entries) => setWageWeekSummaries(Object.fromEntries(entries)))
+      .catch(() => {})
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [showReport, shopCode, weekGroups.length])
 
   function updatePanelExp<K extends keyof ExpenseEntry>(id: string, key: K, val: ExpenseEntry[K]) {
     setPanelExpenses((prev) => prev.map((e) => (e.id === id ? { ...e, [key]: val } : e)))
@@ -817,6 +1055,17 @@ export default function SummaryView() {
             />
           )}
 
+          {/* Lunch / Dinner stacked bar chart */}
+          {activeRows.length >= 1 && (
+            <LunchDinnerBarChart
+              rows={activeRows}
+              weekGroups={weekGroups}
+              allRevenue={allRevenue}
+              shift={shift}
+              pov={pov}
+            />
+          )}
+
           {/* Per-pov content */}
           {pov === 'monthly' ? null : pov === 'weekly' ? (
             /* Weekly view */
@@ -888,33 +1137,36 @@ export default function SummaryView() {
                       </div>
                     </div>
 
-                    <div className="grid grid-cols-2 gap-y-2 text-xs">
-                      <div>
-                        <span className="text-gray-400">Net sales</span>
-                        <div className="font-semibold text-gray-700">{fmt(dv.netSales)} $</div>
-                      </div>
-                      <div>
-                        <span className="text-gray-400">Online Orders</span>
-                        <div className="font-semibold text-gray-700">{fmt(dv.onlineOrders)} $</div>
-                      </div>
-                      <div>
-                        <span className="text-gray-400">Total eftpos</span>
-                        <div className="font-semibold text-blue-600">{fmt(dv.totalEftpos)} $</div>
-                      </div>
-                      <div>
-                        <span className="text-gray-400">{tr.labor_label}</span>
-                        <div className="font-semibold text-brand-gold">{fmt(dv.labor)} $</div>
-                      </div>
-                      <div>
-                        <span className="text-gray-400">Cash Expense</span>
-                        <div className="font-semibold text-red-500">{fmt(dv.cashExpense)} $</div>
-                      </div>
-                      <div>
-                        <span className="text-gray-400">{tr.cash_leave_day}</span>
-                        <div className={`font-semibold ${dv.cashLeave >= 0 ? 'text-green-600' : 'text-red-500'}`}>
-                          {fmt(dv.cashLeave)} $
+                    <div className="flex items-start gap-2">
+                      <div className="flex-1 grid grid-cols-2 gap-y-2 text-xs">
+                        <div>
+                          <span className="text-gray-400">Net sales</span>
+                          <div className="font-semibold text-gray-700">{fmt(dv.netSales)} $</div>
+                        </div>
+                        <div>
+                          <span className="text-gray-400">Online Orders</span>
+                          <div className="font-semibold text-gray-700">{fmt(dv.onlineOrders)} $</div>
+                        </div>
+                        <div>
+                          <span className="text-gray-400">Total eftpos</span>
+                          <div className="font-semibold text-blue-600">{fmt(dv.totalEftpos)} $</div>
+                        </div>
+                        <div>
+                          <span className="text-gray-400">{tr.labor_label}</span>
+                          <div className="font-semibold text-brand-gold">{fmt(dv.labor)} $</div>
+                        </div>
+                        <div>
+                          <span className="text-gray-400">Cash Expense</span>
+                          <div className="font-semibold text-red-500">{fmt(dv.cashExpense)} $</div>
+                        </div>
+                        <div>
+                          <span className="text-gray-400">{tr.cash_leave_day}</span>
+                          <div className={`font-semibold ${dv.cashLeave >= 0 ? 'text-green-600' : 'text-red-500'}`}>
+                            {fmt(dv.cashLeave)} $
+                          </div>
                         </div>
                       </div>
+                      <DonutChart netSales={dv.netSales} onlineOrders={dv.onlineOrders} />
                     </div>
 
                     <NoteField shopCode={shopCode} date={d.date} initialNote={d.note} />
@@ -957,8 +1209,11 @@ export default function SummaryView() {
                 <div className="text-center py-8 text-gray-400 text-sm">No data this month</div>
               ) : [...weekGroups].reverse().map((wg) => {
                 const wt = wg.totals
-                const cashSales = wt.cashLeave + wt.cashExpense + wt.labor
+                const cashSales = wt.cashRevenue
                 const ws = wg.weekStart
+                const weekTotalExp = wg.days.reduce((s, d) => s + expenses.filter((e) => e.date === d.date).reduce((s2, e) => s2 + e.total, 0), 0)
+                const wageSummary = wageWeekSummaries[ws]
+                const wageCash = wageSummary?.wageCash ?? wt.labor
                 const stored = reportData[ws]
                 const edit: { cashFromBank: string; cashLeftInBag: string; incomeItems: { label: string; amount: string; note: string }[]; expenseItems: { label: string; amount: string; note: string }[] } = reportEdits[ws] ?? {
                   cashFromBank: String(stored?.cashFromBank ?? 0),
@@ -989,7 +1244,7 @@ export default function SummaryView() {
                 const expenseItemTotal = edit.expenseItems.reduce((s, i) => s + (parseFloat(i.amount) || 0), 0)
                 const fromBank = Math.max(0, parseFloat(edit.cashFromBank) || 0)
                 const totalCash = incomeTotal + cashSales + fromBank
-                const remaining = totalCash - wt.cashExpense - wt.labor - expenseItemTotal
+                const remaining = totalCash - weekTotalExp - wageCash - expenseItemTotal
 
                 const inputCls = 'border border-gray-300 rounded px-2 py-0.5 text-sm focus:outline-none focus:ring-1 focus:ring-brand-gold'
 
@@ -1103,11 +1358,11 @@ export default function SummaryView() {
 
                       <div className="flex justify-between text-xs text-gray-400">
                         <span>− Expenses</span>
-                        <span>${fmt(wt.cashExpense)}</span>
+                        <span>${fmt(weekTotalExp)}</span>
                       </div>
                       <div className="flex justify-between text-xs text-gray-400">
-                        <span>− Wages</span>
-                        <span>${fmt(wt.labor)}</span>
+                        <span>− Wages {wageSummary ? `(${fmt(wageSummary.totalWage)}−${fmt(wageSummary.tax + wageSummary.paid)})` : ''}</span>
+                        <span>${fmt(wageCash)}</span>
                       </div>
                       <div className={`flex justify-between font-bold border-t border-gray-100 pt-2 ${remaining >= 0 ? 'text-green-600' : 'text-red-500'}`}>
                         <span>= Remaining</span>

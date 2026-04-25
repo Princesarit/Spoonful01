@@ -4,7 +4,7 @@ import { useState, useEffect } from 'react'
 import Link from 'next/link'
 import { useParams } from 'next/navigation'
 import type { MealRevenue, RevenueEntry } from '@/lib/types'
-import { getRevenueData, saveRevenueEntry, saveAuditLog } from './actions'
+import { getRevenueData, saveRevenueEntry, deleteRevenueEntry, saveAuditLog } from './actions'
 import { useShop } from '@/components/ShopProvider'
 import { translations } from '@/lib/translations'
 
@@ -296,12 +296,21 @@ export default function RevenueView() {
     if (!deleteMealAudit || !deleteMealEditor.trim()) return
     const entry = entries.find((e) => e.id === deleteMealAudit.id)
     if (!entry) return
-    const updated: RevenueEntry = {
-      ...entry,
-      [deleteMealAudit.mode]: emptyMeal(),
-      [`${deleteMealAudit.mode}RecorderName`]: undefined,
+    const otherMeal = deleteMealAudit.mode === 'lunch' ? entry.dinner : entry.lunch
+    const otherHasData = mealHasData(otherMeal)
+    if (otherHasData) {
+      // Other meal still has data — just zero out this meal
+      const updated: RevenueEntry = {
+        ...entry,
+        [deleteMealAudit.mode]: emptyMeal(),
+        [`${deleteMealAudit.mode}RecorderName`]: undefined,
+        [`${deleteMealAudit.mode}Note`]: undefined,
+      }
+      await saveRevenueEntry(shopCode, updated)
+    } else {
+      // Both meals empty — soft delete the whole entry (marks deleted: true, row turns red in sheet)
+      await deleteRevenueEntry(shopCode, entry.id)
     }
-    await saveRevenueEntry(shopCode, updated)
     saveAuditLog(shopCode, {
       editorName: deleteMealEditor,
       note: deleteMealNote,
@@ -436,6 +445,7 @@ export default function RevenueView() {
                 </div>
               </div>
               <MealDetailRows meal={dayEntry.lunch} />
+              {dayEntry.lunchNote && <div className="text-xs text-yellow-700 italic mt-1">{dayEntry.lunchNote}</div>}
               {/* Lunch Extra */}
               {lunchDone && (
                 (dayEntry.lunchFrontExtra || dayEntry.lunchKitchenExtra) ? (
@@ -481,6 +491,7 @@ export default function RevenueView() {
                 </div>
               </div>
               <MealDetailRows meal={dayEntry.dinner} />
+              {dayEntry.dinnerNote && <div className="text-xs text-blue-700 italic mt-1">{dayEntry.dinnerNote}</div>}
               {/* Dinner Extra */}
               {dinnerDone && (
                 (dayEntry.dinnerFrontExtra || dayEntry.dinnerKitchenExtra) ? (
@@ -504,7 +515,6 @@ export default function RevenueView() {
             <span className="text-gray-500 text-xs">Grand Total</span>
             <span className="font-bold text-brand-gold">${fmt(mealDisplayTotal(dayEntry.lunch) + mealDisplayTotal(dayEntry.dinner))}</span>
           </div>
-          {dayEntry.note && <div className="text-xs text-gray-400 italic">{dayEntry.note}</div>}
         </div>
       )}
 
@@ -716,8 +726,9 @@ export default function RevenueView() {
               const currentMeal = mode === 'lunch' ? form.lunch : form.dinner
               const cashSaleVal = currentMeal.totalSale - currentMeal.eftpos - currentMeal.lfyOnline - currentMeal.uberOnline - currentMeal.doorDash
               const cashSaleInvalid = cashSaleVal < 0
-              const discrepancy = currentMeal.cashLeftInBag !== cashSaleVal
-              const noteRequired = discrepancy && !form.note?.trim()
+              const discrepancy = Math.abs(currentMeal.cashLeftInBag - cashSaleVal) > 0.01
+              const currentNote = mode === 'lunch' ? form.lunchNote : form.dinnerNote
+              const noteRequired = discrepancy && !currentNote?.trim()
               const recorderName = (mode === 'lunch' ? form.lunchRecorderName : form.dinnerRecorderName) ?? ''
               const lfyCardsInvalid = (currentMeal.lfyCards + currentMeal.lfyCash) > currentMeal.eftpos
               const canSave = !saving && !!recorderName.trim() && !lfyCardsInvalid && !cashSaleInvalid && !noteRequired && (!isEditing || !!auditEditorName.trim())
@@ -731,8 +742,8 @@ export default function RevenueView() {
                     </label>
                     <input
                       type="text"
-                      value={form.note ?? ''}
-                      onChange={(e) => setEntryField('note', e.target.value || undefined)}
+                      value={currentNote ?? ''}
+                      onChange={(e) => setEntryField(mode === 'lunch' ? 'lunchNote' : 'dinnerNote', e.target.value || undefined)}
                       placeholder={noteRequired ? 'กรอก Note ก่อน Save (required)' : '—'}
                       className={`w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-gold ${noteRequired ? 'border-orange-300 bg-orange-50' : 'border-gray-300'}`}
                     />

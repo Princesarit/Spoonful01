@@ -97,6 +97,28 @@ export async function syncSumSheet(shopCode: string) {
   if (!res.ok) throw new Error('Sum sync failed')
 }
 
+export interface WageWeekSummary {
+  totalWage: number
+  tax: number
+  paid: number
+  wageCash: number
+}
+
+export async function getWageWeekSummary(shopCode: string, weekStart: string): Promise<WageWeekSummary> {
+  const session = await getSession()
+  if (!session || session.shopCode !== shopCode) return { totalWage: 0, tax: 0, paid: 0, wageCash: 0 }
+  try {
+    const res = await fetch(`${BACKEND_URL}/${shopCode}/wages/week-summary?weekStart=${weekStart}`, {
+      headers: authHeader(session.token),
+      cache: 'no-store',
+    })
+    if (!res.ok) return { totalWage: 0, tax: 0, paid: 0, wageCash: 0 }
+    return await res.json() as WageWeekSummary
+  } catch {
+    return { totalWage: 0, tax: 0, paid: 0, wageCash: 0 }
+  }
+}
+
 export async function saveExpenseEntry(shopCode: string, entry: ExpenseEntry) {
   const session = await getSession()
   if (!session || session.shopCode !== shopCode) throw new Error('Unauthorized')

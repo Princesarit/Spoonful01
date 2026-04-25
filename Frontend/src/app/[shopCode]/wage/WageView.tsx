@@ -273,10 +273,10 @@ export default function WageView() {
                     <th className="border border-gray-300 px-2 py-1 text-left">Name</th>
                     <th className="border border-gray-300 px-2 py-1 text-center">Rate</th>
                     {dates.map((d) => (
-                      <>
-                        <th key={d + 'L'} className="border border-gray-300 px-1 py-1 text-center bg-yellow-50 text-yellow-600 w-12">L</th>
-                        <th key={d + 'D'} className="border border-gray-300 px-1 py-1 text-center bg-blue-50 text-blue-500 w-12">D</th>
-                      </>
+                      <Fragment key={d}>
+                        <th className="border border-gray-300 px-1 py-1 text-center bg-yellow-50 text-yellow-600 w-12">L</th>
+                        <th className="border border-gray-300 px-1 py-1 text-center bg-blue-50 text-blue-500 w-12">D</th>
+                      </Fragment>
                     ))}
                     <th className="border border-gray-300 px-1 py-1" />
                     <th className="border border-gray-300 px-1 py-1" />
