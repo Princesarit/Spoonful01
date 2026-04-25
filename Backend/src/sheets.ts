@@ -66,7 +66,12 @@ export async function getSheetDataRaw(
   spreadsheetId = config.spreadsheetId,
 ): Promise<string[][]> {
   try {
-    const res = await sheetsApi.spreadsheets.values.get({ spreadsheetId, range: sheetName })
+    const res = await sheetsApi.spreadsheets.values.get({
+      spreadsheetId,
+      range: sheetName,
+      valueRenderOption: 'UNFORMATTED_VALUE',
+      dateTimeRenderOption: 'FORMATTED_STRING',
+    })
     return (res.data.values ?? []) as string[][]
   } catch {
     return []
@@ -83,7 +88,12 @@ export async function getSheetData(
   spreadsheetId = config.spreadsheetId,
 ): Promise<Record<string, string>[]> {
   try {
-    const res = await sheetsApi.spreadsheets.values.get({ spreadsheetId, range: sheetName })
+    const res = await sheetsApi.spreadsheets.values.get({
+      spreadsheetId,
+      range: sheetName,
+      valueRenderOption: 'UNFORMATTED_VALUE',
+      dateTimeRenderOption: 'FORMATTED_STRING',
+    })
     const rows = res.data.values
     if (!rows || rows.length < 2) return []
     const headers = rows[0] as string[]
