@@ -12,7 +12,8 @@ import type {
   DailyNote,
   MealRevenue,
 } from '@/lib/types'
-import { getSummaryData, getSummaryDataAll, saveDailyNote, syncReportSheets, hideReportSheets, saveExpenseEntry, syncSumSheet, getAllExpenses } from './actions'
+import { getSummaryData, getSummaryDataAll, saveDailyNote, syncReportSheets, hideReportSheets, saveExpenseEntry, syncSumSheet, getAllExpenses, getCashReportAll, saveCashReportWeek } from './actions'
+import type { CashReportRow } from './actions'
 import { useShop } from '@/components/ShopProvider'
 import { translations } from '@/lib/translations'
 
@@ -506,11 +507,18 @@ export default function SummaryView() {
   const [shift, setShift] = useState<Shift>('total')
   function nextShift() { setShift((s) => s === 'am' ? 'pm' : s === 'pm' ? 'total' : 'am') }
   const [loading, setLoading] = useState(true)
+  const [showAllDays, setShowAllDays] = useState(false)
   const [syncing, setSyncing] = useState(false)
   const [hiding, setHiding] = useState(false)
   const [showExpense, setShowExpense] = useState(false)
   const [panelExpenses, setPanelExpenses] = useState<ExpenseEntry[]>([])
   const [panelSaving, setPanelSaving] = useState(false)
+  const [showReport, setShowReport] = useState(false)
+  const [reportData, setReportData] = useState<Record<string, CashReportRow>>({})
+  type ItemEdit = { label: string; amount: string; note: string }
+  type WeekEdit = { cashFromBank: string; cashLeftInBag: string; incomeItems: ItemEdit[]; expenseItems: ItemEdit[] }
+  const [reportEdits, setReportEdits] = useState<Record<string, WeekEdit>>({})
+  const [reportSaving, setReportSaving] = useState(false)
   const [calendarMonth, setCalendarMonth] = useState(currentMonth)
   const [calendarAllExp, setCalendarAllExp] = useState<ExpenseEntry[]>([])
   const [employees, setEmployees] = useState<Employee[]>([])
@@ -524,6 +532,7 @@ export default function SummaryView() {
 
   useEffect(() => {
     setLoading(true)
+    setShowAllDays(false)
     getSummaryData(shopCode, month)
       .then(({ employees: emps, timeRecords: trs, deliveryTrips: dts, revenue: rev, expenses: exp, notes: ns }) => {
         setEmployees(emps)
@@ -547,6 +556,14 @@ export default function SummaryView() {
       getAllExpenses(shopCode).then(setCalendarAllExp).catch(() => {})
     }
   }, [showExpense])
+
+  useEffect(() => {
+    if (!showReport) return
+    getCashReportAll(shopCode).then((data) => {
+      setReportData(data)
+      setReportEdits({})
+    }).catch(() => {})
+  }, [showReport, shopCode])
 
   useEffect(() => {
     if (pov !== 'monthly') return
@@ -596,6 +613,43 @@ export default function SummaryView() {
       alert('Save failed')
     } finally {
       setPanelSaving(false)
+    }
+  }
+
+  function toSpecialItems(items: { label: string; amount: string; note: string }[]) {
+    return items
+      .filter((i) => i.label.trim() || parseFloat(i.amount) > 0)
+      .map((i) => ({ label: i.label.trim(), amount: parseFloat(i.amount) || 0, note: i.note.trim() }))
+  }
+
+  async function handleReportSave() {
+    setReportSaving(true)
+    try {
+      await Promise.all(
+        Object.entries(reportEdits).map(([ws, edit]) => {
+          const cfb = Math.max(0, parseFloat(edit.cashFromBank) || 0)
+          const clb = edit.cashLeftInBag !== '' ? (parseFloat(edit.cashLeftInBag) || null) : null
+          return saveCashReportWeek(shopCode, ws, cfb, clb, toSpecialItems(edit.incomeItems), toSpecialItems(edit.expenseItems))
+        })
+      )
+      setReportData((prev) => {
+        const next = { ...prev }
+        for (const [ws, edit] of Object.entries(reportEdits)) {
+          next[ws] = {
+            cashFromBank: Math.max(0, parseFloat(edit.cashFromBank) || 0),
+            cashLeftInBag: edit.cashLeftInBag !== '' ? (parseFloat(edit.cashLeftInBag) || null) : null,
+            incomeItems: toSpecialItems(edit.incomeItems),
+            expenseItems: toSpecialItems(edit.expenseItems),
+          }
+        }
+        return next
+      })
+      setReportEdits({})
+      syncSumSheet(shopCode).catch(() => {})
+    } catch {
+      alert('Save failed')
+    } finally {
+      setReportSaving(false)
     }
   }
 
@@ -649,6 +703,12 @@ export default function SummaryView() {
         >
           Wage
         </Link>
+        <button
+          onClick={() => setShowReport(true)}
+          className="text-xs px-3 py-1.5 rounded-lg cursor-pointer border transition-colors bg-white text-gray-600 border-gray-200 hover:border-gray-300"
+        >
+          Report
+        </button>
         {session.role === 'owner' && (
           <div className="flex gap-2">
             <button
@@ -805,15 +865,26 @@ export default function SummaryView() {
               <div className="text-center py-12 text-gray-400 text-sm">{tr.no_data_month}</div>
             ) : (
               <div className="space-y-3">
-                {[...activeRows].reverse().map((d) => {
+                {[...activeRows].reverse().map((d, idx) => {
+                  if (!showAllDays && idx > 0) return null
                   const dv = getDayDisplay(d, shift)
                   return (
                   <div key={d.date} className="bg-white rounded-xl border border-gray-100 shadow-sm p-4">
                     <div className="flex items-center justify-between mb-3">
                       <span className="text-sm font-semibold text-gray-700">{dayPovLabel(d.date)}</span>
-                      <div className="text-right">
-                        <div className="text-sm font-bold text-brand-gold">{fmt(dv.totalSale)} $</div>
-                        <div className="text-xs text-gray-400">Total sale</div>
+                      <div className="flex items-center gap-2">
+                        <button
+                          onClick={nextShift}
+                          className={`text-xs px-2 py-0.5 rounded-full font-semibold cursor-pointer ${
+                            shift === 'am' ? 'bg-orange-100 text-orange-600' : shift === 'pm' ? 'bg-blue-100 text-blue-600' : 'bg-gray-100 text-gray-600'
+                          }`}
+                        >
+                          {shift === 'am' ? '🌞 AM' : shift === 'pm' ? '🌙 PM' : 'Total'}
+                        </button>
+                        <div className="text-right">
+                          <div className="text-sm font-bold text-brand-gold">{fmt(dv.totalSale)} $</div>
+                          <div className="text-xs text-gray-400">Total sale</div>
+                        </div>
                       </div>
                     </div>
 
@@ -850,10 +921,219 @@ export default function SummaryView() {
                   </div>
                   )
                 })}
+                {activeRows.length > 1 && (
+                  <button
+                    onClick={() => setShowAllDays((v) => !v)}
+                    className="w-full py-2.5 text-xs text-gray-500 bg-white rounded-xl border border-gray-100 shadow-sm hover:bg-gray-50 cursor-pointer font-medium"
+                  >
+                    {showAllDays ? '▲ Show less' : `▼ Show more (${activeRows.length - 1} more day${activeRows.length - 1 !== 1 ? 's' : ''})`}
+                  </button>
+                )}
               </div>
             )
           )}
         </>
+      )}
+
+      {/* Report Panel */}
+      {showReport && (
+        <div className="fixed inset-0 bg-black/40 flex flex-col items-center justify-end z-50">
+          <div className="bg-white rounded-t-2xl w-full max-w-lg max-h-[85vh] flex flex-col">
+            <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100 shrink-0">
+              <h3 className="font-bold text-gray-900">Weekly Cash Report</h3>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={handleReportSave}
+                  disabled={reportSaving || Object.keys(reportEdits).length === 0}
+                  className="text-xs bg-brand-gold text-white px-3 py-1.5 rounded-lg font-semibold disabled:opacity-50 cursor-pointer"
+                >
+                  {reportSaving ? 'Saving...' : 'Save'}
+                </button>
+                <button onClick={() => setShowReport(false)} className="text-gray-400 hover:text-gray-600 cursor-pointer text-xl leading-none">✕</button>
+              </div>
+            </div>
+            <div className="overflow-y-auto flex-1 px-4 py-3 space-y-4">
+              {weekGroups.length === 0 ? (
+                <div className="text-center py-8 text-gray-400 text-sm">No data this month</div>
+              ) : [...weekGroups].reverse().map((wg) => {
+                const wt = wg.totals
+                const cashSales = wt.cashLeave + wt.cashExpense + wt.labor
+                const ws = wg.weekStart
+                const stored = reportData[ws]
+                const edit: { cashFromBank: string; cashLeftInBag: string; incomeItems: { label: string; amount: string; note: string }[]; expenseItems: { label: string; amount: string; note: string }[] } = reportEdits[ws] ?? {
+                  cashFromBank: String(stored?.cashFromBank ?? 0),
+                  cashLeftInBag: stored?.cashLeftInBag != null ? String(stored.cashLeftInBag) : '',
+                  incomeItems: stored?.incomeItems?.map((i) => ({ ...i, amount: String(i.amount) })) ?? [],
+                  expenseItems: stored?.expenseItems?.map((i) => ({ ...i, amount: String(i.amount) })) ?? [],
+                }
+
+                function setEdit(patch: Partial<typeof edit>) {
+                  setReportEdits((prev) => ({ ...prev, [ws]: { ...edit, ...patch } }))
+                }
+                function updateIncomeItem(idx: number, key: 'label' | 'amount' | 'note', val: string) {
+                  const next = edit.incomeItems.map((it, i) => i === idx ? { ...it, [key]: val } : it)
+                  setEdit({ incomeItems: next })
+                }
+                function removeIncomeItem(idx: number) {
+                  setEdit({ incomeItems: edit.incomeItems.filter((_, i) => i !== idx) })
+                }
+                function updateExpenseItem(idx: number, key: 'label' | 'amount' | 'note', val: string) {
+                  const next = edit.expenseItems.map((it, i) => i === idx ? { ...it, [key]: val } : it)
+                  setEdit({ expenseItems: next })
+                }
+                function removeExpenseItem(idx: number) {
+                  setEdit({ expenseItems: edit.expenseItems.filter((_, i) => i !== idx) })
+                }
+
+                const incomeTotal = edit.incomeItems.reduce((s, i) => s + (parseFloat(i.amount) || 0), 0)
+                const expenseItemTotal = edit.expenseItems.reduce((s, i) => s + (parseFloat(i.amount) || 0), 0)
+                const fromBank = Math.max(0, parseFloat(edit.cashFromBank) || 0)
+                const totalCash = incomeTotal + cashSales + fromBank
+                const remaining = totalCash - wt.cashExpense - wt.labor - expenseItemTotal
+
+                const inputCls = 'border border-gray-300 rounded px-2 py-0.5 text-sm focus:outline-none focus:ring-1 focus:ring-brand-gold'
+
+                return (
+                  <div key={ws} className="border border-gray-200 rounded-xl overflow-hidden">
+                    <div className="bg-amber-50 px-3 py-2 border-b border-amber-100">
+                      <span className="text-xs font-bold text-amber-700">{weekPovLabel(ws)}</span>
+                    </div>
+                    <div className="p-3 space-y-2 text-sm">
+
+                      {/* Income special items */}
+                      {edit.incomeItems.map((item, idx) => (
+                        <div key={idx} className="flex items-center gap-1">
+                          <input
+                            type="text"
+                            placeholder="Description"
+                            value={item.label}
+                            onChange={(e) => updateIncomeItem(idx, 'label', e.target.value)}
+                            className={`flex-1 min-w-0 ${inputCls}`}
+                          />
+                          <input
+                            type="number"
+                            inputMode="decimal"
+                            placeholder="0"
+                            min="0"
+                            value={item.amount}
+                            onChange={(e) => updateIncomeItem(idx, 'amount', e.target.value)}
+                            className={`w-20 text-right ${inputCls}`}
+                          />
+                          <input
+                            type="text"
+                            placeholder="Note"
+                            value={item.note}
+                            onChange={(e) => updateIncomeItem(idx, 'note', e.target.value)}
+                            className={`w-20 ${inputCls}`}
+                          />
+                          <button onClick={() => removeIncomeItem(idx)} className="text-gray-300 hover:text-red-400 cursor-pointer text-base leading-none shrink-0">✕</button>
+                        </div>
+                      ))}
+                      {edit.incomeItems.length < 4 && (
+                        <button
+                          onClick={() => setEdit({ incomeItems: [...edit.incomeItems, { label: '', amount: '', note: '' }] })}
+                          className="text-xs text-green-600 hover:text-green-700 cursor-pointer font-medium"
+                        >
+                          + Add cash item
+                        </button>
+                      )}
+
+                      <div className="flex justify-between pt-1">
+                        <span className="text-gray-500">Cash Sales</span>
+                        <span className="font-semibold text-gray-800">${fmt(cashSales)}</span>
+                      </div>
+                      <div className="flex items-center justify-between">
+                        <span className="text-gray-500">+ Cash from Bank</span>
+                        <div className="flex items-center gap-1">
+                          <span className="text-gray-400 text-xs">$</span>
+                          <input
+                            type="number"
+                            inputMode="decimal"
+                            min="0"
+                            value={edit.cashFromBank}
+                            onChange={(e) => setEdit({ cashFromBank: String(Math.max(0, parseFloat(e.target.value) || 0)) })}
+                            className={`w-24 text-right ${inputCls}`}
+                          />
+                        </div>
+                      </div>
+                      <div className="flex justify-between font-semibold border-t border-gray-100 pt-2 text-gray-700">
+                        <span>= Total Cash</span>
+                        <span>${fmt(totalCash)}</span>
+                      </div>
+
+                      {/* Expense special items */}
+                      <div className="pt-1 space-y-1">
+                        {edit.expenseItems.map((item, idx) => (
+                          <div key={idx} className="flex items-center gap-1">
+                            <input
+                              type="text"
+                              placeholder="Description"
+                              value={item.label}
+                              onChange={(e) => updateExpenseItem(idx, 'label', e.target.value)}
+                              className={`flex-1 min-w-0 ${inputCls}`}
+                            />
+                            <input
+                              type="number"
+                              inputMode="decimal"
+                              placeholder="0"
+                              min="0"
+                              value={item.amount}
+                              onChange={(e) => updateExpenseItem(idx, 'amount', e.target.value)}
+                              className={`w-20 text-right ${inputCls}`}
+                            />
+                            <input
+                              type="text"
+                              placeholder="Note"
+                              value={item.note}
+                              onChange={(e) => updateExpenseItem(idx, 'note', e.target.value)}
+                              className={`w-20 ${inputCls}`}
+                            />
+                            <button onClick={() => removeExpenseItem(idx)} className="text-gray-300 hover:text-red-400 cursor-pointer text-base leading-none shrink-0">✕</button>
+                          </div>
+                        ))}
+                        {edit.expenseItems.length < 5 && (
+                          <button
+                            onClick={() => setEdit({ expenseItems: [...edit.expenseItems, { label: '', amount: '', note: '' }] })}
+                            className="text-xs text-red-500 hover:text-red-600 cursor-pointer font-medium"
+                          >
+                            + Add expense item
+                          </button>
+                        )}
+                      </div>
+
+                      <div className="flex justify-between text-xs text-gray-400">
+                        <span>− Expenses</span>
+                        <span>${fmt(wt.cashExpense)}</span>
+                      </div>
+                      <div className="flex justify-between text-xs text-gray-400">
+                        <span>− Wages</span>
+                        <span>${fmt(wt.labor)}</span>
+                      </div>
+                      <div className={`flex justify-between font-bold border-t border-gray-100 pt-2 ${remaining >= 0 ? 'text-green-600' : 'text-red-500'}`}>
+                        <span>= Remaining</span>
+                        <span>${fmt(remaining)}</span>
+                      </div>
+                      <div className="flex items-center justify-between border-t border-gray-100 pt-2">
+                        <span className="text-gray-700 font-medium">Cash Left in Bag</span>
+                        <div className="flex items-center gap-1">
+                          <span className="text-gray-400 text-xs">$</span>
+                          <input
+                            type="number"
+                            inputMode="decimal"
+                            value={edit.cashLeftInBag}
+                            onChange={(e) => setEdit({ cashLeftInBag: e.target.value })}
+                            placeholder="0"
+                            className={`w-24 text-right ${inputCls}`}
+                          />
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+          </div>
+        </div>
       )}
 
       {/* Expense Panel */}

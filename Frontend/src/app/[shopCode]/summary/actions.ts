@@ -109,6 +109,51 @@ export async function saveExpenseEntry(shopCode: string, entry: ExpenseEntry) {
   if (!res.ok) throw new Error('Failed to save expense')
 }
 
+export interface SpecialItem {
+  label: string
+  amount: number
+  note: string
+}
+
+export interface CashReportRow {
+  cashFromBank: number
+  cashLeftInBag: number | null
+  incomeItems: SpecialItem[]
+  expenseItems: SpecialItem[]
+}
+
+export async function getCashReportAll(
+  shopCode: string,
+): Promise<Record<string, CashReportRow>> {
+  const session = await getSession()
+  if (!session || session.shopCode !== shopCode) throw new Error('Unauthorized')
+  const res = await fetch(`${BACKEND_URL}/${shopCode}/cash-report`, {
+    headers: authHeader(session.token),
+    cache: 'no-store',
+  })
+  if (!res.ok) return {}
+  const data = await res.json() as { report: Record<string, CashReportRow> }
+  return data.report ?? {}
+}
+
+export async function saveCashReportWeek(
+  shopCode: string,
+  weekStart: string,
+  cashFromBank: number,
+  cashLeftInBag: number | null,
+  incomeItems: SpecialItem[],
+  expenseItems: SpecialItem[],
+): Promise<void> {
+  const session = await getSession()
+  if (!session || session.shopCode !== shopCode) throw new Error('Unauthorized')
+  const res = await fetch(`${BACKEND_URL}/${shopCode}/cash-report`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...authHeader(session.token) },
+    body: JSON.stringify({ weekStart, cashFromBank, cashLeftInBag, incomeItems, expenseItems }),
+  })
+  if (!res.ok) throw new Error('Save failed')
+}
+
 export async function saveDailyNote(shopCode: string, date: string, note: string) {
   const session = await getSession()
   if (!session || session.shopCode !== shopCode) throw new Error('Unauthorized')

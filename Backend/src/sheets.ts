@@ -454,6 +454,256 @@ export async function batchUpdateSheet(
   }
 }
 
+const EMP_COL_NAMES = [
+  'id', 'employeeId', 'positions', 'name', 'phone',
+  'hourlyWage', 'wageLunch', 'wageDinner', 'deliveryFeePerTrip', 'defaultDays', 'fired',
+]
+
+export type EmpCategory = 'fired' | 'front' | 'kitchen' | 'home' | 'other'
+
+/**
+ * Apply formatting to the employees sheet (no Google Sheets Table API used):
+ * - Bold header row + black borders around entire data range (A-K)
+ * - Row colors: fired=pink, front=yellow, kitchen=green, home=blue
+ * - Clear backgrounds white beyond column K
+ * - Hide columns A (0), B (1), J (9)
+ *
+ * categories: one entry per data row (same order as saved rows)
+ */
+export async function applyEmployeeSheetFormatting(
+  spreadsheetId: string,
+  sheetName: string,
+  categories: EmpCategory[],
+): Promise<void> {
+  const meta = await sheetsApi.spreadsheets.get({
+    spreadsheetId,
+    fields: 'sheets(properties(sheetId,title,gridProperties))',
+  })
+  const sheetMeta = meta.data.sheets?.find((s) => s.properties?.title === sheetName)
+  if (!sheetMeta) return
+  const sheetId = sheetMeta.properties?.sheetId
+  if (sheetId === undefined) return
+
+  const totalRows = categories.length + 1   // +1 for header row
+  const COL_COUNT = EMP_COL_NAMES.length    // 11 columns (A–K)
+  const gridRowCount = sheetMeta.properties?.gridProperties?.rowCount ?? totalRows + 50
+
+  const WHITE   = { red: 1,     green: 1,     blue: 1     }
+  const BLACK   = { red: 0,     green: 0,     blue: 0     }
+  const FIRED   = { red: 0.957, green: 0.8,   blue: 0.8   }  // #F4CCCC
+  const FRONT   = { red: 1,     green: 0.949, blue: 0.8   }  // #FFF2CC
+  const KITCHEN = { red: 0.851, green: 0.918, blue: 0.827 }  // #D9EAD3
+  const HOME    = { red: 0.812, green: 0.886, blue: 0.953 }  // #CFE2F3
+
+  const COLOR_MAP: Record<EmpCategory, typeof WHITE> = {
+    fired: FIRED, front: FRONT, kitchen: KITCHEN, home: HOME, other: WHITE,
+  }
+
+  const requests: object[] = []
+
+  // 1. Clear ALL cell backgrounds to white (entire sheet, including overflow cols)
+  requests.push({
+    repeatCell: {
+      range: { sheetId, startRowIndex: 0, endRowIndex: gridRowCount },
+      cell: { userEnteredFormat: { backgroundColor: WHITE } },
+      fields: 'userEnteredFormat.backgroundColor',
+    },
+  })
+
+  // 2. Clear ALL borders (entire sheet) — removes stale borders from previous saves
+  requests.push({
+    repeatCell: {
+      range: { sheetId, startRowIndex: 0, endRowIndex: gridRowCount },
+      cell: {
+        userEnteredFormat: {
+          borders: {
+            top: { style: 'NONE' }, bottom: { style: 'NONE' },
+            left: { style: 'NONE' }, right: { style: 'NONE' },
+          },
+        },
+      },
+      fields: 'userEnteredFormat.borders',
+    },
+  })
+
+  // 3. Header row: bold text
+  requests.push({
+    repeatCell: {
+      range: { sheetId, startRowIndex: 0, endRowIndex: 1, startColumnIndex: 0, endColumnIndex: COL_COUNT },
+      cell: { userEnteredFormat: { textFormat: { bold: true } } },
+      fields: 'userEnteredFormat.textFormat.bold',
+    },
+  })
+
+  // 4. Row colors for each data row (only columns A–K so L+ stays white)
+  categories.forEach((cat, i) => {
+    requests.push({
+      repeatCell: {
+        range: {
+          sheetId,
+          startRowIndex: i + 1, endRowIndex: i + 2,
+          startColumnIndex: 0, endColumnIndex: COL_COUNT,
+        },
+        cell: { userEnteredFormat: { backgroundColor: COLOR_MAP[cat] } },
+        fields: 'userEnteredFormat.backgroundColor',
+      },
+    })
+  })
+
+  // 5. Black borders for entire data range (A1:K{totalRows}) — outer + inner grid
+  const solidThin = { style: 'SOLID', color: BLACK }
+  requests.push({
+    updateBorders: {
+      range: {
+        sheetId,
+        startRowIndex: 0, endRowIndex: totalRows,
+        startColumnIndex: 0, endColumnIndex: COL_COUNT,
+      },
+      top: solidThin, bottom: solidThin, left: solidThin, right: solidThin,
+      innerHorizontal: solidThin, innerVertical: solidThin,
+    },
+  })
+
+  // 6. Unhide all columns first, then hide A (0), B (1), J (9)
+  requests.push({
+    updateDimensionProperties: {
+      range: { sheetId, dimension: 'COLUMNS', startIndex: 0, endIndex: COL_COUNT },
+      properties: { hiddenByUser: false },
+      fields: 'hiddenByUser',
+    },
+  })
+  for (const colIdx of [0, 1, 9]) {
+    requests.push({
+      updateDimensionProperties: {
+        range: { sheetId, dimension: 'COLUMNS', startIndex: colIdx, endIndex: colIdx + 1 },
+        properties: { hiddenByUser: true },
+        fields: 'hiddenByUser',
+      },
+    })
+  }
+
+  await batchUpdateSheet(spreadsheetId, requests)
+}
+
+const MASTER_EMP_COL_COUNT = 8  // shopCode, id, employeeId, positions, name, phone, defaultDays, fired
+
+/**
+ * Apply color formatting to the master Employees sheet (main spreadsheet).
+ * Same color scheme as applyEmployeeSheetFormatting.
+ * Hides columns B(1), C(2) [id, employeeId] and H(7) [fired].
+ */
+export async function applyMasterEmployeeFormatting(
+  categories: EmpCategory[],
+): Promise<void> {
+  const spreadsheetId = config.spreadsheetId
+  const sheetName = 'Employees'
+
+  const meta = await sheetsApi.spreadsheets.get({
+    spreadsheetId,
+    fields: 'sheets(properties(sheetId,title,gridProperties))',
+  })
+  const sheetMeta = meta.data.sheets?.find((s) => s.properties?.title === sheetName)
+  if (!sheetMeta) return
+  const sheetId = sheetMeta.properties?.sheetId
+  if (sheetId === undefined) return
+
+  const totalRows = categories.length + 1
+  const gridRowCount = sheetMeta.properties?.gridProperties?.rowCount ?? totalRows + 50
+
+  const WHITE   = { red: 1,     green: 1,     blue: 1     }
+  const BLACK   = { red: 0,     green: 0,     blue: 0     }
+  const FIRED   = { red: 0.957, green: 0.8,   blue: 0.8   }
+  const FRONT   = { red: 1,     green: 0.949, blue: 0.8   }
+  const KITCHEN = { red: 0.851, green: 0.918, blue: 0.827 }
+  const HOME    = { red: 0.812, green: 0.886, blue: 0.953 }
+  const COLOR_MAP: Record<EmpCategory, typeof WHITE> = {
+    fired: FIRED, front: FRONT, kitchen: KITCHEN, home: HOME, other: WHITE,
+  }
+
+  const requests: object[] = []
+
+  // Clear all backgrounds + borders
+  requests.push({
+    repeatCell: {
+      range: { sheetId, startRowIndex: 0, endRowIndex: gridRowCount },
+      cell: { userEnteredFormat: { backgroundColor: WHITE } },
+      fields: 'userEnteredFormat.backgroundColor',
+    },
+  })
+  requests.push({
+    repeatCell: {
+      range: { sheetId, startRowIndex: 0, endRowIndex: gridRowCount },
+      cell: {
+        userEnteredFormat: {
+          borders: {
+            top: { style: 'NONE' }, bottom: { style: 'NONE' },
+            left: { style: 'NONE' }, right: { style: 'NONE' },
+          },
+        },
+      },
+      fields: 'userEnteredFormat.borders',
+    },
+  })
+
+  // Bold header
+  requests.push({
+    repeatCell: {
+      range: { sheetId, startRowIndex: 0, endRowIndex: 1, startColumnIndex: 0, endColumnIndex: MASTER_EMP_COL_COUNT },
+      cell: { userEnteredFormat: { textFormat: { bold: true } } },
+      fields: 'userEnteredFormat.textFormat.bold',
+    },
+  })
+
+  // Row colors
+  categories.forEach((cat, i) => {
+    requests.push({
+      repeatCell: {
+        range: {
+          sheetId,
+          startRowIndex: i + 1, endRowIndex: i + 2,
+          startColumnIndex: 0, endColumnIndex: MASTER_EMP_COL_COUNT,
+        },
+        cell: { userEnteredFormat: { backgroundColor: COLOR_MAP[cat] } },
+        fields: 'userEnteredFormat.backgroundColor',
+      },
+    })
+  })
+
+  // Black borders on data range
+  const solidThin = { style: 'SOLID', color: BLACK }
+  requests.push({
+    updateBorders: {
+      range: {
+        sheetId,
+        startRowIndex: 0, endRowIndex: totalRows,
+        startColumnIndex: 0, endColumnIndex: MASTER_EMP_COL_COUNT,
+      },
+      top: solidThin, bottom: solidThin, left: solidThin, right: solidThin,
+      innerHorizontal: solidThin, innerVertical: solidThin,
+    },
+  })
+
+  // Hide B(1), C(2) [id, employeeId], H(7) [fired]
+  requests.push({
+    updateDimensionProperties: {
+      range: { sheetId, dimension: 'COLUMNS', startIndex: 0, endIndex: MASTER_EMP_COL_COUNT },
+      properties: { hiddenByUser: false },
+      fields: 'hiddenByUser',
+    },
+  })
+  for (const colIdx of [1, 2, 7]) {
+    requests.push({
+      updateDimensionProperties: {
+        range: { sheetId, dimension: 'COLUMNS', startIndex: colIdx, endIndex: colIdx + 1 },
+        properties: { hiddenByUser: true },
+        fields: 'hiddenByUser',
+      },
+    })
+  }
+
+  await batchUpdateSheet(spreadsheetId, requests)
+}
+
 const INTERNAL_SHEETS = new Set([
   'config', 'edit_log', 'wage_payments', 'schedules',
   'delivery_trips', 'front_time_records', 'back_time_records',

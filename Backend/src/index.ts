@@ -14,6 +14,7 @@ import noteRoutes from './routes/notes'
 import configRoutes from './routes/config'
 import sheetSyncRoutes from './routes/sheetSync'
 import wageRoutes from './routes/wages'
+import cashReportRoutes from './routes/cashReport'
 
 const app = express()
 
@@ -42,6 +43,7 @@ app.use('/:shopCode/notes', noteRoutes)
 app.use('/:shopCode/config', configRoutes)
 app.use('/:shopCode/sheets', sheetSyncRoutes)
 app.use('/:shopCode/wages', wageRoutes)
+app.use('/:shopCode/cash-report', cashReportRoutes)
 
 app.listen(config.port, () => {
   console.log(`Spoonful Backend running on http://localhost:${config.port}`)

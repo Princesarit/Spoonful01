@@ -2,7 +2,7 @@
  * Database layer — wraps Google Sheets
  */
 
-import { getSheetData, getSheetDataRaw, setSheetData, setSheetDataRaw, applyRowColors, applyTimeRecordFormatting, setSheetDataUserEntered, applyFormattingRules, getSheetIdByName, batchUpdateSheet, clearSheetMerges, hideInternalSheets } from './sheets'
+import { getSheetData, getSheetDataRaw, setSheetData, setSheetDataRaw, applyRowColors, applyTimeRecordFormatting, setSheetDataUserEntered, applyFormattingRules, getSheetIdByName, batchUpdateSheet, clearSheetMerges, hideInternalSheets, applyEmployeeSheetFormatting, applyMasterEmployeeFormatting, type EmpCategory } from './sheets'
 import type { SheetFormatRule } from './sheets'
 import type {
   Employee,
@@ -160,15 +160,16 @@ export async function saveEmployees(shopCode: string, employees: Employee[]): Pr
     return true
   })
   const sorted = [...deduped].sort((a, b) => {
-    const key = (p: Employee['positions']) => {
-      if (p.includes('Manager')) return 0
-      if (p.length > 1) return 1
-      if (p.includes('Front')) return 2
-      if (p.includes('Kitchen')) return 3
-      if (p.includes('Home')) return 4
-      return 5
+    const key = (e: Employee) => {
+      if (e.fired) return 0                          // fired always first
+      if (e.positions.includes('Manager')) return 1
+      if (e.positions.length > 1) return 2
+      if (e.positions.includes('Front')) return 3
+      if (e.positions.includes('Kitchen')) return 4
+      if (e.positions.includes('Home')) return 5
+      return 6
     }
-    const diff = key(a.positions) - key(b.positions)
+    const diff = key(a) - key(b)
     return diff !== 0 ? diff : a.name.localeCompare(b.name, 'th')
   })
   const rows = sorted.map((e) => [
@@ -177,7 +178,7 @@ export async function saveEmployees(shopCode: string, employees: Employee[]): Pr
     JSON.stringify(e.positions),
     e.name,
     e.phone ?? '',
-    e.wageLunch != null ? e.wageLunch / 4 : (e.hourlyWage ?? ''),  // hourlyWage = wageLunch / 4
+    e.wageLunch != null ? e.wageLunch / 4 : (e.hourlyWage ?? ''),
     e.wageLunch ?? '',
     e.wageDinner ?? '',
     e.deliveryFeePerTrip ?? '',
@@ -186,16 +187,47 @@ export async function saveEmployees(shopCode: string, employees: Employee[]): Pr
   ])
   await setSheetData(tab('employees'), EMP_HEADERS, rows, sid)
 
+  // Apply formatting: row colors, bold header, borders, hide columns
+  try {
+    const categories = sorted.map((e): EmpCategory => {
+      if (e.fired) return 'fired'
+      if (e.positions.includes('Front')) return 'front'
+      if (e.positions.includes('Kitchen')) return 'kitchen'
+      if (e.positions.includes('Home')) return 'home'
+      return 'other'
+    })
+    await applyEmployeeSheetFormatting(sid, tab('employees'), categories)
+  } catch (err) {
+    console.error('[saveEmployees] sheet formatting failed:', err)
+  }
+
   // Auto-sync to master Employees tab
   try {
     const existing = await getSheetData('Employees')
-    const otherRows = existing
-      .filter((r) => r.shopCode !== shopCode)
-      .map((r) => [r.shopCode, r.id, r.employeeId, r.positions, r.name, r.phone ?? '', r.defaultDays])
+    const others = existing.filter((r) => r.shopCode !== shopCode)
+    const otherRows = others.map((r) => [
+      r.shopCode, r.id, r.employeeId, r.positions, r.name, r.phone ?? '', r.defaultDays, r.fired ?? '',
+    ])
     const newRows = sorted.map((e) => [
-      shopCode, e.id, e.id, JSON.stringify(e.positions), e.name, e.phone ?? '', JSON.stringify(e.defaultDays),
+      shopCode, e.id, e.id, JSON.stringify(e.positions), e.name, e.phone ?? '',
+      JSON.stringify(e.defaultDays), e.fired ? 'true' : '',
     ])
     await setSheetData('Employees', MASTER_EMP_HEADERS, [...otherRows, ...newRows])
+
+    // Apply color formatting to master sheet
+    const otherCats = others.map((r): EmpCategory => {
+      if (r.fired === 'true') return 'fired'
+      try { const p: string[] = JSON.parse(r.positions); if (p.includes('Front')) return 'front'; if (p.includes('Kitchen')) return 'kitchen'; if (p.includes('Home')) return 'home' } catch { /* ignore */ }
+      return 'other'
+    })
+    const newCats = sorted.map((e): EmpCategory => {
+      if (e.fired) return 'fired'
+      if (e.positions.includes('Front')) return 'front'
+      if (e.positions.includes('Kitchen')) return 'kitchen'
+      if (e.positions.includes('Home')) return 'home'
+      return 'other'
+    })
+    await applyMasterEmployeeFormatting([...otherCats, ...newCats])
   } catch (err) {
     console.error('[saveEmployees] master sync failed:', err)
   }
@@ -1110,6 +1142,75 @@ export async function saveWagePayments(
   await setSheetData(tab('wage_payments'), WAGE_PMT_HEADERS, dataRows, sid)
 }
 
+// ─── Cash Report ──────────────────────────────────────────────────────────────
+
+export interface SpecialItem {
+  label: string
+  amount: number
+  note: string
+}
+
+export interface CashReportRow {
+  cashFromBank: number
+  cashLeftInBag: number | null
+  incomeItems: SpecialItem[]
+  expenseItems: SpecialItem[]
+}
+
+const CASH_REPORT_HEADERS = ['weekStart', 'cashFromBank', 'cashLeftInBag', 'incomeItems', 'expenseItems']
+
+function parseSpecialItems(raw: string | undefined): SpecialItem[] {
+  if (!raw) return []
+  try { return JSON.parse(raw) as SpecialItem[] } catch { return [] }
+}
+
+export async function getCashReportAll(
+  shopCode: string,
+): Promise<Map<string, CashReportRow>> {
+  try {
+    const { sid, tab } = await getShopDb(shopCode)
+    const rows = await getSheetData(tab('cash_report'), sid)
+    const result = new Map<string, CashReportRow>()
+    for (const r of rows) {
+      if (!r.weekStart) continue
+      const clb = r.cashLeftInBag !== '' && r.cashLeftInBag !== undefined
+        ? parseFloat(r.cashLeftInBag) || null
+        : null
+      result.set(r.weekStart, {
+        cashFromBank: parseFloat(r.cashFromBank) || 0,
+        cashLeftInBag: clb,
+        incomeItems:  parseSpecialItems(r.incomeItems),
+        expenseItems: parseSpecialItems(r.expenseItems),
+      })
+    }
+    return result
+  } catch {
+    return new Map()
+  }
+}
+
+export async function saveCashReport(
+  shopCode: string,
+  weekStart: string,
+  cashFromBank: number,
+  cashLeftInBag: number | null,
+  incomeItems: SpecialItem[],
+  expenseItems: SpecialItem[],
+): Promise<void> {
+  const { sid, tab } = await getShopDb(shopCode)
+  let existing: { weekStart: string; cashFromBank: string; cashLeftInBag: string; incomeItems: string; expenseItems: string }[] = []
+  try {
+    existing = await getSheetData(tab('cash_report'), sid) as typeof existing
+  } catch { /* sheet doesn't exist yet */ }
+
+  const kept = existing.filter((r) => r.weekStart !== weekStart)
+  const dataRows: string[][] = [
+    ...kept.map((r) => [r.weekStart, r.cashFromBank || '0', r.cashLeftInBag || '', r.incomeItems || '[]', r.expenseItems || '[]']),
+    [weekStart, String(cashFromBank), cashLeftInBag !== null ? String(cashLeftInBag) : '', JSON.stringify(incomeItems), JSON.stringify(expenseItems)],
+  ]
+  await setSheetData(tab('cash_report'), CASH_REPORT_HEADERS, dataRows, sid)
+}
+
 // ─── Migration ────────────────────────────────────────────────────────────────
 
 /** ย้ายข้อมูลร้านจาก master sheet ไปยัง spreadsheet ของตัวเอง */
@@ -1183,14 +1284,14 @@ export async function appendAuditLog(
 
 // ─── Master Employee Sync ──────────────────────────────────────────────────────
 
-const MASTER_EMP_HEADERS = ['shopCode', 'id', 'employeeId', 'positions', 'name', 'phone', 'defaultDays']
+const MASTER_EMP_HEADERS = ['shopCode', 'id', 'employeeId', 'positions', 'name', 'phone', 'defaultDays', 'fired']
 
 /** รวม employee ทุกสาขาลง Employees tab ใน master spreadsheet */
 export async function syncAllEmployeesToMaster(): Promise<void> {
   const shops = await listShops()
   const allRows: string[][] = []
   for (const shop of shops) {
-    const emps = await listEmployees(shop.code)
+    const emps = await listEmployees(shop.code, true)
     for (const e of emps) {
       allRows.push([
         shop.code,
@@ -1200,6 +1301,7 @@ export async function syncAllEmployeesToMaster(): Promise<void> {
         e.name,
         e.phone ?? '',
         JSON.stringify(e.defaultDays),
+        e.fired ? 'true' : '',
       ])
     }
   }
@@ -1403,6 +1505,7 @@ async function applyIncomeFullFormat(
   bg(0, 1, lo.cEftpos, lo.surcharge, C_LBLUE)         // Combined merged: light blue
   bg(0, 1, lo.surcharge, lo.surcharge + 1, C_DGRAY)  // AU: gray
   bg(0, 1, lo.running, lo.totalCols, C_MGRAY)         // AV onwards: medium gray
+  bg(0, 1, lo.gap3, lo.gap4 + 1, C_WHITE)             // AW, AX: white separators
   bold(0, 1, lo.lEftpos, lo.gap1)                     // LUNCH label: bold
   fgw(0, 1, lo.lEftpos, lo.gap1)                      // LUNCH label: white text
   fgw(0, 1, lo.gap1, lo.gap2)                         // DINNER label: white text
@@ -1471,6 +1574,8 @@ async function applyIncomeFullFormat(
   bg(d, totalRows, lo.cTotal, lo.cTotal + 1, C_LBLUE)        // cTotal
   bg(d, totalRows, lo.cCashBag, lo.cCashBag + 1, C_MGRAY)   // cCashBag
   bg(d, totalRows, lo.surcharge, lo.surcharge + 1, C_DGRAY) // surcharge
+  bg(d, totalRows, lo.gap2, lo.gap2 + 1, C_WHITE)             // AF gap2: white separator
+  bg(d, totalRows, lo.gap3, lo.gap4 + 1, C_WHITE)             // AW, AX gap3+4: white
   bg(d, totalRows, lo.running, lo.running + 1, C_AMBER)      // running (amber)
   bg(d, totalRows, lo.sLTot, lo.sLTot + 1, C_LORANGE)       // sLTot
   bg(d, totalRows, lo.sDTot, lo.sDTot + 1, C_PORANGE)       // sDTot
@@ -1485,6 +1590,8 @@ async function applyIncomeFullFormat(
     bg(si, si + 1, 2, 5, C_VDGRAY)                                 // C-E bills: darker
     bg(si, si + 1, lo.delTotal, lo.delTotal + 1, C_VDGRAY)         // L del total: darker
     bg(si, si + 1, lo.gap1, lo.gap1 + 1, C_LBLUE)                  // V gap1: keep light blue
+    bg(si, si + 1, lo.gap2, lo.gap2 + 1, C_WHITE)                  // AF gap2: white separator
+    bg(si, si + 1, lo.gap3, lo.gap4 + 1, C_WHITE)                  // AW, AX gap3+4: white
     bg(si, si + 1, lo.cCash2, lo.cCashBag + 1, C_MGRAY)           // AR-AT: slightly lighter
     bg(si, si + 1, lo.running, lo.running + 1, C_YELLOW)           // AV: yellow
     bg(si, si + 1, lo.sDay, lo.totalCols, C_MGRAY)                 // simplified: medium gray
@@ -2122,13 +2229,14 @@ const SUM_BLOCK     = 45   // rows per week block: rel 0 blank + rel 1-40 data +
 
 export async function syncSumSheet(shopCode: string): Promise<void> {
   const { sid } = await getShopDb(shopCode)
-  const [employees, timeRecords, deliveryTrips, revenue, expenses, allPayments] = await Promise.all([
+  const [employees, timeRecords, deliveryTrips, revenue, expenses, allPayments, cashReport] = await Promise.all([
     listEmployees(shopCode, true),
     listTimeRecords(shopCode),
     listDeliveryTrips(shopCode),
     listRevenue(shopCode),
     listExpenses(shopCode),
     getAllWagePayments(shopCode),
+    getCashReportAll(shopCode),
   ])
 
   // Sort staff: Front-only → Front+Kitchen → unlabeled → Kitchen-only
@@ -2258,26 +2366,51 @@ export async function syncSumSheet(shopCode: string): Promise<void> {
     }
 
     // ── Cash flow (G=6 labels, H=7 total-labels, I=8 amounts) ────────────────
-    const totalCashRev = wRev.reduce((s, r) => s + mealCash(r.lunch) + mealCash(r.dinner), 0)
-    const totalExpAmt  = wExp.reduce((s, e) => s + e.total, 0)
-    const cashInBag    = wRev.reduce((s, r) => s + (r.lunch.cashLeftInBag ?? 0) + (r.dinner.cashLeftInBag ?? 0), 0)
+    const totalExpAmt    = wExp.reduce((s, e) => s + e.total, 0)
+    const weekCashRpt    = cashReport.get(monday)
+    const storedFromBank = weekCashRpt?.cashFromBank ?? 0
+    const storedInBag    = weekCashRpt?.cashLeftInBag ?? null
+    const incomeItems    = weekCashRpt?.incomeItems  ?? []
+    const expenseItems   = weekCashRpt?.expenseItems ?? []
+    // fallback: auto-sum cashLeftInBag from revenue entries when not manually set
+    const autoCashInBag  = wRev.reduce((s, r) => s + (r.lunch.cashLeftInBag ?? 0) + (r.dinner.cashLeftInBag ?? 0), 0)
 
-    // rel 21: Cash sales
-    blk[21][6] = 'Cash sales';           blk[21][8] = totalCashRev > 0 ? totalCashRev : ''
-    // rel 22: cash from bank (manual)
-    blk[22][6] = 'cash from bank'
-    // rel 24: Total cash = Cash sales + cash from bank
-    blk[24][7] = 'Total cash';           blk[24][8] = `=I${R(21)}+I${R(22)}`
+    // ── rel 17-20: income special items (before Cash sales) ──────────────────
+    for (let i = 0; i < Math.min(incomeItems.length, 4); i++) {
+      const rel = 17 + i
+      const item = incomeItems[i]
+      blk[rel][6] = item.label
+      blk[rel][8] = item.amount > 0 ? item.amount : ''
+      blk[rel][9] = item.note || ''
+    }
+
+    // rel 21: Cash sales = sum of Total Cash column from the Mon-Sun table rows
+    blk[21][6] = 'Cash sales';           blk[21][8] = `=I${R(10)}`
+    // rel 22: cash from bank (stored from Report panel, blank if not set)
+    blk[22][6] = 'cash from bank';       blk[22][8] = storedFromBank > 0 ? storedFromBank : ''
+    // rel 24: Total cash = income items + Cash sales + cash from bank
+    blk[24][7] = 'Total cash';           blk[24][8] = `=SUM(I${R(17)}:I${R(22)})`
+
+    // ── rel 25-29: expense special items (before Expenses) ───────────────────
+    for (let i = 0; i < Math.min(expenseItems.length, 5); i++) {
+      const rel = 25 + i
+      const item = expenseItems[i]
+      blk[rel][6] = item.label
+      blk[rel][8] = item.amount > 0 ? item.amount : ''
+      blk[rel][9] = item.note || ''
+    }
+
     // rel 30: Expenses
     blk[30][6] = 'Expenses';             blk[30][8] = totalExpAmt > 0 ? totalExpAmt : ''
     // rel 31: Wage (Cash) = dynamic — references Wage(CASH) at wageStartRel+2
     blk[31][6] = 'Wage (Cash)';          blk[31][8] = `=C${R(wageStartRel + 2)}`
-    // rel 33: Total Exp.
-    blk[33][7] = 'Total Exp.';           blk[33][8] = `=I${R(30)}+I${R(31)}`
+    // rel 33: Total Exp. = expense items + Expenses + Wage Cash
+    blk[33][7] = 'Total Exp.';           blk[33][8] = `=SUM(I${R(25)}:I${R(31)})`
     // rel 35: Remaining
     blk[35][6] = 'Remaining';            blk[35][8] = `=I${R(24)}-I${R(33)}`
-    // rel 37: Cash left in the bag
-    blk[37][6] = 'Cash left in the bag'; blk[37][8] = cashInBag > 0 ? cashInBag : ''
+    // rel 37: Cash left in the bag — use manually stored value; fallback to auto-sum
+    blk[37][6] = 'Cash left in the bag'
+    blk[37][8] = storedInBag !== null ? storedInBag : autoCashInBag > 0 ? autoCashInBag : ''
 
     // ── Wage totals: 2 blank rows after last employee (dynamic position) ──────
     const WS = wageStartRel
@@ -2506,6 +2639,30 @@ export async function syncOverAllSheet(shopCode: string): Promise<void> {
 
   await setSheetDataUserEntered(OVERALL_SHEET, rows, sid)
   await applyFormattingRules(OVERALL_SHEET, sid, fmtRules)
+
+  // Add borders to data range
+  const sheetId = await getSheetIdByName(sid, OVERALL_SHEET)
+  if (sheetId !== undefined) {
+    const solidThin = { style: 'SOLID', color: { red: 0, green: 0, blue: 0 } }
+    await batchUpdateSheet(sid, [
+      // Clear stale borders from all rows
+      {
+        repeatCell: {
+          range: { sheetId, startRowIndex: 0, endRowIndex: 1000 },
+          cell: { userEnteredFormat: { borders: { top: { style: 'NONE' }, bottom: { style: 'NONE' }, left: { style: 'NONE' }, right: { style: 'NONE' } } } },
+          fields: 'userEnteredFormat.borders',
+        },
+      },
+      // Apply borders to data range only
+      {
+        updateBorders: {
+          range: { sheetId, startRowIndex: 0, endRowIndex: totalRows, startColumnIndex: 0, endColumnIndex: OVERALL_HEADERS.length },
+          top: solidThin, bottom: solidThin, left: solidThin, right: solidThin,
+          innerHorizontal: solidThin, innerVertical: solidThin,
+        },
+      },
+    ])
+  }
 }
 
 // ── Sync all report sheets ────────────────────────────────────────────────────
