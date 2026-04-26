@@ -49,18 +49,27 @@ function daysInMonth(month: string): string[] {
 }
 
 function dayPovLabel(dateStr: string): string {
-  const d = new Date(dateStr + 'T00:00:00')
+  const d = new Date(dateStr + 'T00:00:00Z')
   const dayNames = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday']
-  return `${dayNames[d.getDay()]} ${d.getDate()}/${d.getMonth() + 1}/${d.getFullYear()}`
+  return `${dayNames[d.getUTCDay()]} ${d.getUTCDate()}/${d.getUTCMonth() + 1}/${d.getUTCFullYear()}`
+}
+
+function addDaysIso(dateStr: string, n: number): string {
+  const d = new Date(dateStr + 'T00:00:00Z')
+  d.setUTCDate(d.getUTCDate() + n)
+  return d.toISOString().split('T')[0]
+}
+
+function fmtIsoDate(dateStr: string): string {
+  const [y, m, d] = dateStr.split('-')
+  return `${parseInt(d)}/${parseInt(m)}/${y}`
 }
 
 function getWeekStart(dateStr: string): string {
-  const d = new Date(dateStr + 'T00:00:00')
-  const day = d.getDay()
+  const d = new Date(dateStr + 'T00:00:00Z')
+  const day = d.getUTCDay()
   const diff = day === 0 ? -6 : 1 - day
-  const mon = new Date(d)
-  mon.setDate(d.getDate() + diff)
-  return mon.toISOString().split('T')[0]
+  return addDaysIso(dateStr, diff)
 }
 
 function weekPovLabel(weekStart: string): string {
@@ -78,6 +87,10 @@ function monthPovLabel(month: string): string {
     'July', 'August', 'September', 'October', 'November', 'December',
   ]
   return `${monthNames[m - 1]} ${y}`
+}
+
+function weekPovLabelSafe(weekStart: string): string {
+  return `Week ${fmtIsoDate(weekStart)} - ${fmtIsoDate(addDaysIso(weekStart, 6))}`
 }
 
 interface DaySummary {
@@ -155,6 +168,28 @@ function groupByWeek(rows: DaySummary[]): WeekGroup[] {
 function mealTotal(m: MealRevenue): number {
   if (m.totalSale > 0) return m.totalSale
   return m.eftpos + m.lfyOnline + m.uberOnline + m.doorDash + (m.cashSale ?? 0)
+}
+
+function mealCreditForSum(m: MealRevenue): number {
+  return m.eftpos + m.lfyOnline + m.uberOnline + m.doorDash
+}
+
+function mealCashForSum(m: MealRevenue): number {
+  return mealTotal(m) - mealCreditForSum(m)
+}
+
+function getWeekDates(weekStart: string): string[] {
+  return Array.from({ length: 7 }, (_, i) => addDaysIso(weekStart, i))
+}
+
+function getWeekCashSalesFromSumLogic(weekStart: string, revenue: RevenueEntry[]): number {
+  const weekDates = getWeekDates(weekStart)
+  const weekRevenue = revenue.filter((e) => weekDates.includes(e.date))
+  return weekDates.reduce((sum, date) => {
+    const rev = weekRevenue.find((e) => e.date === date)
+    if (!rev) return sum
+    return sum + mealCashForSum(rev.lunch) + mealCashForSum(rev.dinner)
+  }, 0)
 }
 
 function calcDay(
@@ -266,7 +301,7 @@ function RevenueExpenseChart({
   const data = pov === 'daily'
     ? rows.map((d) => {
         const dv = getDayDisplay(d, shift)
-        return { label: String(parseInt(d.date.split('-')[2])), dayOfWeek: DOW_SHORT[new Date(d.date + 'T00:00:00').getDay()], revenue: dv.totalSale, expense: dv.cashExpense }
+        return { label: String(parseInt(d.date.split('-')[2])), dayOfWeek: DOW_SHORT[new Date(d.date + 'T00:00:00Z').getUTCDay()], revenue: dv.totalSale, expense: dv.cashExpense }
       })
     : pov === 'weekly'
     ? weekGroups.map((wg, i) => {
@@ -438,7 +473,7 @@ function LunchDinnerBarChart({
     pov === 'daily'
       ? rows.map((d) => ({
           label: String(parseInt(d.date.split('-')[2])),
-          dayOfWeek: DOW_SHORT2[new Date(d.date + 'T00:00:00').getDay()],
+          dayOfWeek: DOW_SHORT2[new Date(d.date + 'T00:00:00Z').getUTCDay()],
           lunch: d.lunchSale,
           dinner: d.dinnerSale,
         }))
@@ -892,11 +927,10 @@ export default function SummaryView() {
   }
 
   function fmtDateShort(dateStr: string): string {
-    const [y, m, d] = dateStr.split('-')
-    return `${parseInt(d)}/${parseInt(m)}/${y}`
+    return fmtIsoDate(dateStr)
   }
   function dayShort(dateStr: string): string {
-    return new Date(dateStr + 'T00:00:00').toLocaleDateString('en-AU', { weekday: 'short' })
+    return new Date(dateStr + 'T00:00:00Z').toLocaleDateString('en-AU', { weekday: 'short', timeZone: 'UTC' })
   }
   function addDaysLocal(dateStr: string, n: number): string {
     const d = new Date(dateStr + 'T00:00:00')
@@ -915,7 +949,7 @@ export default function SummaryView() {
       .sort(([a], [b]) => a.localeCompare(b))
       .map(([ws, entries]) => ({
         weekStart: ws,
-        weekEnd: addDaysLocal(ws, 6),
+        weekEnd: addDaysIso(ws, 6),
         entries: [...entries].sort((a, b) => a.date.localeCompare(b.date)),
         total: entries.reduce((s, e) => s + e.total, 0),
       }))
@@ -1086,7 +1120,7 @@ export default function SummaryView() {
                   return (
                   <div key={wg.weekStart} className="bg-white rounded-xl border border-gray-100 shadow-sm p-4">
                     <div className="flex items-center justify-between mb-3">
-                      <span className="text-sm font-semibold text-gray-700">{weekPovLabel(wg.weekStart)}</span>
+                      <span className="text-sm font-semibold text-gray-700">{weekPovLabelSafe(wg.weekStart)}</span>
                       <div className="text-right">
                         <div className="text-sm font-bold text-brand-gold">{fmt(wt.totalSale)} $</div>
                         <div className="text-xs text-gray-400">{wg.days.length} days</div>
@@ -1208,9 +1242,9 @@ export default function SummaryView() {
               {weekGroups.length === 0 ? (
                 <div className="text-center py-8 text-gray-400 text-sm">No data this month</div>
               ) : [...weekGroups].reverse().map((wg) => {
-                const wt = wg.totals
-                const cashSales = wt.cashRevenue
                 const ws = wg.weekStart
+                const wt = wg.totals
+                const cashSales = getWeekCashSalesFromSumLogic(ws, revenue)
                 const weekTotalExp = wg.days.reduce((s, d) => s + expenses.filter((e) => e.date === d.date).reduce((s2, e) => s2 + e.total, 0), 0)
                 const wageSummary = wageWeekSummaries[ws]
                 const wageCash = wageSummary?.wageCash ?? wt.labor
@@ -1251,7 +1285,7 @@ export default function SummaryView() {
                 return (
                   <div key={ws} className="border border-gray-200 rounded-xl overflow-hidden">
                     <div className="bg-amber-50 px-3 py-2 border-b border-amber-100">
-                      <span className="text-xs font-bold text-amber-700">{weekPovLabel(ws)}</span>
+                      <span className="text-xs font-bold text-amber-700">{weekPovLabelSafe(ws)}</span>
                     </div>
                     <div className="p-3 space-y-2 text-sm">
 
