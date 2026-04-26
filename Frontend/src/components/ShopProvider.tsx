@@ -11,6 +11,8 @@ interface ShopContextValue {
   shop: ShopConfig
   lang: Lang
   toggleLang: () => void
+  isDark: boolean
+  toggleDark: () => void
 }
 
 const ShopContext = createContext<ShopContextValue | null>(null)
@@ -25,10 +27,15 @@ export function ShopProvider({
   shop: ShopConfig
 }) {
   const [lang, setLang] = useState<Lang>('th')
+  const [isDark, setIsDark] = useState(false)
 
   useEffect(() => {
-    const saved = localStorage.getItem('spoonful_lang') as Lang | null
-    if (saved === 'th' || saved === 'en') setLang(saved)
+    const savedLang = localStorage.getItem('spoonful_lang') as Lang | null
+    if (savedLang === 'th' || savedLang === 'en') setLang(savedLang)
+
+    const savedDark = localStorage.getItem('spoonful_dark') === 'true'
+    setIsDark(savedDark)
+    document.documentElement.classList.toggle('dark', savedDark)
   }, [])
 
   function toggleLang() {
@@ -39,8 +46,17 @@ export function ShopProvider({
     })
   }
 
+  function toggleDark() {
+    setIsDark((prev) => {
+      const next = !prev
+      localStorage.setItem('spoonful_dark', String(next))
+      document.documentElement.classList.toggle('dark', next)
+      return next
+    })
+  }
+
   return (
-    <ShopContext.Provider value={{ session, shop, lang, toggleLang }}>
+    <ShopContext.Provider value={{ session, shop, lang, toggleLang, isDark, toggleDark }}>
       {children}
     </ShopContext.Provider>
   )
