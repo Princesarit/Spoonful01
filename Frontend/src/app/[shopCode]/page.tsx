@@ -191,19 +191,19 @@ export default function HomePage() {
       ownerOnly: false,
     },
     {
-      label: tr.nav_time_record,
-      sub: tr.nav_time_record_sub,
-      href: 'time-record',
-      icon: '⏰',
-      iconBg: 'bg-pink-500 dark:bg-pink-800',
-      ownerOnly: false,
-    },
-    {
       label: tr.nav_schedule,
       sub: tr.nav_schedule_sub,
       href: 'schedule',
       icon: '📅',
       iconBg: 'bg-teal-500 dark:bg-teal-800',
+      ownerOnly: false,
+    },
+    {
+      label: tr.nav_time_record,
+      sub: tr.nav_time_record_sub,
+      href: 'time-record',
+      icon: '⏰',
+      iconBg: 'bg-pink-500 dark:bg-pink-800',
       ownerOnly: false,
     },
   ]

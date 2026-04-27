@@ -119,6 +119,18 @@ export async function getWageWeekSummary(shopCode: string, weekStart: string): P
   }
 }
 
+export async function appendExpenseAuditLog(shopCode: string, log: {
+  editorName: string; note: string; employeeName: string; shift: string; changes: string
+}) {
+  const session = await getSession()
+  if (!session || session.shopCode !== shopCode) return
+  await fetch(`${BACKEND_URL}/${shopCode}/config/audit-log`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...authHeader(session.token) },
+    body: JSON.stringify(log),
+  }).catch(() => {})
+}
+
 export async function saveExpenseEntry(shopCode: string, entry: ExpenseEntry) {
   const session = await getSession()
   if (!session || session.shopCode !== shopCode) throw new Error('Unauthorized')

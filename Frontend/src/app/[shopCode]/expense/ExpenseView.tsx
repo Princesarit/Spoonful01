@@ -366,15 +366,26 @@ export default function ExpenseView() {
             {/* Paid toggle */}
             <div className="flex items-center gap-3">
               <label className="text-sm text-gray-700">{tr.status_label}</label>
-              <button
-                type="button"
-                onClick={() => setField('paid', !form.paid)}
-                className={`px-3 py-1.5 rounded-full text-xs font-medium cursor-pointer transition-colors ${
-                  form.paid ? 'bg-green-100 text-green-700' : 'bg-amber-50 text-amber-600'
-                }`}
-              >
-                {form.paid ? tr.paid_status : tr.unpaid_status}
-              </button>
+              <div className="flex rounded-lg overflow-hidden border border-gray-200">
+                <button
+                  type="button"
+                  onClick={() => setField('paid', false)}
+                  className={`px-3 py-1.5 text-xs font-medium cursor-pointer transition-colors ${
+                    !form.paid ? 'bg-amber-400 text-white' : 'bg-white text-gray-400 hover:bg-gray-50'
+                  }`}
+                >
+                  {tr.unpaid_status}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setField('paid', true)}
+                  className={`px-3 py-1.5 text-xs font-medium cursor-pointer transition-colors ${
+                    form.paid ? 'bg-green-500 text-white' : 'bg-white text-gray-400 hover:bg-gray-50'
+                  }`}
+                >
+                  {tr.paid_status}
+                </button>
+              </div>
             </div>
 
             {/* Due Date — shown when Unpaid */}

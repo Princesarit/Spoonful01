@@ -438,8 +438,8 @@ export default function RevenueView() {
                   )}
                   {lunchDone && (
                     <>
-                      <button onClick={() => openEdit(dayEntry, 'lunch')} className="text-[10px] text-blue-500 cursor-pointer">{tr.edit}</button>
-                      <button onClick={() => { setDeleteMealEditor(''); setDeleteMealNote(''); setDeleteMealAudit({ id: dayEntry.id, date: dayEntry.date, mode: 'lunch' }) }} className="text-[10px] text-red-400 cursor-pointer">{tr.delete}</button>
+                      <button onClick={() => openEdit(dayEntry, 'lunch')} className="text-[10px] text-blue-600 bg-blue-50 hover:bg-blue-100 px-2 py-0.5 rounded-md cursor-pointer transition-colors">{tr.edit}</button>
+                      <button onClick={() => { setDeleteMealEditor(''); setDeleteMealNote(''); setDeleteMealAudit({ id: dayEntry.id, date: dayEntry.date, mode: 'lunch' }) }} className="text-[10px] text-red-500 bg-red-50 hover:bg-red-100 px-2 py-0.5 rounded-md cursor-pointer transition-colors">{tr.delete}</button>
                     </>
                   )}
                 </div>
@@ -484,8 +484,8 @@ export default function RevenueView() {
                   )}
                   {dinnerDone && (
                     <>
-                      <button onClick={() => openEdit(dayEntry, 'dinner')} className="text-[10px] text-blue-500 cursor-pointer">{tr.edit}</button>
-                      <button onClick={() => { setDeleteMealEditor(''); setDeleteMealNote(''); setDeleteMealAudit({ id: dayEntry.id, date: dayEntry.date, mode: 'dinner' }) }} className="text-[10px] text-red-400 cursor-pointer">{tr.delete}</button>
+                      <button onClick={() => openEdit(dayEntry, 'dinner')} className="text-[10px] text-blue-600 bg-blue-50 hover:bg-blue-100 px-2 py-0.5 rounded-md cursor-pointer transition-colors">{tr.edit}</button>
+                      <button onClick={() => { setDeleteMealEditor(''); setDeleteMealNote(''); setDeleteMealAudit({ id: dayEntry.id, date: dayEntry.date, mode: 'dinner' }) }} className="text-[10px] text-red-500 bg-red-50 hover:bg-red-100 px-2 py-0.5 rounded-md cursor-pointer transition-colors">{tr.delete}</button>
                     </>
                   )}
                 </div>

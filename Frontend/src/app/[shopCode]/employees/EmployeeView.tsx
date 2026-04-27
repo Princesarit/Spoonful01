@@ -54,7 +54,7 @@ const EMPTY_FORM = {
   name: '',
   phone: '',
   positions: ['Front'] as Position[],
-  defaultDays: [true, true, true, true, true, true, true],
+  defaultDays: [false, false, false, false, false, false, false],
   wageLunch: '',
   wageDinner: '',
   deliveryFeePerTrip: '',

@@ -755,7 +755,7 @@ export async function applyMasterEmployeeFormatting(
 }
 
 const INTERNAL_SHEETS = new Set([
-  'config', 'edit_log', 'wage_payments', 'schedules',
+  'config', 'edit_log', 'wage_payments', 'cash_report', 'schedules',
   'delivery_trips', 'front_time_records', 'back_time_records',
   'expenses', 'revenue',
 ])

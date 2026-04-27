@@ -12,7 +12,7 @@ import type {
   DailyNote,
   MealRevenue,
 } from '@/lib/types'
-import { getSummaryData, getSummaryDataAll, saveDailyNote, syncReportSheets, hideReportSheets, saveExpenseEntry, syncSumSheet, getAllExpenses, getCashReportAll, saveCashReportWeek, getWageWeekSummary } from './actions'
+import { getSummaryData, getSummaryDataAll, saveDailyNote, syncReportSheets, hideReportSheets, saveExpenseEntry, syncSumSheet, getAllExpenses, getCashReportAll, saveCashReportWeek, getWageWeekSummary, appendExpenseAuditLog } from './actions'
 import type { CashReportRow, WageWeekSummary } from './actions'
 import { useShop } from '@/components/ShopProvider'
 import { translations } from '@/lib/translations'
@@ -880,6 +880,21 @@ export default function SummaryView() {
         return !orig || JSON.stringify(orig) !== JSON.stringify(pe)
       })
       await Promise.all(changed.map((e) => saveExpenseEntry(shopCode, e)))
+      // log paid status changes
+      const paidChanged = changed.filter((pe) => {
+        const orig = expenses.find((e) => e.id === pe.id)
+        return orig && orig.paid !== pe.paid
+      })
+      await Promise.all(paidChanged.map((pe) => {
+        const orig = expenses.find((e) => e.id === pe.id)!
+        return appendExpenseAuditLog(shopCode, {
+          editorName: session.role,
+          note: '',
+          employeeName: pe.supplier || pe.id,
+          shift: '',
+          changes: `paid: ${orig.paid} → ${pe.paid}`,
+        })
+      }))
       setExpenses(panelExpenses)
       syncSumSheet(shopCode).catch(() => {})
     } catch {
@@ -1029,7 +1044,18 @@ export default function SummaryView() {
         >
           ◀
         </button>
-        <span className="text-sm font-semibold text-gray-700">{monthLabel(month, locale)}</span>
+        <label className="relative cursor-pointer">
+          <span className="text-sm font-semibold text-gray-700 pointer-events-none flex items-center gap-1.5">
+            {monthLabel(month, locale)}
+            <span className="text-xs text-gray-400">📅</span>
+          </span>
+          <input
+            type="month"
+            value={month}
+            onChange={(e) => { if (e.target.value) setMonth(e.target.value) }}
+            className="absolute inset-0 opacity-0 cursor-pointer w-full"
+          />
+        </label>
         <button
           onClick={() => setMonth((m) => addMonth(m, 1))}
           className="text-gray-500 hover:text-gray-800 w-8 h-8 flex items-center justify-center rounded cursor-pointer"
@@ -1065,14 +1091,21 @@ export default function SummaryView() {
                   ? monthPovLabel(month)
                   : `${tr.summary_total_prefix} ${activeRows.length} ${tr.days_suffix}`}
               </span>
-              <button
-                onClick={nextShift}
-                className={`text-xs px-2 py-0.5 rounded-full font-semibold cursor-pointer ${
-                  shift === 'am' ? 'bg-orange-100 text-orange-600' : shift === 'pm' ? 'bg-blue-100 text-blue-600' : 'bg-gray-100 text-gray-600'
-                }`}
-              >
-                {shift === 'am' ? '🌞 AM' : shift === 'pm' ? '🌙 PM' : 'Total'}
-              </button>
+              <div className="flex rounded-lg overflow-hidden border border-gray-200 text-xs font-semibold">
+                {(['am', 'pm', 'total'] as Shift[]).map((s) => (
+                  <button
+                    key={s}
+                    onClick={() => setShift(s)}
+                    className={`px-2.5 py-1 cursor-pointer transition-colors ${
+                      shift === s
+                        ? s === 'am' ? 'bg-orange-400 text-white' : s === 'pm' ? 'bg-blue-500 text-white' : 'bg-gray-600 text-white'
+                        : 'bg-white text-gray-400 hover:bg-gray-50'
+                    }`}
+                  >
+                    {s === 'am' ? 'AM' : s === 'pm' ? 'PM' : 'Total'}
+                  </button>
+                ))}
+              </div>
             </div>
             <TotalsGrid totals={monthTotals} />
           </div>
@@ -1156,14 +1189,21 @@ export default function SummaryView() {
                     <div className="flex items-center justify-between mb-3">
                       <span className="text-sm font-semibold text-gray-700">{dayPovLabel(d.date)}</span>
                       <div className="flex items-center gap-2">
-                        <button
-                          onClick={nextShift}
-                          className={`text-xs px-2 py-0.5 rounded-full font-semibold cursor-pointer ${
-                            shift === 'am' ? 'bg-orange-100 text-orange-600' : shift === 'pm' ? 'bg-blue-100 text-blue-600' : 'bg-gray-100 text-gray-600'
-                          }`}
-                        >
-                          {shift === 'am' ? '🌞 AM' : shift === 'pm' ? '🌙 PM' : 'Total'}
-                        </button>
+                        <div className="flex rounded-lg overflow-hidden border border-gray-200 text-xs font-semibold">
+                          {(['am', 'pm', 'total'] as Shift[]).map((s) => (
+                            <button
+                              key={s}
+                              onClick={() => setShift(s)}
+                              className={`px-2.5 py-1 cursor-pointer transition-colors ${
+                                shift === s
+                                  ? s === 'am' ? 'bg-orange-400 text-white' : s === 'pm' ? 'bg-blue-500 text-white' : 'bg-gray-600 text-white'
+                                  : 'bg-white text-gray-400 hover:bg-gray-50'
+                              }`}
+                            >
+                              {s === 'am' ? 'AM' : s === 'pm' ? 'PM' : 'Total'}
+                            </button>
+                          ))}
+                        </div>
                         <div className="text-right">
                           <div className="text-sm font-bold text-brand-gold">{fmt(dv.totalSale)} $</div>
                           <div className="text-xs text-gray-400">Total sale</div>
@@ -1227,16 +1267,7 @@ export default function SummaryView() {
           <div className="bg-white rounded-t-2xl w-full max-w-lg max-h-[85vh] flex flex-col">
             <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100 shrink-0">
               <h3 className="font-bold text-gray-900">Weekly Cash Report</h3>
-              <div className="flex items-center gap-2">
-                <button
-                  onClick={handleReportSave}
-                  disabled={reportSaving || Object.keys(reportEdits).length === 0}
-                  className="text-xs bg-brand-gold text-white px-3 py-1.5 rounded-lg font-semibold disabled:opacity-50 cursor-pointer"
-                >
-                  {reportSaving ? 'Saving...' : 'Save'}
-                </button>
-                <button onClick={() => setShowReport(false)} className="text-gray-400 hover:text-gray-600 cursor-pointer text-xl leading-none">✕</button>
-              </div>
+              <button onClick={() => setShowReport(false)} className="text-gray-400 hover:text-gray-600 cursor-pointer text-xl leading-none">✕</button>
             </div>
             <div className="overflow-y-auto flex-1 px-4 py-3 space-y-4">
               {weekGroups.length === 0 ? (
@@ -1421,6 +1452,15 @@ export default function SummaryView() {
                 )
               })}
             </div>
+            <div className="px-4 py-3 border-t border-gray-100 shrink-0">
+              <button
+                onClick={handleReportSave}
+                disabled={reportSaving || Object.keys(reportEdits).length === 0}
+                className="w-full py-2.5 bg-brand-gold text-white rounded-xl text-sm font-semibold disabled:opacity-50 cursor-pointer hover:bg-brand-gold-dark transition-colors"
+              >
+                {reportSaving ? 'Saving...' : 'Save'}
+              </button>
+            </div>
           </div>
         </div>
       )}
@@ -1581,6 +1621,7 @@ export default function SummaryView() {
           </div>
         </div>
       )}
+
     </div>
   )
 }
