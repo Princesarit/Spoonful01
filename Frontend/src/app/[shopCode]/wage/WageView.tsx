@@ -238,15 +238,15 @@ export default function WageView() {
                 <thead>
                   {/* Row 1: Day headers */}
                   <tr className="bg-gray-200 font-semibold text-gray-700">
-                    <th className="border border-gray-300 px-2 py-1.5 text-left bg-yellow-200 text-gray-800 whitespace-nowrap">WAGE ADJUSTED</th>
-                    <th className="border border-gray-300 px-2 py-1.5 text-center bg-yellow-200 text-gray-700 whitespace-nowrap">Since {dates[0]}</th>
+                    <th className="border border-gray-300 px-2 py-1.5 text-left bg-yellow-200 text-gray-800 dark:text-yellow-200 whitespace-nowrap">WAGE ADJUSTED</th>
+                    <th className="border border-gray-300 px-2 py-1.5 text-center bg-yellow-200 text-gray-700 dark:text-yellow-300 whitespace-nowrap">Since {dates[0]}</th>
                     {DAY_SHORT.map((name) => (
                       <th key={name} colSpan={2} className="border border-gray-300 px-1 py-1.5 text-center">
                         {name}
                       </th>
                     ))}
                     <th className="border border-gray-300 px-2 py-1.5 text-center bg-gray-300">Extra</th>
-                    <th className="border border-gray-300 px-2 py-1.5 text-center bg-green-100 text-green-800">WAGE</th>
+                    <th className="border border-gray-300 px-2 py-1.5 text-center bg-green-100 text-green-800 dark:text-green-300">WAGE</th>
                     <th className="border border-gray-300 px-2 py-1.5 text-center bg-gray-200">TAX</th>
                     <th className="border border-gray-300 px-2 py-1.5 text-center bg-gray-200">PAID</th>
                     <th className="border border-gray-300 px-2 py-1.5 text-center bg-gray-200">Remaining</th>
@@ -295,7 +295,7 @@ export default function WageView() {
                       ? `${emp.wageLunch ?? 0}/${emp.wageDinner ?? 0}`
                       : emp.hourlyWage ? `${emp.hourlyWage}/hr` : '—'
                     return (
-                      <tr key={emp.id} className="border-b border-gray-100 hover:bg-gray-50">
+                      <tr key={emp.id} className="border-b border-gray-100 hover:bg-gray-50 dark:hover:bg-[#2A2318]">
                         <td className="border border-gray-200 px-2 py-1.5 font-medium text-gray-800 whitespace-nowrap">{emp.name}</td>
                         <td className="border border-gray-200 px-2 py-1.5 text-center text-gray-500 whitespace-nowrap">{rateLabel}</td>
                         {dayAmounts.map((a, di) => (

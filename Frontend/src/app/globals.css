@@ -3,14 +3,33 @@
 /* Dark mode via .dark class on <html> */
 @variant dark (&:where(.dark, .dark *));
 
+/* ── Japandi Warm Palette ─────────────────────────────────────────────────── */
 :root {
-  --background: #f5f6fa;
-  --foreground: #1a1a2e;
+  /* Light mode — Natural / Japandi / Minimal Warm */
+  --jp-bg:        #F5EDE0;   /* cream base (60%) */
+  --jp-surface:   #FBF6EE;   /* card surface — cream lifted */
+  --jp-wood:      #D4B896;   /* light oak — accent (30%) */
+  --jp-warm:      #E8D4B0;   /* warm taupe connector */
+  --jp-taupe:     #A89684;   /* taupe gray — text secondary */
+  --jp-dark:      #1A1A1A;   /* warm near-black — primary text (10%) */
+  --jp-border:    #DDD0BC;   /* warm border */
+
+  --background:   #F5EDE0;
+  --foreground:   #1A1A1A;
 }
 
 .dark {
-  --background: #12131a;
-  --foreground: #e2e4e9;
+  /* Dark mode — Warm Espresso Japandi */
+  --jp-bg:        #1A1612;   /* deep espresso — background */
+  --jp-surface:   #241F19;   /* card surface — slightly lifted */
+  --jp-wood:      #8B6F4E;   /* walnut wood — accent */
+  --jp-warm:      #A68A6B;   /* warm tan — secondary surface */
+  --jp-taupe:     #6B5D4F;   /* mocha taupe — border / divider */
+  --jp-dark:      #D9C9B0;   /* soft cream — primary text */
+  --jp-border:    #4A3F35;   /* mocha border */
+
+  --background:   #1A1612;
+  --foreground:   #D9C9B0;
   color-scheme: dark;
 }
 
@@ -23,13 +42,22 @@
   /* Brand fonts */
   --font-brand: var(--font-cinzel);
 
-  /* Brand palette */
-  --color-brand-green: #2D392F;
-  --color-brand-gold: #775A19;
-  --color-brand-gold-dark: #5E4614;
-  --color-brand-gold-light: #F0EAD6;
-  --color-brand-parchment: #f5f6fa;
-  --color-brand-accent: #e5e7eb;
+  /* Brand palette — updated to Japandi */
+  --color-brand-green:       #2D392F;
+  --color-brand-gold:        #8B6F4E;   /* walnut wood — was #775A19 */
+  --color-brand-gold-dark:   #6B5040;
+  --color-brand-gold-light:  #E8D4B0;   /* warm taupe */
+  --color-brand-parchment:   #F5EDE0;   /* cream base */
+  --color-brand-accent:      #DDD0BC;   /* warm border */
+
+  /* Japandi tokens — usable as bg-jp-bg, text-jp-dark, etc. */
+  --color-jp-bg:      var(--jp-bg);
+  --color-jp-surface: var(--jp-surface);
+  --color-jp-wood:    var(--jp-wood);
+  --color-jp-warm:    var(--jp-warm);
+  --color-jp-taupe:   var(--jp-taupe);
+  --color-jp-dark:    var(--jp-dark);
+  --color-jp-border:  var(--jp-border);
 }
 
 body {
@@ -38,25 +66,113 @@ body {
   font-family: Arial, Helvetica, sans-serif;
 }
 
-/* ── Global dark mode overrides ── */
-.dark .bg-white          { background-color: #1e2028 !important; }
-.dark .bg-gray-50        { background-color: #191b22 !important; }
-.dark .bg-gray-100       { background-color: #252730 !important; }
-.dark .bg-gray-200       { background-color: #2e303a !important; }
-.dark .border-gray-100   { border-color: #2d2f38 !important; }
-.dark .border-gray-200   { border-color: #373940 !important; }
-.dark .divide-gray-100 > * + * { border-color: #2d2f38 !important; }
-.dark .text-gray-900     { color: #e2e4e9 !important; }
-.dark .text-gray-800     { color: #d4d7dd !important; }
-.dark .text-gray-700     { color: #c3c7cf !important; }
-.dark .text-gray-600     { color: #9ea5b0 !important; }
-.dark .text-gray-500     { color: #7f8693 !important; }
-.dark .text-gray-400     { color: #636a77 !important; }
-.dark .shadow-sm         { box-shadow: 0 1px 2px 0 rgba(0,0,0,.55) !important; }
-.dark .shadow            { box-shadow: 0 1px 3px 0 rgba(0,0,0,.55) !important; }
-.dark input, .dark textarea, .dark select {
-  background-color: #252730;
-  border-color: #373940;
-  color: #e2e4e9;
+/* ── Light mode — Japandi warm overrides ───────────────────────────────────── */
+/* Replace cold grays with warm Japandi tones */
+.bg-white        { background-color: #FBF6EE !important; }
+.bg-gray-50      { background-color: #F5EDE0 !important; }
+.bg-gray-100     { background-color: #EDE2D0 !important; }
+.bg-gray-200     { background-color: #E4D6C2 !important; }
+.border-gray-100 { border-color: #E4D6C2 !important; }
+.border-gray-200 { border-color: #DDD0BC !important; }
+.border-gray-300 { border-color: #CFC3AE !important; }
+.divide-gray-100 > * + * { border-color: #E4D6C2 !important; }
+.text-gray-900   { color: #1A1A1A !important; }
+.text-gray-800   { color: #2E2820 !important; }
+.text-gray-700   { color: #45382C !important; }
+.text-gray-600   { color: #6B5D4F !important; }
+.text-gray-500   { color: #8B7A6A !important; }
+.text-gray-400   { color: #A89684 !important; }
+.bg-amber-50     { background-color: #F5EDE0 !important; }
+.bg-amber-100    { background-color: #EDE2D0 !important; }
+.shadow-sm       { box-shadow: 0 1px 3px rgba(138,110,78,.18), 0 1px 2px rgba(138,110,78,.1) !important; }
+.shadow          { box-shadow: 0 2px 6px rgba(138,110,78,.2),  0 1px 3px rgba(138,110,78,.12) !important; }
+
+/* inputs */
+input, textarea, select {
+  background-color: #FBF6EE;
+  border-color: #DDD0BC;
+  color: #1A1A1A;
 }
-.dark input::placeholder, .dark textarea::placeholder { color: #636a77; }
+input::placeholder, textarea::placeholder { color: #A89684; }
+
+/* ── Dark mode — Warm Espresso overrides ───────────────────────────────────── */
+.dark .bg-white        { background-color: #241F19 !important; }
+.dark .bg-gray-50      { background-color: #1F1B15 !important; }
+.dark .bg-gray-100     { background-color: #2D2720 !important; }
+.dark .bg-gray-200     { background-color: #382E25 !important; }
+.dark .bg-amber-50     { background-color: #25190A !important; }
+.dark .bg-amber-100    { background-color: #2E1F0C !important; }
+.dark .border-gray-100 { border-color: #302820 !important; }
+.dark .border-gray-200 { border-color: #3E3228 !important; }
+.dark .border-gray-300 { border-color: #4A3F35 !important; }
+.dark .divide-gray-100 > * + * { border-color: #302820 !important; }
+.dark .text-gray-900   { color: #D9C9B0 !important; }
+.dark .text-gray-800   { color: #C8B89A !important; }
+.dark .text-gray-700   { color: #B5A288 !important; }
+.dark .text-gray-600   { color: #9A8A76 !important; }
+.dark .text-gray-500   { color: #7E6E5E !important; }
+.dark .text-gray-400   { color: #6B5D4F !important; }
+.dark .shadow-sm       { box-shadow: 0 1px 3px rgba(0,0,0,.5) !important; }
+.dark .shadow          { box-shadow: 0 2px 6px rgba(0,0,0,.55) !important; }
+.dark input, .dark textarea, .dark select {
+  background-color: #2D2720;
+  border-color: #4A3F35;
+  color: #D9C9B0;
+}
+.dark input::placeholder, .dark textarea::placeholder { color: #6B5D4F; }
+
+/* ── Dark mode — Colored tint backgrounds ─────────────────────────────────── */
+.dark .bg-yellow-50  { background-color: #1E1A06 !important; }
+.dark .bg-yellow-100 { background-color: #272109 !important; }
+.dark .bg-yellow-200 { background-color: #312B10 !important; }
+.dark .bg-blue-50    { background-color: #071424 !important; }
+.dark .bg-blue-100   { background-color: #0C1C30 !important; }
+.dark .bg-red-50     { background-color: #200A0A !important; }
+.dark .bg-red-100    { background-color: #2A1010 !important; }
+.dark .bg-green-50   { background-color: #081508 !important; }
+.dark .bg-green-100  { background-color: #0D1F0D !important; }
+.dark .bg-orange-50  { background-color: #201008 !important; }
+.dark .bg-orange-100 { background-color: #281508 !important; }
+.dark .bg-purple-50  { background-color: #180A28 !important; }
+.dark .bg-purple-100 { background-color: #200D35 !important; }
+.dark .bg-teal-50    { background-color: #071A1A !important; }
+.dark .bg-emerald-50 { background-color: #071A0A !important; }
+
+/* ── Dark mode — Dimmer grays ────────────────────────────────────────────── */
+.dark .text-gray-300   { color: #5D5048 !important; }
+.dark .text-gray-200   { color: #4A3F35 !important; }
+
+/* ── Dark mode — Colored text (lighter for readability on dark tints) ─────── */
+.dark .text-yellow-700 { color: #d4a017 !important; }
+.dark .text-yellow-600 { color: #d4a017 !important; }
+.dark .text-blue-700   { color: #93c5fd !important; }
+.dark .text-blue-600   { color: #60a5fa !important; }
+.dark .text-green-700  { color: #6ee7b7 !important; }
+.dark .text-green-600  { color: #6ee7b7 !important; }
+.dark .text-orange-700 { color: #fb923c !important; }
+.dark .text-orange-600 { color: #fdba74 !important; }
+.dark .text-red-600    { color: #fca5a5 !important; }
+.dark .text-red-500    { color: #f87171 !important; }
+.dark .text-purple-600 { color: #c4b5fd !important; }
+.dark .text-purple-400 { color: #a78bfa !important; }
+.dark .text-teal-700   { color: #5eead4 !important; }
+.dark .text-emerald-600 { color: #6ee7b7 !important; }
+.dark .text-amber-600  { color: #fbbf24 !important; }
+.dark .text-green-800  { color: #6ee7b7 !important; }
+.dark .text-orange-500 { color: #fb923c !important; }
+.dark .text-orange-400 { color: #fdba74 !important; }
+.dark .text-red-400    { color: #fca5a5 !important; }
+.dark .text-blue-500   { color: #93c5fd !important; }
+
+/* Brand token overrides for dark mode */
+.dark .bg-brand-gold-light { background-color: #2A1F0A !important; }
+
+/* ── Dark mode — Colored borders ─────────────────────────────────────────── */
+.dark .border-red-200    { border-color: #4A1515 !important; }
+.dark .border-red-400    { border-color: #7A2020 !important; }
+.dark .border-blue-200   { border-color: #0E2A42 !important; }
+.dark .border-orange-200 { border-color: #4A2010 !important; }
+.dark .border-orange-300 { border-color: #5A2A12 !important; }
+.dark .border-purple-300 { border-color: #3D2060 !important; }
+.dark .border-green-200  { border-color: #0D2E0D !important; }
+.dark .border-brand-accent { border-color: #4A3F35 !important; }

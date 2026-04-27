@@ -14,10 +14,10 @@ const DAYS_SHORT_TH = ['จ', 'อ', 'พ', 'พฤ', 'ศ', 'ส', 'อา']
 const DAYS_SHORT_EN = ['M', 'T', 'W', 'Th', 'F', 'Sa', 'Su']
 
 const POS_TAG: Record<Position, string> = {
-  Manager: 'text-red-600 bg-red-50 border border-red-200',
-  Front:   'text-blue-600 bg-blue-50',
-  Kitchen: 'text-amber-600 bg-amber-50',
-  Home:    'text-green-600 bg-green-50',
+  Manager: 'text-red-600 dark:text-red-400 bg-red-50 border border-red-200',
+  Front:   'text-blue-600 dark:text-blue-300 bg-blue-50',
+  Kitchen: 'text-amber-600 dark:text-amber-300 bg-amber-50',
+  Home:    'text-green-600 dark:text-green-300 bg-green-50',
 }
 
 const POS_BTN_ON: Record<Position, string> = {
@@ -302,7 +302,7 @@ export default function EmployeeView({
                 {isOwnerOnly && (emp.wageLunch || emp.wageDinner || emp.deliveryFeePerTrip) && (
                   <div className="flex gap-2 mb-1.5 flex-wrap">
                     {emp.wageLunch != null && (
-                      <span className="text-xs text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded-full">
+                      <span className="text-xs text-emerald-600 dark:text-emerald-300 bg-emerald-50 px-2 py-0.5 rounded-full">
                         L ${emp.wageLunch.toLocaleString()}
                       </span>
                     )}

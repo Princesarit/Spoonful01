@@ -7,7 +7,6 @@ import { useState, useActionState, useEffect } from 'react'
 import { elevateToOwnerAction, elevateToManagerAction } from '@/app/actions'
 import { translations } from '@/lib/translations'
 import { getRevenueData } from './revenue/actions'
-import { getTimeRecordData } from './time-record/actions'
 import { getScheduleData } from './schedule/actions'
 
 function today(): string {
@@ -87,7 +86,7 @@ interface Stats {
 export default function HomePage() {
   const params = useParams()
   const shopCode = params.shopCode as string
-  const { session, lang } = useShop()
+  const { session, lang, isDark } = useShop()
   const tr = translations[lang]
   const [showManagerModal, setShowManagerModal] = useState(false)
   const [showOwnerModal, setShowOwnerModal] = useState(false)
@@ -164,7 +163,7 @@ export default function HomePage() {
       sub: tr.nav_revenue_sub,
       href: 'revenue',
       icon: '$',
-      iconBg: 'bg-emerald-500',
+      iconBg: 'bg-emerald-500 dark:bg-emerald-800',
       ownerOnly: false,
     },
     {
@@ -172,7 +171,7 @@ export default function HomePage() {
       sub: tr.nav_expense_sub,
       href: 'expense',
       icon: '🧾',
-      iconBg: 'bg-orange-500',
+      iconBg: 'bg-orange-500 dark:bg-orange-800',
       ownerOnly: false,
     },
     {
@@ -180,7 +179,7 @@ export default function HomePage() {
       sub: tr.nav_summary_sub,
       href: 'summary',
       icon: '📊',
-      iconBg: 'bg-blue-500',
+      iconBg: 'bg-blue-500 dark:bg-blue-800',
       ownerOnly: true,
     },
     {
@@ -188,7 +187,7 @@ export default function HomePage() {
       sub: tr.nav_employees_sub,
       href: 'employees',
       icon: '👥',
-      iconBg: 'bg-violet-500',
+      iconBg: 'bg-violet-500 dark:bg-violet-800',
       ownerOnly: false,
     },
     {
@@ -196,7 +195,7 @@ export default function HomePage() {
       sub: tr.nav_time_record_sub,
       href: 'time-record',
       icon: '⏰',
-      iconBg: 'bg-pink-500',
+      iconBg: 'bg-pink-500 dark:bg-pink-800',
       ownerOnly: false,
     },
     {
@@ -204,7 +203,7 @@ export default function HomePage() {
       sub: tr.nav_schedule_sub,
       href: 'schedule',
       icon: '📅',
-      iconBg: 'bg-teal-500',
+      iconBg: 'bg-teal-500 dark:bg-teal-800',
       ownerOnly: false,
     },
   ]
@@ -221,7 +220,7 @@ export default function HomePage() {
         >
           <div className="flex items-start justify-between mb-2">
             <span className="text-xs text-gray-500">{lang === 'th' ? 'ยอดวันนี้' : "Today's Sales"}</span>
-            <span className={`text-xs px-1.5 py-0.5 rounded-full font-medium ${shift === 'am' ? 'bg-orange-100 text-orange-600' : shift === 'pm' ? 'bg-blue-100 text-blue-600' : 'bg-gray-100 text-gray-600'}`}>
+            <span className={`text-xs px-1.5 py-0.5 rounded-full font-medium ${shift === 'am' ? 'bg-orange-100 dark:bg-orange-900/40 text-orange-600 dark:text-orange-300' : shift === 'pm' ? 'bg-blue-100 dark:bg-blue-900/40 text-blue-600 dark:text-blue-300' : 'bg-gray-100 dark:bg-gray-700/60 text-gray-600 dark:text-gray-300'}`}>
               {shift === 'am' ? 'AM' : shift === 'pm' ? 'PM' : 'Total'}
             </span>
           </div>
@@ -242,7 +241,7 @@ export default function HomePage() {
         >
           <div className="flex items-start justify-between mb-2">
             <span className="text-xs text-gray-500">{lang === 'th' ? 'พนักงาน' : 'Active Staff'}</span>
-            <span className={`text-xs px-1.5 py-0.5 rounded-full font-medium ${shift === 'am' ? 'bg-orange-100 text-orange-600' : shift === 'pm' ? 'bg-blue-100 text-blue-600' : 'bg-gray-100 text-gray-600'}`}>
+            <span className={`text-xs px-1.5 py-0.5 rounded-full font-medium ${shift === 'am' ? 'bg-orange-100 dark:bg-orange-900/40 text-orange-600 dark:text-orange-300' : shift === 'pm' ? 'bg-blue-100 dark:bg-blue-900/40 text-blue-600 dark:text-blue-300' : 'bg-gray-100 dark:bg-gray-700/60 text-gray-600 dark:text-gray-300'}`}>
               {shift === 'am' ? 'AM' : shift === 'pm' ? 'PM' : 'Total'}
             </span>
           </div>
@@ -255,9 +254,9 @@ export default function HomePage() {
             const pos = shift === 'am' ? staffCounts.amPos : shift === 'pm' ? staffCounts.pmPos : staffCounts.totalPos
             return (
               <div className="flex gap-1 mt-1.5 flex-wrap">
-                {pos.front   > 0 && <span className="text-[10px] bg-blue-50 text-blue-600 px-1.5 py-0.5 rounded-full font-medium">F·{pos.front}</span>}
-                {pos.kitchen > 0 && <span className="text-[10px] bg-amber-50 text-amber-600 px-1.5 py-0.5 rounded-full font-medium">K·{pos.kitchen}</span>}
-                {pos.home    > 0 && <span className="text-[10px] bg-green-50 text-green-600 px-1.5 py-0.5 rounded-full font-medium">H·{pos.home}</span>}
+                {pos.front   > 0 && <span className="text-[10px] bg-blue-50 dark:bg-blue-900/30 text-blue-600 dark:text-blue-300 px-1.5 py-0.5 rounded-full font-medium">F·{pos.front}</span>}
+                {pos.kitchen > 0 && <span className="text-[10px] bg-amber-50 dark:bg-amber-900/30 text-amber-600 dark:text-amber-300 px-1.5 py-0.5 rounded-full font-medium">K·{pos.kitchen}</span>}
+                {pos.home    > 0 && <span className="text-[10px] bg-green-50 dark:bg-green-900/30 text-green-600 dark:text-green-300 px-1.5 py-0.5 rounded-full font-medium">H·{pos.home}</span>}
               </div>
             )
           })()}
@@ -271,7 +270,7 @@ export default function HomePage() {
         >
           <div className="flex items-start justify-between mb-2">
             <span className="text-xs text-gray-500">{lang === 'th' ? 'ออเดอร์' : 'Orders Today'}</span>
-            <span className={`text-xs px-1.5 py-0.5 rounded-full font-medium ${shift === 'am' ? 'bg-orange-100 text-orange-600' : shift === 'pm' ? 'bg-blue-100 text-blue-600' : 'bg-gray-100 text-gray-600'}`}>
+            <span className={`text-xs px-1.5 py-0.5 rounded-full font-medium ${shift === 'am' ? 'bg-orange-100 dark:bg-orange-900/40 text-orange-600 dark:text-orange-300' : shift === 'pm' ? 'bg-blue-100 dark:bg-blue-900/40 text-blue-600 dark:text-blue-300' : 'bg-gray-100 dark:bg-gray-700/60 text-gray-600 dark:text-gray-300'}`}>
               {shift === 'am' ? 'AM' : shift === 'pm' ? 'PM' : 'Total'}
             </span>
           </div>
@@ -327,7 +326,7 @@ export default function HomePage() {
         <button
           onClick={() => setShowManagerModal(true)}
           className="w-full py-3 rounded-2xl text-sm font-semibold text-white cursor-pointer transition-all hover:opacity-90 active:scale-[0.99]"
-          style={{ background: 'linear-gradient(135deg, #3b82f6 0%, #7c3aed 100%)' }}
+          style={{ background: isDark ? 'linear-gradient(135deg, #1e2d46 0%, #2d1a4a 100%)' : 'linear-gradient(135deg, #3b82f6 0%, #7c3aed 100%)' }}
         >
           {tr.manager_mode_btn}
         </button>
@@ -337,7 +336,7 @@ export default function HomePage() {
         <button
           onClick={() => setShowOwnerModal(true)}
           className="w-full py-3 rounded-2xl text-sm font-semibold text-white cursor-pointer transition-all hover:opacity-90 active:scale-[0.99]"
-          style={{ background: 'linear-gradient(135deg, #f59e0b 0%, #ef4444 100%)' }}
+          style={{ background: isDark ? 'linear-gradient(135deg, #6b3208 0%, #7a1e1e 100%)' : 'linear-gradient(135deg, #f59e0b 0%, #ef4444 100%)' }}
         >
           👑 {lang === 'th' ? 'เข้าสู่โหมด Owner' : 'Enter Owner Mode'}
         </button>

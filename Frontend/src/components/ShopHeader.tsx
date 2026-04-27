@@ -48,10 +48,10 @@ export function ShopHeader({ shopName, role, loginAt }: { shopName: string; role
     : (lang === 'th' ? '👤 พนักงาน' : '👤 Staff')
 
   const roleBg = role === 'owner'
-    ? 'bg-amber-500 text-white'
+    ? 'bg-amber-500 dark:bg-amber-900/60 text-white dark:text-amber-200'
     : role === 'manager'
-    ? 'bg-red-500 text-white'
-    : 'bg-blue-500 text-white'
+    ? 'bg-red-500 dark:bg-red-900/60 text-white dark:text-red-200'
+    : 'bg-blue-500 dark:bg-blue-900/60 text-white dark:text-blue-200'
 
   const logoutLabel = lang === 'th' ? 'ออกจากระบบ' : 'Logout'
   const isElevated = role === 'owner' || role === 'manager'
@@ -92,7 +92,7 @@ export function ShopHeader({ shopName, role, loginAt }: { shopName: string; role
               padding: 0,
               flexShrink: 0,
               background: isDark
-                ? 'linear-gradient(135deg, #0f172a 0%, #1e2a4a 60%, #1e3a5f 100%)'
+                ? 'linear-gradient(135deg, #1A1612 0%, #241F19 60%, #2D2720 100%)'
                 : 'linear-gradient(135deg, #38bdf8 0%, #7dd3fc 55%, #bae6fd 100%)',
               boxShadow: isDark
                 ? 'inset 0 1px 3px rgba(0,0,0,0.5)'

@@ -388,7 +388,7 @@ export default function RevenueView() {
             className={`py-2.5 rounded-xl text-sm font-semibold transition-all cursor-pointer ${
               lunchDone
                 ? 'bg-gray-100 text-gray-400 cursor-not-allowed'
-                : 'bg-yellow-400 text-white hover:bg-yellow-500 active:scale-95'
+                : 'bg-yellow-400 dark:bg-yellow-700 text-white hover:bg-yellow-500 dark:hover:bg-yellow-600 active:scale-95'
             }`}
           >
             {lunchDone ? '🌞 Lunch ✓' : '🌞 Lunch'}
@@ -399,7 +399,7 @@ export default function RevenueView() {
             className={`py-2.5 rounded-xl text-sm font-semibold transition-all cursor-pointer ${
               dinnerDone
                 ? 'bg-gray-100 text-gray-400 cursor-not-allowed'
-                : 'bg-blue-500 text-white hover:bg-blue-600 active:scale-95'
+                : 'bg-blue-500 dark:bg-blue-800 text-white hover:bg-blue-600 dark:hover:bg-blue-700 active:scale-95'
             }`}
           >
             {dinnerDone ? '🌙 Dinner ✓' : '🌙 Dinner'}
@@ -449,14 +449,14 @@ export default function RevenueView() {
               {/* Lunch Extra */}
               {lunchDone && (
                 (dayEntry.lunchFrontExtra || dayEntry.lunchKitchenExtra) ? (
-                  <div className="flex justify-between items-center text-[10px] text-purple-600 bg-purple-50 rounded-md px-2 py-1 mt-2">
+                  <div className="flex justify-between items-center text-[10px] text-purple-600 dark:text-purple-300 bg-purple-50 rounded-md px-2 py-1 mt-2">
                     <span>Extra: Front ${fmt(dayEntry.lunchFrontExtra ?? 0)} / Kitchen ${fmt(dayEntry.lunchKitchenExtra ?? 0)}</span>
                     <button onClick={() => openExtraModal(dayEntry, 'lunch')} className="text-blue-500 cursor-pointer">Edit</button>
                   </div>
                 ) : (
                   <button
                     onClick={() => openExtraModal(dayEntry, 'lunch')}
-                    className="w-full mt-2 py-1 rounded-lg text-[10px] font-semibold border border-dashed border-purple-300 text-purple-400 hover:bg-purple-50 transition-colors cursor-pointer"
+                    className="w-full mt-2 py-1 rounded-lg text-[10px] font-semibold border border-dashed border-purple-300 dark:border-purple-700 text-purple-400 dark:text-purple-300 hover:bg-purple-50 dark:hover:bg-purple-900/20 transition-colors cursor-pointer"
                   >
                     + Extra (ค่าแรงพิเศษ)
                   </button>
@@ -495,14 +495,14 @@ export default function RevenueView() {
               {/* Dinner Extra */}
               {dinnerDone && (
                 (dayEntry.dinnerFrontExtra || dayEntry.dinnerKitchenExtra) ? (
-                  <div className="flex justify-between items-center text-[10px] text-purple-600 bg-purple-50 rounded-md px-2 py-1 mt-2">
+                  <div className="flex justify-between items-center text-[10px] text-purple-600 dark:text-purple-300 bg-purple-50 rounded-md px-2 py-1 mt-2">
                     <span>Extra: Front ${fmt(dayEntry.dinnerFrontExtra ?? 0)} / Kitchen ${fmt(dayEntry.dinnerKitchenExtra ?? 0)}</span>
                     <button onClick={() => openExtraModal(dayEntry, 'dinner')} className="text-blue-500 cursor-pointer">Edit</button>
                   </div>
                 ) : (
                   <button
                     onClick={() => openExtraModal(dayEntry, 'dinner')}
-                    className="w-full mt-2 py-1 rounded-lg text-[10px] font-semibold border border-dashed border-purple-300 text-purple-400 hover:bg-purple-50 transition-colors cursor-pointer"
+                    className="w-full mt-2 py-1 rounded-lg text-[10px] font-semibold border border-dashed border-purple-300 dark:border-purple-700 text-purple-400 dark:text-purple-300 hover:bg-purple-50 dark:hover:bg-purple-900/20 transition-colors cursor-pointer"
                   >
                     + Extra (ค่าแรงพิเศษ)
                   </button>
