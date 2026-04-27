@@ -47,33 +47,55 @@ export function ShopHeader({ shopName, role, loginAt }: { shopName: string; role
     ? '🔑 Manager'
     : (lang === 'th' ? '👤 พนักงาน' : '👤 Staff')
 
-  const roleBg = role === 'owner'
-    ? 'bg-amber-500 dark:bg-amber-900/60 text-white dark:text-amber-200'
+  // Position badge colors — from design palette
+  const roleBgStyle = role === 'owner'
+    ? { background: isDark ? '#4A3F28' : '#3D3828', color: isDark ? '#D9C9B0' : '#F0E8DA' }
     : role === 'manager'
-    ? 'bg-red-500 dark:bg-red-900/60 text-white dark:text-red-200'
-    : 'bg-blue-500 dark:bg-blue-900/60 text-white dark:text-blue-200'
+    ? { background: isDark ? '#7A3828' : '#CC8070', color: isDark ? '#F5B0A0' : '#FFFFFF' }
+    : { background: isDark ? '#5A4538' : '#A89080', color: isDark ? '#C8B090' : '#FFFFFF' }
 
   const logoutLabel = lang === 'th' ? 'ออกจากระบบ' : 'Logout'
   const isElevated = role === 'owner' || role === 'manager'
 
+  // Header background — warm brownish gradient in dark mode
+  const headerBg = isDark
+    ? 'linear-gradient(135deg, #5C4030 0%, #8B6848 100%)'
+    : '#EDE3D0'
+
+  // Text colors inside header adapt to bg
+  const hdrPrimary = isDark ? '#F0E8DA' : '#2E2820'
+  const hdrSecond  = isDark ? '#C8B090' : '#A89684'
+  const hdrFaint   = isDark ? '#D9C9B0' : '#8B7A6A'
+
   return (
-    <header className="bg-white dark:bg-gray-900 border-b border-gray-200 dark:border-gray-700 sticky top-0 z-40">
+    <header
+      className="sticky top-0 z-40 border-b"
+      style={{ background: headerBg, borderColor: isDark ? '#4A3520' : '#DDD0BC' }}
+    >
       <div className="max-w-2xl mx-auto px-4 py-3 flex items-center justify-between">
         <div className="flex items-center gap-3">
           <Link
             href={backHref}
-            className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 text-base leading-none font-light"
+            className="text-base leading-none font-light transition-opacity hover:opacity-70"
+            style={{ color: hdrSecond }}
           >
             ←
           </Link>
           <div>
-            <h1 className="text-base font-bold text-gray-900 dark:text-gray-100 leading-tight">{shopName}</h1>
-            <p className="text-xs text-gray-400 dark:text-gray-500 leading-tight">{today}</p>
+            <h1 className="text-base font-bold leading-tight" style={{ color: hdrPrimary }}>{shopName}</h1>
+            <p className="text-xs leading-tight" style={{ color: hdrSecond }}>{today}</p>
           </div>
         </div>
 
         <div className="flex items-center gap-2">
-          <span className="text-xs text-gray-500 dark:text-gray-400 font-mono bg-gray-100 dark:bg-gray-800 px-2.5 py-1 rounded-full">
+          {/* Timer */}
+          <span
+            className="text-xs font-mono px-2.5 py-1 rounded-full"
+            style={{
+              background: isDark ? 'rgba(0,0,0,0.25)' : 'rgba(0,0,0,0.08)',
+              color: hdrPrimary,
+            }}
+          >
             ⏱ {duration}
           </span>
 
@@ -101,7 +123,6 @@ export function ShopHeader({ shopName, role, loginAt }: { shopName: string; role
               overflow: 'hidden',
             }}
           >
-            {/* Stars — visible in dark mode */}
             {[
               { left: 8,  top: 5,  size: 2 },
               { left: 16, top: 13, size: 1.5 },
@@ -112,10 +133,8 @@ export function ShopHeader({ shopName, role, loginAt }: { shopName: string; role
                 key={i}
                 style={{
                   position: 'absolute',
-                  left: s.left,
-                  top: s.top,
-                  width: s.size,
-                  height: s.size,
+                  left: s.left, top: s.top,
+                  width: s.size, height: s.size,
                   borderRadius: '50%',
                   background: 'white',
                   opacity: isDark ? 0.85 : 0,
@@ -124,16 +143,11 @@ export function ShopHeader({ shopName, role, loginAt }: { shopName: string; role
                 }}
               />
             ))}
-
-            {/* Cloud — visible in light mode */}
             <svg
               viewBox="0 0 24 12"
               style={{
-                position: 'absolute',
-                right: 4,
-                bottom: 2,
-                width: 22,
-                height: 11,
+                position: 'absolute', right: 4, bottom: 2,
+                width: 22, height: 11,
                 opacity: isDark ? 0 : 0.9,
                 transition: 'opacity 0.3s ease',
                 pointerEvents: 'none',
@@ -143,15 +157,11 @@ export function ShopHeader({ shopName, role, loginAt }: { shopName: string; role
               <ellipse cx="8"  cy="7" rx="5" ry="4" fill="white" />
               <ellipse cx="14" cy="7" rx="4" ry="3" fill="white" />
             </svg>
-
-            {/* Knob — sun (light) or moon (dark) */}
             <span
               style={{
-                position: 'absolute',
-                top: 3,
+                position: 'absolute', top: 3,
                 left: isDark ? 27 : 3,
-                width: 22,
-                height: 22,
+                width: 22, height: 22,
                 borderRadius: '50%',
                 transition: 'left 0.4s cubic-bezier(.45,1.4,.6,1)',
                 background: isDark
@@ -163,7 +173,6 @@ export function ShopHeader({ shopName, role, loginAt }: { shopName: string; role
                 pointerEvents: 'none',
               }}
             >
-              {/* Moon craters */}
               {isDark && (<>
                 <span style={{ position:'absolute', left:4,  top:4,  width:4, height:4, borderRadius:'50%', background:'#6b7280', opacity:0.45 }} />
                 <span style={{ position:'absolute', left:11, top:10, width:3, height:3, borderRadius:'50%', background:'#6b7280', opacity:0.35 }} />
@@ -172,22 +181,30 @@ export function ShopHeader({ shopName, role, loginAt }: { shopName: string; role
             </span>
           </button>
 
+          {/* Language */}
           <button
             onClick={toggleLang}
-            className="text-xs px-2.5 py-1 rounded-full border border-gray-200 dark:border-gray-600 text-gray-600 dark:text-gray-300 hover:border-gray-400 hover:text-gray-800 dark:hover:text-gray-100 transition-colors cursor-pointer font-medium"
+            className="text-xs px-2.5 py-1 rounded-full font-medium cursor-pointer transition-opacity hover:opacity-70"
+            style={{
+              border: `1px solid ${isDark ? 'rgba(255,255,255,0.25)' : '#DDD0BC'}`,
+              color: hdrPrimary,
+            }}
           >
             {lang.toUpperCase()}
           </button>
 
-          <span className={`text-xs px-3 py-1.5 rounded-full font-medium ${roleBg}`}>
+          {/* Role badge */}
+          <span className="text-xs px-3 py-1.5 rounded-full font-medium" style={roleBgStyle}>
             {roleLabel}
           </span>
 
+          {/* Logout / Demote */}
           {isElevated ? (
             <form action={demoteAction}>
               <button
                 type="submit"
-                className="text-xs text-gray-500 dark:text-gray-400 hover:text-gray-800 dark:hover:text-gray-100 transition-colors cursor-pointer"
+                className="text-xs cursor-pointer transition-opacity hover:opacity-70"
+                style={{ color: hdrFaint }}
               >
                 {logoutLabel}
               </button>
@@ -197,7 +214,8 @@ export function ShopHeader({ shopName, role, loginAt }: { shopName: string; role
               <button
                 type="submit"
                 disabled={pending}
-                className="text-xs text-gray-500 dark:text-gray-400 hover:text-gray-800 dark:hover:text-gray-100 transition-colors disabled:opacity-50 cursor-pointer"
+                className="text-xs cursor-pointer transition-opacity hover:opacity-70 disabled:opacity-50"
+                style={{ color: hdrFaint }}
               >
                 {logoutLabel}
               </button>
