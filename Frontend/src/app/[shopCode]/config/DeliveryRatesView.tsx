@@ -119,7 +119,8 @@ export default function DeliveryRatesView({
                       min="0"
                       step="0.5"
                       value={rate.maxKm}
-                      onChange={(e) => updateMaxKm(i, Number(e.target.value))}
+                      onKeyDown={(e) => ['e','E','+','-'].includes(e.key) && e.preventDefault()}
+                      onChange={(e) => { const v = Number(e.target.value); if (v > 999999) return; updateMaxKm(i, v) }}
                       className="w-20 border border-brand-accent rounded px-2 py-1 text-sm focus:outline-none focus:ring-1 focus:ring-brand-gold"
                     />
                   ) : (
@@ -135,7 +136,8 @@ export default function DeliveryRatesView({
                         min="0"
                         step="0.50"
                         value={rate.fee}
-                        onChange={(e) => updateFee(i, Number(e.target.value))}
+                        onKeyDown={(e) => ['e','E','+','-'].includes(e.key) && e.preventDefault()}
+                        onChange={(e) => { const v = Number(e.target.value); if (Math.floor(Math.abs(v)) > 999999) return; updateFee(i, v) }}
                         className="w-20 border border-brand-accent rounded px-2 py-1 text-sm focus:outline-none focus:ring-1 focus:ring-brand-gold"
                       />
                     </div>

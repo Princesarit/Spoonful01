@@ -61,7 +61,8 @@ export default function ExtraRateView({
                 min="0"
                 step="0.50"
                 value={rate}
-                onChange={(e) => { setRate(Number(e.target.value)); setSaved(false) }}
+                onKeyDown={(e) => ['e','E','+','-'].includes(e.key) && e.preventDefault()}
+                onChange={(e) => { const v = Number(e.target.value); if (Math.floor(Math.abs(v)) > 999999) return; setRate(v); setSaved(false) }}
                 className="w-28 border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-gold"
               />
             ) : (

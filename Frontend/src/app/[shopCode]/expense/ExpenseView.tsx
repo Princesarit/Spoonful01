@@ -323,7 +323,8 @@ export default function ExpenseView() {
                   min="0"
                   step="0.01"
                   value={form.total || ''}
-                  onChange={(e) => setField('total', parseFloat(e.target.value) || 0)}
+                  onKeyDown={(e) => ['e','E','+','-'].includes(e.key) && e.preventDefault()}
+                  onChange={(e) => { const v = parseFloat(e.target.value) || 0; if (Math.floor(Math.abs(v)) > 999999) return; setField('total', v) }}
                   placeholder="0.00"
                   className="w-full border border-gray-300 rounded-lg pl-7 pr-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-gold"
                 />
@@ -393,16 +394,20 @@ export default function ExpenseView() {
               </div>
             </div>
 
-            {/* Due Date — shown when Unpaid */}
+            {/* Due Date — required when Unpaid */}
             {!form.paid && (
               <div>
-                <label className="text-xs text-gray-500 block mb-1">Due Date</label>
+                <label className="text-xs text-gray-500 block mb-1">
+                  Due Date <span className="text-red-400">*</span>
+                </label>
                 <input
                   type="date"
                   min={form.date}
                   value={form.dueDate ?? ''}
                   onChange={(e) => setField('dueDate', e.target.value)}
-                  className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-gold"
+                  className={`w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-gold ${
+                    !form.dueDate ? 'border-red-300' : 'border-gray-300'
+                  }`}
                 />
               </div>
             )}
@@ -453,7 +458,7 @@ export default function ExpenseView() {
               </button>
               <button
                 onClick={handleSave}
-                disabled={saving || !form.supplier.trim() || form.total <= 0 || !form.filledBy?.trim() || (!!form.id && !form._editAuditName?.trim())}
+                disabled={saving || !form.supplier.trim() || form.total <= 0 || !form.filledBy?.trim() || (!form.paid && !form.dueDate) || (!!form.id && !form._editAuditName?.trim())}
                 className="flex-1 py-2.5 bg-brand-gold text-white rounded-xl text-sm font-semibold disabled:opacity-50 cursor-pointer"
               >
                 {saving ? tr.saving : tr.save}

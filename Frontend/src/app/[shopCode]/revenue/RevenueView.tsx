@@ -76,7 +76,11 @@ function NumInput({
       min="0"
       step="0.01"
       value={value || ''}
-      onChange={(e) => onChange(parseFloat(e.target.value) || 0)}
+      onChange={(e) => {
+        const v = parseFloat(e.target.value) || 0
+        if (Math.floor(Math.abs(v)) > 999999) return
+        onChange(v)
+      }}
       onKeyDown={(e) => ['e', 'E', '+', '-'].includes(e.key) && e.preventDefault()}
       placeholder="0"
       className={`w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 ${
@@ -701,7 +705,8 @@ export default function RevenueView() {
                       type="number"
                       min="0"
                       value={val || ''}
-                      onChange={(e) => set(parseInt(e.target.value) || 0)}
+                      onKeyDown={(e) => ['e','E','+','-'].includes(e.key) && e.preventDefault()}
+                      onChange={(e) => { const v = parseInt(e.target.value) || 0; if (v > 999999) return; set(v) }}
                       placeholder="0"
                       className="w-full border border-gray-300 rounded-lg px-2 py-1.5 text-sm text-center focus:outline-none focus:ring-2 focus:ring-brand-gold"
                     />

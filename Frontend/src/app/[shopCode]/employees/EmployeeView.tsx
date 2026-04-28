@@ -428,7 +428,9 @@ export default function EmployeeView({
                   type="tel"
                   inputMode="numeric"
                   value={form.phone}
-                  onChange={(e) => setForm((f) => ({ ...f, phone: e.target.value.replace(/\D/g, '') }))}
+                  maxLength={10}
+                  onKeyDown={(e) => e.key === '.' && e.preventDefault()}
+                  onChange={(e) => setForm((f) => ({ ...f, phone: e.target.value.replace(/\D/g, '').slice(0, 10) }))}
                   className="w-full px-3 py-2 border border-brand-accent rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-brand-gold"
                   placeholder={tr.phone_placeholder}
                 />
@@ -443,7 +445,8 @@ export default function EmployeeView({
                       inputMode="numeric"
                       min="0"
                       value={form.wageLunch}
-                      onChange={(e) => setForm((f) => ({ ...f, wageLunch: e.target.value }))}
+                      onKeyDown={(e) => ['e','E','+','-'].includes(e.key) && e.preventDefault()}
+                      onChange={(e) => { const v = e.target.value; if (v.split('.')[0].length > 6) return; setForm((f) => ({ ...f, wageLunch: v })) }}
                       className="w-full px-3 py-2 border border-brand-accent rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-brand-gold"
                       placeholder="0"
                     />
@@ -455,7 +458,8 @@ export default function EmployeeView({
                       inputMode="numeric"
                       min="0"
                       value={form.wageDinner}
-                      onChange={(e) => setForm((f) => ({ ...f, wageDinner: e.target.value }))}
+                      onKeyDown={(e) => ['e','E','+','-'].includes(e.key) && e.preventDefault()}
+                      onChange={(e) => { const v = e.target.value; if (v.split('.')[0].length > 6) return; setForm((f) => ({ ...f, wageDinner: v })) }}
                       className="w-full px-3 py-2 border border-brand-accent rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-brand-gold"
                       placeholder="0"
                     />
@@ -473,7 +477,8 @@ export default function EmployeeView({
                     inputMode="numeric"
                     min="0"
                     value={form.deliveryFeePerTrip}
-                    onChange={(e) => setForm((f) => ({ ...f, deliveryFeePerTrip: e.target.value }))}
+                    onKeyDown={(e) => ['e','E','+','-'].includes(e.key) && e.preventDefault()}
+                    onChange={(e) => { const v = e.target.value; if (v.split('.')[0].length > 6) return; setForm((f) => ({ ...f, deliveryFeePerTrip: v })) }}
                     className="w-full px-3 py-2 border border-brand-accent rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-brand-gold"
                     placeholder={lang === 'en' ? 'Leave blank to use rate table' : 'เว้นว่างถ้าใช้ rate table'}
                   />

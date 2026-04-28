@@ -786,6 +786,7 @@ export default function SummaryView() {
   type WeekEdit = { cashFromBank: string; cashLeftInBag: string; incomeItems: ItemEdit[]; expenseItems: ItemEdit[] }
   const [reportEdits, setReportEdits] = useState<Record<string, WeekEdit>>({})
   const [reportSaving, setReportSaving] = useState(false)
+  const [reportWeekIdx, setReportWeekIdx] = useState(0)
   const [calendarMonth, setCalendarMonth] = useState(currentMonth)
   const [calendarAllExp, setCalendarAllExp] = useState<ExpenseEntry[]>([])
   const [employees, setEmployees] = useState<Employee[]>([])
@@ -826,6 +827,7 @@ export default function SummaryView() {
 
   useEffect(() => {
     if (!showReport) return
+    setReportWeekIdx(0)
     getCashReportAll(shopCode).then((data) => {
       setReportData(data)
       setReportEdits({})
@@ -1270,10 +1272,36 @@ export default function SummaryView() {
               <h3 className="font-bold text-gray-900">Weekly Cash Report</h3>
               <button onClick={() => setShowReport(false)} className="text-gray-400 hover:text-gray-600 cursor-pointer text-xl leading-none">✕</button>
             </div>
+            {weekGroups.length > 0 && (() => {
+              const rg = [...weekGroups].reverse()
+              return (
+                <div className="flex items-center justify-between px-4 py-2 border-b border-gray-100 shrink-0 bg-gray-50">
+                  <button
+                    type="button"
+                    onClick={() => setReportWeekIdx((i) => Math.min(i + 1, rg.length - 1))}
+                    disabled={reportWeekIdx >= rg.length - 1}
+                    className="w-8 h-8 flex items-center justify-center text-gray-500 hover:text-gray-800 disabled:opacity-30 cursor-pointer"
+                  >◄</button>
+                  <div className="text-center">
+                    <div className="text-xs font-semibold text-gray-700">{weekPovLabelSafe(rg[reportWeekIdx]?.weekStart ?? '')}</div>
+                    <div className="text-[10px] text-gray-400">{reportWeekIdx + 1} / {rg.length}</div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setReportWeekIdx((i) => Math.max(i - 1, 0))}
+                    disabled={reportWeekIdx <= 0}
+                    className="w-8 h-8 flex items-center justify-center text-gray-500 hover:text-gray-800 disabled:opacity-30 cursor-pointer"
+                  >►</button>
+                </div>
+              )
+            })()}
             <div className="overflow-y-auto flex-1 px-4 py-3 space-y-4">
               {weekGroups.length === 0 ? (
                 <div className="text-center py-8 text-gray-400 text-sm">No data this month</div>
-              ) : [...weekGroups].reverse().map((wg) => {
+              ) : (() => {
+                const rg = [...weekGroups].reverse()
+                const wg = rg[reportWeekIdx]
+                if (!wg) return null
                 const ws = wg.weekStart
                 const wt = wg.totals
                 const cashSales = getWeekCashSalesFromSumLogic(ws, revenue)
@@ -1315,10 +1343,7 @@ export default function SummaryView() {
                 const inputCls = 'border border-gray-300 rounded px-2 py-0.5 text-sm focus:outline-none focus:ring-1 focus:ring-brand-gold'
 
                 return (
-                  <div key={ws} className="border border-gray-200 rounded-xl overflow-hidden">
-                    <div className="bg-amber-50 px-3 py-2 border-b border-amber-100">
-                      <span className="text-xs font-bold text-amber-700">{weekPovLabelSafe(ws)}</span>
-                    </div>
+                  <div className="border border-gray-200 rounded-xl overflow-hidden">
                     <div className="p-3 space-y-2 text-sm">
 
                       {/* Income special items */}
@@ -1337,7 +1362,8 @@ export default function SummaryView() {
                             placeholder="0"
                             min="0"
                             value={item.amount}
-                            onChange={(e) => updateIncomeItem(idx, 'amount', e.target.value)}
+                            onKeyDown={(e) => ['e','E','+','-'].includes(e.key) && e.preventDefault()}
+                            onChange={(e) => { const v = e.target.value; if (v.split('.')[0].length > 6) return; updateIncomeItem(idx, 'amount', v) }}
                             className={`w-20 text-right ${inputCls}`}
                           />
                           <input
@@ -1372,7 +1398,8 @@ export default function SummaryView() {
                             inputMode="decimal"
                             min="0"
                             value={edit.cashFromBank}
-                            onChange={(e) => setEdit({ cashFromBank: String(Math.max(0, parseFloat(e.target.value) || 0)) })}
+                            onKeyDown={(e) => ['e','E','+','-'].includes(e.key) && e.preventDefault()}
+                            onChange={(e) => { const v = parseFloat(e.target.value) || 0; if (Math.floor(v) > 999999) return; setEdit({ cashFromBank: String(Math.max(0, v)) }) }}
                             className={`w-24 text-right ${inputCls}`}
                           />
                         </div>
@@ -1399,7 +1426,8 @@ export default function SummaryView() {
                               placeholder="0"
                               min="0"
                               value={item.amount}
-                              onChange={(e) => updateExpenseItem(idx, 'amount', e.target.value)}
+                              onKeyDown={(e) => ['e','E','+','-'].includes(e.key) && e.preventDefault()}
+                              onChange={(e) => { const v = e.target.value; if (v.split('.')[0].length > 6) return; updateExpenseItem(idx, 'amount', v) }}
                               className={`w-20 text-right ${inputCls}`}
                             />
                             <input
@@ -1443,7 +1471,8 @@ export default function SummaryView() {
                             type="number"
                             inputMode="decimal"
                             value={edit.cashLeftInBag}
-                            onChange={(e) => setEdit({ cashLeftInBag: e.target.value })}
+                            onKeyDown={(e) => ['e','E','+','-'].includes(e.key) && e.preventDefault()}
+                            onChange={(e) => { const v = e.target.value; if (v.split('.')[0].length > 6) return; setEdit({ cashLeftInBag: v }) }}
                             placeholder="0"
                             className={`w-24 text-right ${inputCls}`}
                           />
@@ -1452,7 +1481,7 @@ export default function SummaryView() {
                     </div>
                   </div>
                 )
-              })}
+              })()}
             </div>
             <div className="px-4 py-3 border-t border-gray-100 shrink-0">
               <button
@@ -1475,17 +1504,7 @@ export default function SummaryView() {
             {/* Header */}
             <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100 shrink-0">
               <h3 className="font-bold text-gray-900">Expenses — {monthLabel(month, locale)}</h3>
-              <div className="flex items-center gap-2">
-                <button
-                  type="button"
-                  onClick={handlePanelSave}
-                  disabled={panelSaving}
-                  className="text-xs bg-brand-gold text-white px-3 py-1.5 rounded-lg font-semibold disabled:opacity-50 cursor-pointer"
-                >
-                  {panelSaving ? 'Saving...' : 'Save'}
-                </button>
-                <button type="button" onClick={() => setShowExpense(false)} className="text-gray-400 hover:text-gray-600 cursor-pointer text-xl leading-none">✕</button>
-              </div>
+              <button type="button" onClick={() => setShowExpense(false)} className="text-gray-400 hover:text-gray-600 cursor-pointer text-xl leading-none">✕</button>
             </div>
             {/* Content */}
             <div className="overflow-y-auto flex-1 px-4 py-3 space-y-4">
@@ -1624,6 +1643,16 @@ export default function SummaryView() {
                   </div>
                 </div>
               ))}
+            </div>
+            <div className="px-4 py-3 border-t border-gray-100 shrink-0">
+              <button
+                type="button"
+                onClick={handlePanelSave}
+                disabled={panelSaving}
+                className="w-full py-2.5 bg-brand-gold text-white rounded-xl text-sm font-semibold disabled:opacity-50 cursor-pointer hover:bg-brand-gold-dark transition-colors"
+              >
+                {panelSaving ? 'Saving...' : 'Save'}
+              </button>
             </div>
           </div>
         </div>

@@ -484,7 +484,8 @@ export default function TimeRecordView() {
                                         step="0.5"
                                         disabled={isPast || weekLocked || isFuture || !scheduled || !canEdit}
                                         value={a[shift] || ''}
-                                        onChange={(e) => setShift(d, emp.id, shift, Number(e.target.value))}
+                                        onKeyDown={(e) => ['e','E','+','-'].includes(e.key) && e.preventDefault()}
+                                        onChange={(e) => { const v = Number(e.target.value); if (v > 999999) return; setShift(d, emp.id, shift, v) }}
                                         placeholder="0"
                                         className={`w-8 text-center border rounded px-0.5 py-1 text-xs focus:outline-none focus:ring-1 disabled:bg-gray-50 disabled:text-gray-300 ${
                                           shift === 'morning'
@@ -714,7 +715,8 @@ export default function TimeRecordView() {
                           step="0.1"
                           disabled={isSaved}
                           value={trip.distance || ''}
-                          onChange={(e) => updateTrip(iid, emp, trip.id, Number(e.target.value))}
+                          onKeyDown={(e) => ['e','E','+','-'].includes(e.key) && e.preventDefault()}
+                          onChange={(e) => { const v = Number(e.target.value); if (v > 999999) return; updateTrip(iid, emp, trip.id, v) }}
                           placeholder="ระยะ (km)"
                           className="w-24 border border-brand-accent rounded px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-brand-gold disabled:bg-gray-50 disabled:text-gray-400"
                         />
@@ -740,7 +742,8 @@ export default function TimeRecordView() {
                         step="1"
                         disabled={isSaved}
                         value={codByEmp[iid] || ''}
-                        onChange={(e) => setCodByEmp((p) => ({ ...p, [iid]: Number(e.target.value) }))}
+                        onKeyDown={(e) => ['e','E','+','-'].includes(e.key) && e.preventDefault()}
+                        onChange={(e) => { const v = Number(e.target.value); if (v > 999999) return; setCodByEmp((p) => ({ ...p, [iid]: v })) }}
                         placeholder="0"
                         className="w-28 border border-blue-200 rounded px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-blue-300 disabled:bg-gray-50 disabled:text-gray-400"
                       />
