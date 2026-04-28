@@ -153,12 +153,12 @@ export default function HomePage() {
   }, [shopCode])
 
   const NAV_ITEMS = [
-    { label: tr.nav_revenue,     sub: tr.nav_revenue_sub,     href: 'revenue',      icon: '$',  key: 'revenue'      as keyof typeof ICON_COLOR, ownerOnly: false },
-    { label: tr.nav_expense,     sub: tr.nav_expense_sub,     href: 'expense',      icon: '🧾', key: 'expense'      as keyof typeof ICON_COLOR, ownerOnly: false },
-    { label: tr.nav_summary,     sub: tr.nav_summary_sub,     href: 'summary',      icon: '📊', key: 'summary'      as keyof typeof ICON_COLOR, ownerOnly: true  },
-    { label: tr.nav_employees,   sub: tr.nav_employees_sub,   href: 'employees',    icon: '👥', key: 'employees'    as keyof typeof ICON_COLOR, ownerOnly: false },
-    { label: tr.nav_schedule,    sub: tr.nav_schedule_sub,    href: 'schedule',     icon: '📅', key: 'schedule'     as keyof typeof ICON_COLOR, ownerOnly: false },
-    { label: tr.nav_time_record, sub: tr.nav_time_record_sub, href: 'time-record',  icon: '⏰', key: 'time-record'  as keyof typeof ICON_COLOR, ownerOnly: false },
+    { label: tr.nav_revenue,     sub: tr.nav_revenue_sub,     href: 'revenue',      icon: '$',  key: 'revenue'      as keyof typeof ICON_COLOR, ownerOnly: false, staffView: false },
+    { label: tr.nav_expense,     sub: tr.nav_expense_sub,     href: 'expense',      icon: '🧾', key: 'expense'      as keyof typeof ICON_COLOR, ownerOnly: false, staffView: false },
+    { label: tr.nav_summary,     sub: tr.nav_summary_sub,     href: 'summary',      icon: '📊', key: 'summary'      as keyof typeof ICON_COLOR, ownerOnly: true,  staffView: false },
+    { label: tr.nav_employees,   sub: tr.nav_employees_sub,   href: 'employees',    icon: '👥', key: 'employees'    as keyof typeof ICON_COLOR, ownerOnly: false, staffView: true  },
+    { label: tr.nav_schedule,    sub: tr.nav_schedule_sub,    href: 'schedule',     icon: '📅', key: 'schedule'     as keyof typeof ICON_COLOR, ownerOnly: false, staffView: true  },
+    { label: tr.nav_time_record, sub: tr.nav_time_record_sub, href: 'time-record',  icon: '⏰', key: 'time-record'  as keyof typeof ICON_COLOR, ownerOnly: false, staffView: true  },
   ]
 
   const sc = SHIFT_COLOR[shift][isDark ? 'night' : 'day']
@@ -263,6 +263,7 @@ export default function HomePage() {
           {/* ── Rows 2–3: Nav cards ── */}
           {NAV_ITEMS.map((item) => {
             const locked = item.ownerOnly && session.role !== 'owner'
+            const viewOnly = item.staffView && session.role === 'staff'
             const iconBg = ICON_COLOR[item.key][isDark ? 'night' : 'day']
             const inner = (
               <>
@@ -287,7 +288,7 @@ export default function HomePage() {
             }
             return (
               <Link key={item.href} href={`/${shopCode}/${item.href}`}
-                className="flex flex-col items-start gap-2 p-4 rounded-2xl bg-white border border-gray-100 shadow-sm hover:shadow-md active:scale-95 transition-all">
+                className="relative flex flex-col items-start gap-2 p-4 rounded-2xl bg-white border border-gray-100 shadow-sm hover:shadow-md active:scale-95 transition-all">
                 {inner}
               </Link>
             )

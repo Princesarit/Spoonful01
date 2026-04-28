@@ -1436,7 +1436,7 @@ function getWeekDates(monday: string): string[] {
 //   (5+N+21)-(5+N+36)  : Combined daily totals + Running
 //   (5+N+37)-(5+N+38)  : gap
 //   (5+N+39)-(5+N+51)  : Simplified view
-const INCOME_SHEET = 'Income 2026'
+const INCOME_SHEET = () => `Income ${new Date().getFullYear()}`
 
 /** Convert 0-based column index to A1 column letter (A, B, ..., Z, AA, ...) */
 function colLetter(n: number): string {
@@ -1543,7 +1543,7 @@ async function applyIncomeFullFormat(
   totalRows: number,
   sumRowIndices: number[],
 ): Promise<void> {
-  const sheetId = await getSheetIdByName(sid, INCOME_SHEET)
+  const sheetId = await getSheetIdByName(sid, INCOME_SHEET())
   if (sheetId === undefined) return
 
   const BLACK = { red: 0, green: 0, blue: 0 }
@@ -1935,8 +1935,8 @@ export async function syncIncomeSheet(shopCode: string): Promise<void> {
   fmtRules.push({ startRow: 2, endRow: totalRows, startCol: 1,          endCol: 2,               numberFormat: DATE_FORMAT })
   fmtRules.push({ startRow: 2, endRow: totalRows, startCol: lo.sDate,   endCol: lo.sDate    + 1, numberFormat: DATE_FORMAT })
 
-  await setSheetDataUserEntered(INCOME_SHEET, rows, sid)
-  await applyFormattingRules(INCOME_SHEET, sid, fmtRules)
+  await setSheetDataUserEntered(INCOME_SHEET(), rows, sid)
+  await applyFormattingRules(INCOME_SHEET(), sid, fmtRules)
   await applyIncomeFullFormat(sid, lo, rows.length, sumRowIndices)
 }
 
@@ -1957,7 +1957,7 @@ export async function syncIncomeSheet(shopCode: string): Promise<void> {
 //   G(6)=WedL  H(7)=WedD  I(8)=ThuL  J(9)=ThuD  K(10)=FriL  L(11)=FriD
 //   M(12)=SatL  N(13)=SatD  O(14)=SunL  P(15)=SunD  Q(16)=Extra
 //   R(17)=WAGE  S(18)=TAX  T(19)=CASH PAID  U(20)=Remaining
-const WAGE_SHEET = 'Wage 2026'
+const WAGE_SHEET = () => `Wage ${new Date().getFullYear()}`
 const WAGE_COL_COUNT = 21
 
 interface WageBlock {
@@ -1972,7 +1972,7 @@ async function applyWageFullFormat(
   totalRows: number,
   wageBlocks: WageBlock[],
 ): Promise<void> {
-  const sheetId = await getSheetIdByName(sid, WAGE_SHEET)
+  const sheetId = await getSheetIdByName(sid, WAGE_SHEET())
   if (sheetId === undefined) return
 
   const BLACK        = { red: 0, green: 0, blue: 0 }
@@ -2302,8 +2302,8 @@ export async function syncWageSheet(shopCode: string): Promise<void> {
   fmtRules.push({ startRow: 0, endRow: totalRows, startCol: 2, endCol: 18, numberFormat: AUD_FORMAT })
   fmtRules.push({ startRow: 0, endRow: totalRows, startCol: 20, endCol: 21, numberFormat: AUD_FORMAT })
 
-  await setSheetDataUserEntered(WAGE_SHEET, rows, sid)
-  await applyFormattingRules(WAGE_SHEET, sid, fmtRules, 500)
+  await setSheetDataUserEntered(WAGE_SHEET(), rows, sid)
+  await applyFormattingRules(WAGE_SHEET(), sid, fmtRules, 500)
   await applyWageFullFormat(sid, totalRows, wageBlocks)
 }
 
@@ -2319,7 +2319,7 @@ export async function syncWageSheet(shopCode: string): Promise<void> {
 //   L(11)=DayAbbr  M(12)=Date  N(13)=Description  O(14)=blank  P(15)=Amount  Q(16)=Notes
 //
 // Total: 17 columns (A-Q)
-const SUM_SHEET = 'Sum 2026'
+const SUM_SHEET = () => `Sum ${new Date().getFullYear()}`
 const SUM_COL_COUNT = 19
 const SUM_BLOCK     = 45   // rows per week block: rel 0 blank + rel 1-40 data + rel 41-44 trailing blanks (5 gap rows between weeks)
 
@@ -2380,7 +2380,7 @@ export async function syncSumSheet(shopCode: string): Promise<void> {
 
   const rows: (string | number | null)[][] = []
   const fmtRules: SheetFormatRule[] = []
-  const incomeItemCounts: number[] = []
+  const cashBoxBottomRels: number[] = []
 
   for (const monday of sortedWeeks) {
     const weekDates  = getWeekDates(monday)
@@ -2472,42 +2472,56 @@ export async function syncSumSheet(shopCode: string): Promise<void> {
     // fallback: auto-sum cashLeftInBag from revenue entries when not manually set
     const autoCashInBag  = wRev.reduce((s, r) => s + (r.lunch.cashLeftInBag ?? 0) + (r.dinner.cashLeftInBag ?? 0), 0)
 
-    // ── rel 17-20: income special items (before Cash sales) ──────────────────
-    for (let i = 0; i < Math.min(incomeItems.length, 4); i++) {
-      const rel = 17 + i
+    // ── Dynamic cash flow positions based on item counts ────────────────────
+    const n  = Math.min(incomeItems.length,  6)  // income special items (max 6)
+    const m  = Math.min(expenseItems.length, 8)  // expense special items (max 8)
+    const CS = 17 + n        // Cash sales
+    const CB = CS + 1        // Cash from bank
+    const TC = CB + 2        // Total cash (1 blank row gap)
+    const ES = TC + 1        // Expense special items start
+    const EX = ES + m        // Expenses total
+    const WC = EX + 1        // Wage (Cash) ref
+    const TE = WC + 2        // Total Exp. (1 blank row gap)
+    const RE = TE + 2        // Remaining (1 blank row gap)
+    const CL = RE + 2        // Cash left in bag (1 blank row gap)
+    cashBoxBottomRels.push(CL + 1)
+
+    // Income special items: rel 17..CS-1
+    for (let i = 0; i < n; i++) {
+      const rel  = 17 + i
       const item = incomeItems[i]
       blk[rel][6] = item.label
       blk[rel][8] = item.amount > 0 ? item.amount : ''
       blk[rel][9] = item.note ? `'${item.note}` : ''
     }
 
-    // rel 21: Cash sales = sum of Total Cash column from the Mon-Sun table rows
-    blk[21][6] = 'Cash sales';           blk[21][8] = `=I${R(10)}`
-    // rel 22: cash from bank (stored from Report panel, blank if not set)
-    blk[22][6] = 'cash from bank';       blk[22][8] = storedFromBank > 0 ? storedFromBank : ''
-    // rel 24: Total cash = income items + Cash sales + cash from bank
-    blk[24][7] = 'Total cash';           blk[24][8] = `=SUM(I${R(17)}:I${R(22)})`
+    // Cash sales = sum of Total Cash column from the Mon-Sun table rows
+    blk[CS][6] = 'Cash sales';     blk[CS][8] = `=I${R(10)}`
+    // Cash from bank (stored from Report panel, blank if not set)
+    blk[CB][6] = 'cash from bank'; blk[CB][8] = storedFromBank > 0 ? storedFromBank : ''
+    // Total cash = income items + Cash sales + cash from bank
+    blk[TC][7] = 'Total cash';     blk[TC][8] = `=SUM(I${R(17)}:I${R(CB)})`
 
-    // ── rel 25-29: expense special items (before Expenses) ───────────────────
-    for (let i = 0; i < Math.min(expenseItems.length, 5); i++) {
-      const rel = 25 + i
+    // Expense special items: rel ES..EX-1
+    for (let i = 0; i < m; i++) {
+      const rel  = ES + i
       const item = expenseItems[i]
       blk[rel][6] = item.label
       blk[rel][8] = item.amount > 0 ? item.amount : ''
       blk[rel][9] = item.note ? `'${item.note}` : ''
     }
 
-    // rel 30: Expenses
-    blk[30][6] = 'Expenses';             blk[30][8] = totalExpAmt > 0 ? totalExpAmt : ''
-    // rel 31: Wage (Cash) = dynamic — references Wage(CASH) at wageStartRel+2
-    blk[31][6] = 'Wage (Cash)';          blk[31][8] = `=C${R(wageStartRel + 2)}`
-    // rel 33: Total Exp. = expense items + Expenses + Wage Cash
-    blk[33][7] = 'Total Exp.';           blk[33][8] = `=SUM(I${R(25)}:I${R(31)})`
-    // rel 35: Remaining
-    blk[35][6] = 'Remaining';            blk[35][8] = `=I${R(24)}-I${R(33)}`
-    // rel 37: Cash left in the bag — use manually stored value; fallback to auto-sum
-    blk[37][6] = 'Cash left in the bag'
-    blk[37][8] = storedInBag !== null ? storedInBag : autoCashInBag > 0 ? autoCashInBag : ''
+    // Expenses
+    blk[EX][6] = 'Expenses';    blk[EX][8] = totalExpAmt > 0 ? totalExpAmt : ''
+    // Wage (Cash) — references Wage(CASH) at wageStartRel+2
+    blk[WC][6] = 'Wage (Cash)'; blk[WC][8] = `=C${R(wageStartRel + 2)}`
+    // Total Exp. = expense special items + Expenses + Wage Cash
+    blk[TE][7] = 'Total Exp.';  blk[TE][8] = `=SUM(I${R(ES)}:I${R(WC)})`
+    // Remaining
+    blk[RE][6] = 'Remaining';   blk[RE][8] = `=I${R(TC)}-I${R(TE)}`
+    // Cash left in the bag — use manually stored value; fallback to auto-sum
+    blk[CL][6] = 'Cash left in the bag'
+    blk[CL][8] = storedInBag !== null ? storedInBag : autoCashInBag > 0 ? autoCashInBag : ''
 
     // ── Wage totals: 2 blank rows after last employee (dynamic position) ──────
     const WS = wageStartRel
@@ -2515,8 +2529,6 @@ export async function syncSumSheet(shopCode: string): Promise<void> {
     blk[WS][2]   = `=SUM(C${R(15)}:C${R(14 + activeCount)})`
     blk[WS+1][1] = 'TAX/PAID'
     blk[WS+1][2] = `=SUM(D${R(15)}:D${R(14+activeCount)})+SUM(E${R(15)}:E${R(14+activeCount)})`
-    blk[WS+1][13] = 'Total Expenses'
-    blk[WS+1][15] = totalExpAmt > 0 ? totalExpAmt : ''
     blk[WS+2][1] = 'Wage (CASH)'
     blk[WS+2][2] = `=C${R(WS)}-C${R(WS+1)}`
 
@@ -2532,12 +2544,13 @@ export async function syncSumSheet(shopCode: string): Promise<void> {
     ]
     expRows.sort((a, b) => a.date.localeCompare(b.date))
 
+    const expCap   = Math.min(40, wageStartRel - 3)
     let expSlot    = 0
     let lastExpDate = ''
     const paidRels: number[] = []   // relative row indices for Paid
     const unpaidRels: number[] = [] // relative row indices for Unpaid
     for (const row of expRows) {
-      if (expSlot >= 32) break
+      if (expSlot >= expCap) break
       const rel = 4 + expSlot
       if (row.date !== lastExpDate) {
         const di = weekDates.indexOf(row.date)
@@ -2555,8 +2568,12 @@ export async function syncSumSheet(shopCode: string): Promise<void> {
       expSlot++
     }
 
+    // Total Expenses: placed after last expense entry or at WS+1, whichever is later
+    const totalExpListRow = Math.max(WS + 1, 4 + expSlot)
+    blk[totalExpListRow][13] = 'Total Expenses'
+    blk[totalExpListRow][15] = totalExpAmt > 0 ? totalExpAmt : ''
+
     for (const row of blk) rows.push(row)
-    incomeItemCounts.push(incomeItems.length)
 
     // ── Format rules (0-based absolute rows) ─────────────────────────────────
     const bs = blockStart1 - 1
@@ -2578,20 +2595,20 @@ export async function syncSumSheet(shopCode: string): Promise<void> {
     fmtRules.push({ startRow: bs+12, endRow: bs+13, startCol: 1, endCol: 5, backgroundColor: C_SALMON, bold: true })
     // rel 13: WAGE/TAX/PAID headers bold (B-E)
     fmtRules.push({ startRow: bs+13, endRow: bs+14, startCol: 1, endCol: 5, bold: true })
-    // rel 21: grey bg on I (8) — Cash sales value
-    fmtRules.push({ startRow: bs+21, endRow: bs+22, startCol: 8, endCol: 9, backgroundColor: C_GREY_BG })
-    // rel 30: light green bg on I (8) — Expenses
-    fmtRules.push({ startRow: bs+30, endRow: bs+31, startCol: 8, endCol: 9, backgroundColor: C_LT_GRN })
-    // rel 31: light blue bg on I (8) — Wage Cash
-    fmtRules.push({ startRow: bs+31, endRow: bs+32, startCol: 8, endCol: 9, backgroundColor: C_LT_BLUE })
-    // rel 35: very light green bg on G (6), I (8), J (9) — Remaining
-    fmtRules.push({ startRow: bs+35, endRow: bs+36, startCol: 6, endCol: 7,  backgroundColor: C_VLT_GRN })
-    fmtRules.push({ startRow: bs+35, endRow: bs+36, startCol: 8, endCol: 10, backgroundColor: C_VLT_GRN })
+    // Cash sales (CS): grey bg on I (8)
+    fmtRules.push({ startRow: bs+CS, endRow: bs+CS+1, startCol: 8, endCol: 9, backgroundColor: C_GREY_BG })
+    // Expenses (EX): light green bg on I (8)
+    fmtRules.push({ startRow: bs+EX, endRow: bs+EX+1, startCol: 8, endCol: 9, backgroundColor: C_LT_GRN })
+    // Wage Cash (WC): light blue bg on I (8)
+    fmtRules.push({ startRow: bs+WC, endRow: bs+WC+1, startCol: 8, endCol: 9, backgroundColor: C_LT_BLUE })
+    // Remaining (RE): very light green bg on G (6), I (8), J (9)
+    fmtRules.push({ startRow: bs+RE, endRow: bs+RE+1, startCol: 6, endCol: 7,  backgroundColor: C_VLT_GRN })
+    fmtRules.push({ startRow: bs+RE, endRow: bs+RE+1, startCol: 8, endCol: 10, backgroundColor: C_VLT_GRN })
     // Wage totals (dynamic): bold on B-E; Total Expenses N bold + P green; Wage CASH C blue
     const WF = wageStartRel
     fmtRules.push({ startRow: bs+WF, endRow: bs+WF+3, startCol: 1, endCol: 5, bold: true })
-    fmtRules.push({ startRow: bs+WF+1, endRow: bs+WF+2, startCol: 13, endCol: 14, bold: true })
-    fmtRules.push({ startRow: bs+WF+1, endRow: bs+WF+2, startCol: 15, endCol: 16, backgroundColor: C_LT_GRN })
+    fmtRules.push({ startRow: bs+totalExpListRow, endRow: bs+totalExpListRow+1, startCol: 13, endCol: 14, bold: true })
+    fmtRules.push({ startRow: bs+totalExpListRow, endRow: bs+totalExpListRow+1, startCol: 15, endCol: 16, backgroundColor: C_LT_GRN })
     fmtRules.push({ startRow: bs+WF+2, endRow: bs+WF+3, startCol: 2, endCol: 3, backgroundColor: C_LT_BLUE })
     // Expense Status column: green for Paid, red for Unpaid
     const C_PAID_GRN  = { red: 0.2980392, green: 0.6862745, blue: 0.3137255 }
@@ -2613,14 +2630,14 @@ export async function syncSumSheet(shopCode: string): Promise<void> {
   fmtRules.push({ startRow: 0, endRow: totalRows, startCol: 15, endCol: 16, numberFormat: AUD_FORMAT }) // P expense $
 
   // ── Get sheetId for merges ────────────────────────────────────────────────
-  const sheetId = await getSheetIdByName(sid, SUM_SHEET)
+  const sheetId = await getSheetIdByName(sid, SUM_SHEET())
   if (sheetId === undefined) return
 
   // Clear existing merges before rewriting (must unmerge each exact range individually)
   await clearSheetMerges(sid, sheetId)
 
-  await setSheetDataUserEntered(SUM_SHEET, rows, sid)
-  await applyFormattingRules(SUM_SHEET, sid, fmtRules, totalRows + 5)
+  await setSheetDataUserEntered(SUM_SHEET(), rows, sid)
+  await applyFormattingRules(SUM_SHEET(), sid, fmtRules, totalRows + 5)
 
   // ── Cell merges per week ──────────────────────────────────────────────────
   const mergeReqs: object[] = []
@@ -2670,9 +2687,8 @@ export async function syncSumSheet(shopCode: string): Promise<void> {
       top: SOLID_BLK, bottom: SOLID_BLK, left: SOLID_BLK, right: SOLID_BLK,
     })
 
-    // ── Cash flow box (G-J): top moves up 1 row per income item added ───────
-    const cashBoxTop = 17 - (incomeItemCounts[wi] ?? 0)
-    bdr(cashBoxTop, 38, 6, 10, {
+    // ── Cash flow box (G-J): starts at first income item or Cash sales ───────
+    bdr(17, cashBoxBottomRels[wi] ?? 38, 6, 10, {
       top: SOLID_BLK, bottom: SOLID_BLK, left: SOLID_BLK, right: SOLID_BLK,
     })
   }

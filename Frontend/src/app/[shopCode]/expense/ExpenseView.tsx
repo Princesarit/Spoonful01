@@ -7,6 +7,7 @@ import type { ExpenseEntry, PaymentMethod } from '@/lib/types'
 import { getExpenses, saveExpenseEntry, deleteExpenseEntry, togglePaid, saveAuditLog } from './actions'
 import { useShop } from '@/components/ShopProvider'
 import { translations } from '@/lib/translations'
+import { useToast } from '@/components/Toast'
 
 function today(): string {
   return new Date().toISOString().split('T')[0]
@@ -50,6 +51,8 @@ export default function ExpenseView() {
   const { shopCode } = useParams() as { shopCode: string }
   const { lang } = useShop()
   const tr = translations[lang]
+
+  const { showToast, toastEl } = useToast()
 
   const [entries, setEntries] = useState<ExpenseEntry[]>([])
   const [form, setForm] = useState<(Omit<ExpenseEntry, 'id'> & { id?: string; _editAuditName?: string; _editAuditNote?: string }) | null>(null)
@@ -96,8 +99,9 @@ export default function ExpenseView() {
         }).catch(() => {})
       }
       setForm(null)
+      showToast(tr.save_success)
     } catch {
-      alert(tr.save_fail)
+      showToast(tr.save_fail, 'error')
     } finally {
       setSaving(false)
     }
@@ -111,6 +115,7 @@ export default function ExpenseView() {
       changes: `Delete expense: ${entry.supplier} $${entry.total}`,
     }).catch(() => {})
     setEntries((p) => p.filter((e) => e.id !== entry.id))
+    showToast(tr.delete_success)
   }
 
   async function handleTogglePaid(id: string) {
@@ -457,6 +462,7 @@ export default function ExpenseView() {
           </div>
         </div>
       )}
+      {toastEl}
     </div>
   )
 }

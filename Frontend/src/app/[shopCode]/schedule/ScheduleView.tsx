@@ -7,6 +7,7 @@ import type { Employee, WeekSchedule, Position } from '@/lib/types'
 import { saveWeekSchedule, saveAuditLog } from './actions'
 import { useShop } from '@/components/ShopProvider'
 import { translations } from '@/lib/translations'
+import { useToast } from '@/components/Toast'
 
 const DAYS_SHORT_TH = ['จ', 'อ', 'พ', 'พฤ', 'ศ', 'ส', 'อา']
 const DAYS_SHORT_EN = ['M', 'T', 'W', 'Th', 'F', 'Sa', 'Su']
@@ -125,6 +126,8 @@ export default function ScheduleView({
   const DAYS_SHORT = lang === 'en' ? DAYS_SHORT_EN : DAYS_SHORT_TH
   const locale = lang === 'en' ? 'en-US' : 'th-TH'
 
+  const { showToast, toastEl } = useToast()
+
   const [employees, setEmployees] = useState(initialEmployees)
   const [schedules, setSchedules] = useState(initialSchedules)
   const todayMonday = getMonday(new Date())
@@ -208,8 +211,9 @@ export default function ScheduleView({
             changes: `Save schedule: week ${weekStr}`,
           })
           setIsEditing(false)
+          showToast(tr.save_success)
         } catch {
-          alert(tr.save_fail)
+          showToast(tr.save_fail, 'error')
         } finally {
           setSaving(false)
         }
@@ -230,8 +234,9 @@ export default function ScheduleView({
             changes: `Edit schedule: week ${weekStr}`,
           })
           setIsEditing(false)
+          showToast(tr.save_success)
         } catch {
-          alert(tr.save_fail)
+          showToast(tr.save_fail, 'error')
         } finally {
           setSaving(false)
         }
@@ -278,8 +283,9 @@ export default function ScheduleView({
           .map((e) => ({ employeeId: e.id, days: getEntry(e.id) }))
         try {
           await saveWeekSchedule(shopCode, { weekStart: weekStr, entries: updatedEntries })
+          showToast(tr.delete_success)
         } catch {
-          alert(tr.save_fail)
+          showToast(tr.save_fail, 'error')
         }
         await saveAuditLog(shopCode, {
           editorName, note, employeeName: emp?.name ?? empId, shift: '',
@@ -539,6 +545,7 @@ export default function ScheduleView({
           </div>
         )
       })()}
+      {toastEl}
     </div>
   )
 }

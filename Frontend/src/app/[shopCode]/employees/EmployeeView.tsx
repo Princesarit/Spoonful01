@@ -7,6 +7,7 @@ import { saveEmployeeAction, deleteEmployeeAction, saveAuditLog } from './action
 import { v4 as uuidv4 } from 'uuid'
 import { useShop } from '@/components/ShopProvider'
 import { translations } from '@/lib/translations'
+import { useToast } from '@/components/Toast'
 
 const ALL_POSITIONS: Position[] = ['Manager', 'Front', 'Kitchen', 'Home']
 
@@ -73,6 +74,8 @@ export default function EmployeeView({
   const tr = translations[lang]
   const DAYS = lang === 'en' ? DAYS_SHORT_EN : DAYS_SHORT_TH
 
+  const { showToast, toastEl } = useToast()
+
   const [employees, setEmployees] = useState(() => sortEmployees(initialEmployees))
   const [filter, setFilter] = useState<Position | 'all'>('all')
   const [dayFilter, setDayFilter] = useState<number | null>(null)
@@ -87,7 +90,7 @@ export default function EmployeeView({
   const [nameError, setNameError] = useState('')
   const [deleteAudit, setDeleteAudit] = useState<{ emp: Employee; editorName: string; note: string } | null>(null)
 
-  const isOwner = role === 'manager' || role === 'owner'
+  const isOwner = true
   const isOwnerOnly = role === 'owner'
   const filtered = employees.filter((e) => {
     if (filter !== 'all' && !e.positions.includes(filter)) return false
@@ -194,6 +197,7 @@ export default function EmployeeView({
         }).catch(() => {})
       }
       setShowForm(false)
+      showToast(tr.save_success)
     }
     setSaving(false)
   }
@@ -210,6 +214,7 @@ export default function EmployeeView({
       changes: `Delete employee: ${emp.name}`,
     }).catch(() => {})
     setEmployees((prev) => prev.filter((e) => e.id !== emp.id))
+    showToast(tr.delete_success)
   }
 
   return (
@@ -574,6 +579,7 @@ export default function EmployeeView({
           </div>
         </div>
       )}
+      {toastEl}
     </div>
   )
 }

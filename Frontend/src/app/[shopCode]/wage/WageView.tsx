@@ -5,6 +5,7 @@ import Link from 'next/link'
 import { useParams } from 'next/navigation'
 import type { Employee, TimeRecord } from '@/lib/types'
 import { getWageData, getWagePayments, saveWagePayments } from './actions'
+import { useToast } from '@/components/Toast'
 
 const DAY_SHORT = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
 
@@ -53,6 +54,7 @@ const inputCls = 'w-14 border border-gray-300 rounded px-1 py-0.5 text-center fo
 
 export default function WageView() {
   const { shopCode } = useParams() as { shopCode: string }
+  const { showToast, toastEl } = useToast()
   const [weekStart, setWeekStart] = useState(() => getMondayStr(new Date()))
   const [employees, setEmployees] = useState<Employee[]>([])
   const [timeRecords, setTimeRecords] = useState<TimeRecord[]>([])
@@ -121,8 +123,9 @@ export default function WageView() {
       await saveWagePayments(shopCode, weekStart, payments, weekNote)
       setSaved(true)
       setEditMode(false)
+      showToast('บันทึกสำเร็จ')
     } catch (err) {
-      alert('บันทึกไม่สำเร็จ: ' + String(err))
+      showToast('บันทึกไม่สำเร็จ: ' + String(err), 'error')
     } finally {
       setSaving(false)
     }
@@ -465,6 +468,7 @@ export default function WageView() {
           </>
         )}
       </div>
+      {toastEl}
     </div>
   )
 }

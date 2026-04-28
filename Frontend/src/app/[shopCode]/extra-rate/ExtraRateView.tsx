@@ -4,6 +4,7 @@ import { useState } from 'react'
 import Link from 'next/link'
 import { useParams } from 'next/navigation'
 import { saveExtraRate, saveConfigAuditLog } from '../config/actions'
+import { useToast } from '@/components/Toast'
 
 export default function ExtraRateView({
   initialExtraRate,
@@ -13,6 +14,7 @@ export default function ExtraRateView({
   role: string
 }) {
   const { shopCode } = useParams() as { shopCode: string }
+  const { showToast, toastEl } = useToast()
   const [rate, setRate] = useState(initialExtraRate)
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
@@ -25,8 +27,9 @@ export default function ExtraRateView({
       await saveExtraRate(shopCode, rate)
       await saveConfigAuditLog(shopCode, `extra_rate: ${initialExtraRate}→${rate}`)
       setSaved(true)
+      showToast('บันทึกสำเร็จ')
     } catch {
-      alert('บันทึกไม่สำเร็จ')
+      showToast('บันทึกไม่สำเร็จ', 'error')
     } finally {
       setSaving(false)
     }
@@ -77,6 +80,7 @@ export default function ExtraRateView({
           {saving ? 'กำลังบันทึก...' : saved ? '✓ บันทึกแล้ว' : 'บันทึก'}
         </button>
       )}
+      {toastEl}
     </div>
   )
 }

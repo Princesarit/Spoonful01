@@ -6,6 +6,7 @@ import { useParams } from 'next/navigation'
 import type { DeliveryRate } from '@/lib/types'
 import { rateLabel } from '@/lib/config'
 import { saveDeliveryRates, saveConfigAuditLog } from './actions'
+import { useToast } from '@/components/Toast'
 
 export default function DeliveryRatesView({
   initialRates,
@@ -15,6 +16,7 @@ export default function DeliveryRatesView({
   role: string
 }) {
   const { shopCode } = useParams() as { shopCode: string }
+  const { showToast, toastEl } = useToast()
   const [rates, setRates] = useState(initialRates)
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
@@ -69,8 +71,9 @@ export default function DeliveryRatesView({
       await saveDeliveryRates(shopCode, rates)
       await saveConfigAuditLog(shopCode, changes)
       setSaved(true)
+      showToast('บันทึกสำเร็จ')
     } catch {
-      alert('บันทึกไม่สำเร็จ')
+      showToast('บันทึกไม่สำเร็จ', 'error')
     } finally {
       setSaving(false)
     }
@@ -175,6 +178,7 @@ export default function DeliveryRatesView({
           </button>
         </div>
       )}
+      {toastEl}
     </div>
   )
 }

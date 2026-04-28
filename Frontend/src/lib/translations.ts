@@ -12,6 +12,8 @@ export const translations = {
     loading: 'กำลังโหลด...',
     no_data: 'ยังไม่มีรายการ',
     save_fail: 'บันทึกไม่สำเร็จ',
+    save_success: 'บันทึกสำเร็จ',
+    delete_success: 'ลบสำเร็จ',
     confirm_delete: 'ลบรายการนี้?',
     // header
     logout: 'ออกจากระบบ',
@@ -116,6 +118,8 @@ export const translations = {
     loading: 'Loading...',
     no_data: 'No items yet',
     save_fail: 'Failed to save',
+    save_success: 'Saved successfully',
+    delete_success: 'Deleted successfully',
     confirm_delete: 'Delete this item?',
     // header
     logout: 'Logout',

@@ -16,6 +16,7 @@ import { getSummaryData, getSummaryDataAll, saveDailyNote, syncReportSheets, hid
 import type { CashReportRow, WageWeekSummary } from './actions'
 import { useShop } from '@/components/ShopProvider'
 import { translations } from '@/lib/translations'
+import { useToast } from '@/components/Toast'
 
 type Pov = 'daily' | 'weekly' | 'monthly'
 type Shift = 'am' | 'pm' | 'total'
@@ -705,8 +706,9 @@ function NoteField({
     try {
       await saveDailyNote(shopCode, date, note)
       setEditing(false)
+      showToast(tr.save_success)
     } catch {
-      alert(tr.note_fail)
+      showToast(tr.note_fail, 'error')
     } finally {
       setSaving(false)
     }
@@ -763,6 +765,8 @@ export default function SummaryView() {
   const { lang, session } = useShop()
   const tr = translations[lang]
   const locale = lang === 'en' ? 'en-US' : 'th-TH'
+
+  const { showToast, toastEl } = useToast()
 
   const [month, setMonth] = useState(currentMonth)
   const [pov, setPov] = useState<Pov>('daily')
@@ -897,8 +901,9 @@ export default function SummaryView() {
       }))
       setExpenses(panelExpenses)
       syncSumSheet(shopCode).catch(() => {})
+      showToast(tr.save_success)
     } catch {
-      alert('Save failed')
+      showToast(tr.save_fail, 'error')
     } finally {
       setPanelSaving(false)
     }
@@ -934,8 +939,9 @@ export default function SummaryView() {
       })
       setReportEdits({})
       syncSumSheet(shopCode).catch(() => {})
+      showToast(tr.save_success)
     } catch {
-      alert('Save failed')
+      showToast(tr.save_fail, 'error')
     } finally {
       setReportSaving(false)
     }
@@ -998,9 +1004,9 @@ export default function SummaryView() {
                 setHiding(true)
                 try {
                   await hideReportSheets(shopCode)
-                  alert('Internal sheets hidden!')
+                  showToast('Internal sheets hidden!')
                 } catch (e) {
-                  alert('Failed: ' + (e instanceof Error ? e.message : String(e)))
+                  showToast('Failed: ' + (e instanceof Error ? e.message : String(e)), 'error')
                 } finally {
                   setHiding(false)
                 }
@@ -1015,9 +1021,9 @@ export default function SummaryView() {
                 setSyncing(true)
                 try {
                   await syncReportSheets(shopCode)
-                  alert('Synced to Google Sheets!')
+                  showToast('Synced to Google Sheets!')
                 } catch (e) {
-                  alert('Sync failed: ' + (e instanceof Error ? e.message : String(e)))
+                  showToast('Sync failed: ' + (e instanceof Error ? e.message : String(e)), 'error')
                 } finally {
                   setSyncing(false)
                 }
@@ -1623,6 +1629,7 @@ export default function SummaryView() {
         </div>
       )}
 
+      {toastEl}
     </div>
   )
 }

@@ -7,6 +7,7 @@ import type { MealRevenue, RevenueEntry } from '@/lib/types'
 import { getRevenueData, saveRevenueEntry, deleteRevenueEntry, saveAuditLog } from './actions'
 import { useShop } from '@/components/ShopProvider'
 import { translations } from '@/lib/translations'
+import { useToast } from '@/components/Toast'
 
 type FormMode = 'lunch' | 'dinner'
 
@@ -183,6 +184,8 @@ export default function RevenueView() {
   const { lang } = useShop()
   const tr = translations[lang]
 
+  const { showToast, toastEl } = useToast()
+
   const [entries, setEntries] = useState<RevenueEntry[]>([])
   const [formState, setFormState] = useState<FormState | null>(null)
   const [auditEditorName, setAuditEditorName] = useState('')
@@ -285,8 +288,9 @@ export default function RevenueView() {
       const { entries: fresh } = await getRevenueData(shopCode)
       setEntries(fresh)
       setFormState(null)
+      showToast(tr.save_success)
     } catch {
-      alert(tr.save_fail)
+      showToast(tr.save_fail, 'error')
     } finally {
       setSaving(false)
     }
@@ -321,6 +325,7 @@ export default function RevenueView() {
     const { entries: fresh } = await getRevenueData(shopCode)
     setEntries(fresh)
     setDeleteMealAudit(null)
+    showToast(tr.delete_success)
   }
 
   function openExtraModal(entry: RevenueEntry, meal: FormMode) {
@@ -340,8 +345,9 @@ export default function RevenueView() {
       const { entries: fresh } = await getRevenueData(shopCode)
       setEntries(fresh)
       setExtraMealMode(null)
+      showToast(tr.save_success)
     } catch {
-      alert(tr.save_fail)
+      showToast(tr.save_fail, 'error')
     } finally {
       setExtraSaving(false)
     }
@@ -769,6 +775,7 @@ export default function RevenueView() {
           </div>
         </div>
       )}
+      {toastEl}
     </div>
   )
 }

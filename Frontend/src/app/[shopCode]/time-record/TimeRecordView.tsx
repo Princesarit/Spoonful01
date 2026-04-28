@@ -10,6 +10,7 @@ import { getDeliveryRates } from '../config/actions'
 import { saveAuditLog } from './actions'
 import { useShop } from '@/components/ShopProvider'
 import { translations } from '@/lib/translations'
+import { useToast } from '@/components/Toast'
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -62,6 +63,9 @@ export default function TimeRecordView() {
   const tr = translations[lang]
   const DAYS_SHORT = lang === 'en' ? DAYS_SHORT_EN : DAYS_SHORT_TH
   const locale = lang === 'en' ? 'en-US' : 'th-TH'
+
+  const { showToast, toastEl } = useToast()
+  const canEdit = session.role !== 'staff'
 
   // ── Weekly state (Front / Kitchen) ──
   const [weekStart, setWeekStart] = useState(() => getMonday(new Date()))
@@ -233,9 +237,10 @@ export default function TimeRecordView() {
       })
       setWeekSaved(true)
       setWeekEditing(false)
+      showToast(tr.save_success)
     } catch (err) {
       console.error('[doSaveWeek]', err)
-      alert(tr.save_fail)
+      showToast(tr.save_fail, 'error')
     } finally {
       setWeekSaving(false)
     }
@@ -367,9 +372,9 @@ export default function TimeRecordView() {
       await saveAuditLog(shopCode, { editorName, note: remark, employeeName: emp.name, shift, changes })
       setSavedByEmp((p) => ({ ...p, [iid]: true }))
       setEditingByEmp((p) => ({ ...p, [iid]: false }))
-      alert(tr.save)
+      showToast(tr.save_success)
     } catch {
-      alert(tr.save_fail)
+      showToast(tr.save_fail, 'error')
     } finally {
       setEmpSaving((p) => ({ ...p, [iid]: false }))
     }
@@ -477,7 +482,7 @@ export default function TimeRecordView() {
                                         type="number"
                                         min="0"
                                         step="0.5"
-                                        disabled={isPast || weekLocked || isFuture || !scheduled}
+                                        disabled={isPast || weekLocked || isFuture || !scheduled || !canEdit}
                                         value={a[shift] || ''}
                                         onChange={(e) => setShift(d, emp.id, shift, Number(e.target.value))}
                                         placeholder="0"
@@ -526,7 +531,7 @@ export default function TimeRecordView() {
               <div className="text-center py-8 text-gray-400 text-sm">{tr.no_front_back}</div>
             )}
 
-            {!isPast && !isFuture && staffEmps.length > 0 && (
+            {!isPast && !isFuture && staffEmps.length > 0 && canEdit && (
               weekLocked ? (
                 <button
                   onClick={() => setWeekEditing(true)}
@@ -654,7 +659,7 @@ export default function TimeRecordView() {
                         </div>
                       </div>
                       <div className="flex items-center gap-2">
-                        {!isSaved && (
+                        {!isSaved && canEdit && (
                           <button
                             onClick={() => addTrip(iid, emp)}
                             disabled={isSaved || !isToday}
@@ -664,7 +669,7 @@ export default function TimeRecordView() {
                           </button>
                         )}
                         {isSaved ? (
-                          <button
+                          canEdit && <button
                             onClick={() => {
                               setOriginalByEmp((p) => ({
                                 ...p,
@@ -681,7 +686,7 @@ export default function TimeRecordView() {
                             Edit
                           </button>
                         ) : (
-                          <button
+                          canEdit && <button
                             onClick={() => setAuditModal({ emp, editorName: '', remark: '' })}
                             disabled={!isToday || isSavingThis}
                             className="text-xs bg-brand-gold text-white px-2.5 py-1 rounded-lg hover:bg-brand-gold-dark disabled:opacity-50 cursor-pointer disabled:cursor-not-allowed"
@@ -937,6 +942,7 @@ export default function TimeRecordView() {
           </div>
         )
       })()}
+      {toastEl}
     </div>
   )
 }

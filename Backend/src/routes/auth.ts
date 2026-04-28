@@ -24,15 +24,11 @@ router.post('/login', async (req: Request, res: Response) => {
       return
     }
 
-    let role: Role | null = null
-    if (shop.ownerPassword && password === shop.ownerPassword) role = 'owner'
-    else if (password === shop.managerPassword) role = shop.ownerPassword ? 'manager' : 'owner'
-    else if (password === shop.restaurantPassword) role = 'staff'
-
-    if (!role) {
+    if (password !== shop.restaurantPassword) {
       res.status(401).json({ error: 'รหัสผ่านไม่ถูกต้อง' })
       return
     }
+    const role: Role = 'staff'
 
     const token = jwt.sign({ shopCode, role }, config.jwtSecret, { expiresIn: '7d' })
     res.json({ token, shopCode, role })
