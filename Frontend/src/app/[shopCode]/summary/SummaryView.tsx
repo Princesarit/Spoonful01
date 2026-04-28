@@ -72,7 +72,7 @@ function getWeekStart(dateStr: string): string {
   return addDaysIso(dateStr, diff)
 }
 
-function weekPovLabel(weekStart: string): string {
+function _weekPovLabel(weekStart: string): string {
   const start = new Date(weekStart + 'T00:00:00')
   const end = new Date(weekStart + 'T00:00:00')
   end.setDate(end.getDate() + 6)
@@ -767,7 +767,7 @@ export default function SummaryView() {
   const [month, setMonth] = useState(currentMonth)
   const [pov, setPov] = useState<Pov>('daily')
   const [shift, setShift] = useState<Shift>('total')
-  function nextShift() { setShift((s) => s === 'am' ? 'pm' : s === 'pm' ? 'total' : 'am') }
+
   const [loading, setLoading] = useState(true)
   const [showAllDays, setShowAllDays] = useState(false)
   const [syncing, setSyncing] = useState(false)
@@ -946,11 +946,6 @@ export default function SummaryView() {
   }
   function dayShort(dateStr: string): string {
     return new Date(dateStr + 'T00:00:00Z').toLocaleDateString('en-AU', { weekday: 'short', timeZone: 'UTC' })
-  }
-  function addDaysLocal(dateStr: string, n: number): string {
-    const d = new Date(dateStr + 'T00:00:00')
-    d.setDate(d.getDate() + n)
-    return d.toISOString().split('T')[0]
   }
   const expenseWeekGroups = (() => {
     const source = panelExpenses.length > 0 ? panelExpenses : expenses
@@ -1408,11 +1403,12 @@ export default function SummaryView() {
                               onChange={(e) => updateExpenseItem(idx, 'note', e.target.value)}
                               className={`w-20 ${inputCls}`}
                             />
-                            <button onClick={() => removeExpenseItem(idx)} className="text-gray-300 hover:text-red-400 cursor-pointer text-base leading-none shrink-0">✕</button>
+                            <button type="button" onClick={() => removeExpenseItem(idx)} className="text-gray-300 hover:text-red-400 cursor-pointer text-base leading-none shrink-0">✕</button>
                           </div>
                         ))}
                         {edit.expenseItems.length < 5 && (
                           <button
+                            type="button"
                             onClick={() => setEdit({ expenseItems: [...edit.expenseItems, { label: '', amount: '', note: '' }] })}
                             className="text-xs text-red-500 hover:text-red-600 cursor-pointer font-medium"
                           >
@@ -1454,6 +1450,7 @@ export default function SummaryView() {
             </div>
             <div className="px-4 py-3 border-t border-gray-100 shrink-0">
               <button
+                type="button"
                 onClick={handleReportSave}
                 disabled={reportSaving || Object.keys(reportEdits).length === 0}
                 className="w-full py-2.5 bg-brand-gold text-white rounded-xl text-sm font-semibold disabled:opacity-50 cursor-pointer hover:bg-brand-gold-dark transition-colors"
@@ -1474,13 +1471,14 @@ export default function SummaryView() {
               <h3 className="font-bold text-gray-900">Expenses — {monthLabel(month, locale)}</h3>
               <div className="flex items-center gap-2">
                 <button
+                  type="button"
                   onClick={handlePanelSave}
                   disabled={panelSaving}
                   className="text-xs bg-brand-gold text-white px-3 py-1.5 rounded-lg font-semibold disabled:opacity-50 cursor-pointer"
                 >
                   {panelSaving ? 'Saving...' : 'Save'}
                 </button>
-                <button onClick={() => setShowExpense(false)} className="text-gray-400 hover:text-gray-600 cursor-pointer text-xl leading-none">✕</button>
+                <button type="button" onClick={() => setShowExpense(false)} className="text-gray-400 hover:text-gray-600 cursor-pointer text-xl leading-none">✕</button>
               </div>
             </div>
             {/* Content */}
@@ -1512,11 +1510,13 @@ export default function SummaryView() {
                   <div className="border border-gray-200 rounded-xl overflow-hidden">
                     <div className="bg-amber-50 px-3 py-2 border-b border-amber-100 flex items-center justify-between">
                       <button
+                        type="button"
                         onClick={() => setCalendarMonth((m) => addMonth(m, -1))}
                         className="text-amber-600 hover:text-amber-800 w-7 h-7 flex items-center justify-center rounded cursor-pointer text-base leading-none"
                       >◀</button>
                       <span className="text-xs font-bold text-amber-700">{monthLabel(calendarMonth, locale)} — Due Dates</span>
                       <button
+                        type="button"
                         onClick={() => setCalendarMonth((m) => addMonth(m, 1))}
                         className="text-amber-600 hover:text-amber-800 w-7 h-7 flex items-center justify-center rounded cursor-pointer text-base leading-none"
                       >▶</button>
@@ -1591,6 +1591,7 @@ export default function SummaryView() {
                               <td className="px-2 py-2 text-right font-semibold text-gray-800 whitespace-nowrap">{e.total.toFixed(2)}</td>
                               <td className="px-2 py-2 text-center">
                                 <button
+                                  type="button"
                                   onClick={() => updatePanelExp(e.id, 'paid', !e.paid)}
                                   className={`px-1.5 py-0.5 rounded text-white text-[10px] font-bold cursor-pointer ${e.paid ? 'bg-green-500' : 'bg-red-500'}`}
                                 >

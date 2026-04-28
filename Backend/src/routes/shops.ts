@@ -36,12 +36,13 @@ router.get('/admin', async (req: Request, res: Response) => {
 
 // POST /shops — เพิ่มสาขาใหม่
 router.post('/', async (req: Request, res: Response) => {
-  const { password, name, restaurantPassword, managerPassword, ownerPassword } = req.body as {
+  const { password, name, restaurantPassword, managerPassword, ownerPassword, spreadsheetId: providedSheetId } = req.body as {
     password: string
     name: string
     restaurantPassword: string
     managerPassword: string
     ownerPassword?: string
+    spreadsheetId?: string
   }
   if (!verifyMaster(password)) {
     res.status(401).json({ error: 'Unauthorized' })
@@ -59,8 +60,8 @@ router.post('/', async (req: Request, res: Response) => {
     }, 0)
     const code = String(maxCode + 1).padStart(2, '0')
 
-    // สร้าง Spreadsheet ใหม่สำหรับสาขานี้
-    const spreadsheetId = await createSpreadsheet(`Spoonful - ${name.trim()}`)
+    // ใช้ Spreadsheet ID ที่ระบุ หรือสร้างใหม่ถ้าไม่ได้ระบุ
+    const spreadsheetId = providedSheetId?.trim() || await createSpreadsheet(`Spoonful - ${name.trim()}`)
 
     const shop: StoredShop = { code, name: name.trim(), restaurantPassword, managerPassword, ownerPassword: ownerPassword || undefined, spreadsheetId }
     await saveShops([...all, shop])
@@ -72,12 +73,13 @@ router.post('/', async (req: Request, res: Response) => {
 
 // PUT /shops/:code — แก้ไขสาขา
 router.put('/:code', async (req: Request, res: Response) => {
-  const { password, name, restaurantPassword, managerPassword, ownerPassword } = req.body as {
+  const { password, name, restaurantPassword, managerPassword, ownerPassword, spreadsheetId } = req.body as {
     password: string
     name: string
     restaurantPassword: string
     managerPassword: string
     ownerPassword?: string
+    spreadsheetId?: string
   }
   if (!verifyMaster(password)) {
     res.status(401).json({ error: 'Unauthorized' })
@@ -90,7 +92,14 @@ router.put('/:code', async (req: Request, res: Response) => {
       res.status(404).json({ error: 'ไม่พบสาขา' })
       return
     }
-    all[idx] = { ...all[idx], name: name.trim(), restaurantPassword, managerPassword, ownerPassword: ownerPassword || undefined }
+    all[idx] = {
+      ...all[idx],
+      name: name.trim(),
+      restaurantPassword,
+      managerPassword,
+      ownerPassword: ownerPassword || undefined,
+      spreadsheetId: spreadsheetId?.trim() || all[idx].spreadsheetId,
+    }
     await saveShops(all)
     invalidateShopCache(req.params.code)
     res.json({ ok: true })

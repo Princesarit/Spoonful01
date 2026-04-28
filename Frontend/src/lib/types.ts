@@ -17,6 +17,7 @@ export interface StoredShop {
   restaurantPassword: string  // staff login
   managerPassword: string     // manager login
   ownerPassword?: string      // owner login (optional)
+  spreadsheetId?: string      // per-shop Google Sheet ID
 }
 
 export interface Employee {

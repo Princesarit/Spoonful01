@@ -49,7 +49,7 @@ function BranchManagerModal({
   async function handleAdd() {
     setError('')
     startTransition(async () => {
-      const res = await addShopAction(masterPassword, newForm.name, newForm.restaurantPassword, newForm.managerPassword, newForm.ownerPassword ?? '')
+      const res = await addShopAction(masterPassword, newForm.name, newForm.restaurantPassword, newForm.managerPassword, newForm.ownerPassword ?? '', newForm.spreadsheetId)
       if ('error' in res) { setError(res.error); return }
       const updated = await getStoredShopsAction(masterPassword)
       if (updated) setShops(updated)
@@ -63,7 +63,7 @@ function BranchManagerModal({
     if (!editing) return
     setError('')
     startTransition(async () => {
-      const res = await updateShopAction(masterPassword, editing.code, editing.name, editing.restaurantPassword, editing.managerPassword, editing.ownerPassword ?? '')
+      const res = await updateShopAction(masterPassword, editing.code, editing.name, editing.restaurantPassword, editing.managerPassword, editing.ownerPassword ?? '', editing.spreadsheetId)
       if ('error' in res) { setError(res.error); return }
       const updated = await getStoredShopsAction(masterPassword)
       if (updated) setShops(updated)
@@ -129,6 +129,7 @@ function BranchManagerModal({
                       <input type="password" value={editing.restaurantPassword} onChange={(e) => setEditing({ ...editing, restaurantPassword: e.target.value })} placeholder="Staff Password" className={inputCls} />
                       <input type="password" value={editing.managerPassword} onChange={(e) => setEditing({ ...editing, managerPassword: e.target.value })} placeholder="Manager Password" className={inputCls} />
                       <input type="password" value={editing.ownerPassword ?? ''} onChange={(e) => setEditing({ ...editing, ownerPassword: e.target.value })} placeholder="Owner Password (optional)" className={inputCls} />
+                      <input value={editing.spreadsheetId ?? ''} onChange={(e) => setEditing({ ...editing, spreadsheetId: e.target.value })} placeholder="Spreadsheet ID (optional)" className={inputCls} />
                       <div className="flex gap-2">
                         <button onClick={() => setEditing(null)} className="flex-1 py-1.5 border border-white/20 rounded-lg text-xs text-white/70 cursor-pointer hover:bg-white/10">ยกเลิก</button>
                         <button onClick={handleUpdate} disabled={isPending} className="flex-1 py-1.5 bg-amber-700/80 text-white rounded-lg text-xs font-semibold disabled:opacity-50 cursor-pointer">บันทึก</button>
@@ -157,6 +158,7 @@ function BranchManagerModal({
                 <input type="password" value={newForm.restaurantPassword} onChange={(e) => setNewForm({ ...newForm, restaurantPassword: e.target.value })} placeholder="Staff Password" className={inputCls} />
                 <input type="password" value={newForm.managerPassword} onChange={(e) => setNewForm({ ...newForm, managerPassword: e.target.value })} placeholder="Manager Password" className={inputCls} />
                 <input type="password" value={newForm.ownerPassword ?? ''} onChange={(e) => setNewForm({ ...newForm, ownerPassword: e.target.value })} placeholder="Owner Password (optional)" className={inputCls} />
+                <input value={newForm.spreadsheetId ?? ''} onChange={(e) => setNewForm({ ...newForm, spreadsheetId: e.target.value })} placeholder="Spreadsheet ID (optional)" className={inputCls} />
                 <div className="flex gap-2">
                   <button onClick={() => { setAdding(false); setNewForm(emptyForm()) }} className="flex-1 py-1.5 border border-white/20 rounded-lg text-xs text-white/70 cursor-pointer">ยกเลิก</button>
                   <button onClick={handleAdd} disabled={isPending} className="flex-1 py-1.5 bg-amber-700/80 text-white rounded-lg text-xs font-semibold disabled:opacity-50 cursor-pointer">เพิ่มสาขา</button>

@@ -2380,6 +2380,7 @@ export async function syncSumSheet(shopCode: string): Promise<void> {
 
   const rows: (string | number | null)[][] = []
   const fmtRules: SheetFormatRule[] = []
+  const incomeItemCounts: number[] = []
 
   for (const monday of sortedWeeks) {
     const weekDates  = getWeekDates(monday)
@@ -2417,7 +2418,7 @@ export async function syncSumSheet(shopCode: string): Promise<void> {
       const rel  = 3 + d
       const date = weekDates[d]
       blk[rel][1] = DAY_FULL[d]
-      blk[rel][2] = fmtD(date)
+      blk[rel][2] = `'${fmtD(date)}`
       const rev = wRev.find((r) => r.date === date)
       if (rev) {
         const lC = mealCredit(rev.lunch),  lCash = mealCash(rev.lunch)
@@ -2436,7 +2437,7 @@ export async function syncSumSheet(shopCode: string): Promise<void> {
     // ── rel 11: blank ─────────────────────────────────────────────────────────
 
     // ── rel 12: Wage date header (B) ──────────────────────────────────────────
-    blk[12][1] = `${fmtD(monday)} To ${fmtD(sunday)}`
+    blk[12][1] = `'${fmtD(monday)} To ${fmtD(sunday)}`
 
     // ── rel 13: WAGE/TAX/PAID column headers (C/D/E) ─────────────────────────
     blk[13][2] = 'WAGE'; blk[13][3] = 'TAX'; blk[13][4] = 'PAID'
@@ -2477,7 +2478,7 @@ export async function syncSumSheet(shopCode: string): Promise<void> {
       const item = incomeItems[i]
       blk[rel][6] = item.label
       blk[rel][8] = item.amount > 0 ? item.amount : ''
-      blk[rel][9] = item.note || ''
+      blk[rel][9] = item.note ? `'${item.note}` : ''
     }
 
     // rel 21: Cash sales = sum of Total Cash column from the Mon-Sun table rows
@@ -2493,7 +2494,7 @@ export async function syncSumSheet(shopCode: string): Promise<void> {
       const item = expenseItems[i]
       blk[rel][6] = item.label
       blk[rel][8] = item.amount > 0 ? item.amount : ''
-      blk[rel][9] = item.note || ''
+      blk[rel][9] = item.note ? `'${item.note}` : ''
     }
 
     // rel 30: Expenses
@@ -2541,13 +2542,13 @@ export async function syncSumSheet(shopCode: string): Promise<void> {
       if (row.date !== lastExpDate) {
         const di = weekDates.indexOf(row.date)
         blk[rel][11] = di >= 0 ? DAY_ABBR[di] : ''
-        blk[rel][12] = fmtD(row.date)
+        blk[rel][12] = `'${fmtD(row.date)}`
         lastExpDate  = row.date
       }
       blk[rel][13] = row.label
       blk[rel][15] = row.amount
       blk[rel][16] = row.paid ? 'Paid' : 'Unpaid'
-      blk[rel][17] = row.dueDate
+      blk[rel][17] = row.dueDate ? `'${row.dueDate}` : ''
       blk[rel][18] = row.paymentMethod
       if (row.paid) paidRels.push(rel)
       else unpaidRels.push(rel)
@@ -2555,6 +2556,7 @@ export async function syncSumSheet(shopCode: string): Promise<void> {
     }
 
     for (const row of blk) rows.push(row)
+    incomeItemCounts.push(incomeItems.length)
 
     // ── Format rules (0-based absolute rows) ─────────────────────────────────
     const bs = blockStart1 - 1
@@ -2668,8 +2670,9 @@ export async function syncSumSheet(shopCode: string): Promise<void> {
       top: SOLID_BLK, bottom: SOLID_BLK, left: SOLID_BLK, right: SOLID_BLK,
     })
 
-    // ── Cash flow box (G-J): rel 18-37 (Cash left in the bag is last row) ───
-    bdr(18, 38, 6, 10, {
+    // ── Cash flow box (G-J): top moves up 1 row per income item added ───────
+    const cashBoxTop = 17 - (incomeItemCounts[wi] ?? 0)
+    bdr(cashBoxTop, 38, 6, 10, {
       top: SOLID_BLK, bottom: SOLID_BLK, left: SOLID_BLK, right: SOLID_BLK,
     })
   }

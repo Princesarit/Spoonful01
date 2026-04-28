@@ -3,7 +3,7 @@
 import Link from 'next/link'
 import { useParams } from 'next/navigation'
 import { useShop } from '@/components/ShopProvider'
-import { useState, useActionState, useEffect } from 'react'
+import { useState, useActionState, useEffect, type CSSProperties } from 'react'
 import { elevateToOwnerAction, elevateToManagerAction } from '@/app/actions'
 import { translations } from '@/lib/translations'
 import { getRevenueData } from './revenue/actions'
@@ -20,29 +20,43 @@ function mealTotal(m: { eftpos: number; lfyOnline: number; uberOnline: number; d
 
 function ElevateModal({
   onClose, title, desc, placeholder, cancelLabel,
-  action: elevateAction,
+  action: elevateAction, enterStyle,
 }: {
   onClose: () => void; title: string; desc: string
   placeholder: string; cancelLabel: string
   action: (prev: { error: string } | null, formData: FormData) => Promise<{ error: string } | null>
+  enterStyle?: CSSProperties
 }) {
+  const { isDark } = useShop()
   const [state, action, pending] = useActionState(elevateAction, null)
+  const modalBg   = isDark ? '#3A2C20' : '#FFFFFF'
+  const titleClr  = isDark ? '#F0E8DA' : '#111827'
+  const descClr   = isDark ? '#A89684' : '#6B7280'
+  const inputBdr  = isDark ? '#5A4A38' : '#E5E7EB'
+  const inputBg   = isDark ? '#2E2218' : '#FFFFFF'
+  const inputClr  = isDark ? '#F0E8DA' : '#111827'
+  const cancelBg  = isDark ? 'transparent' : 'transparent'
+  const cancelBdr = isDark ? '#5A4A38' : '#E5E7EB'
+  const cancelClr = isDark ? '#C8B090' : '#4B5563'
   return (
-    <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
-      <div className="bg-white rounded-2xl w-full max-w-xs p-6 space-y-4 shadow-xl">
-        <h3 className="font-bold text-gray-900">{title}</h3>
-        <p className="text-sm text-gray-500">{desc}</p>
+    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+      <div className="rounded-2xl w-full max-w-xs p-6 space-y-4 shadow-xl" style={{ background: modalBg }}>
+        <h3 className="font-bold" style={{ color: titleClr }}>{title}</h3>
+        <p className="text-sm" style={{ color: descClr }}>{desc}</p>
         <form action={action} className="space-y-3">
           <input type="password" name="password" required autoFocus placeholder={placeholder}
-            className="w-full px-3 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+            className="w-full px-3 py-2.5 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-amber-400"
+            style={{ border: `1px solid ${inputBdr}`, background: inputBg, color: inputClr }} />
           {state?.error && <p className="text-xs text-red-600 bg-red-50 px-3 py-2 rounded-lg">{state.error}</p>}
           <div className="flex gap-2 pt-1">
             <button type="button" onClick={onClose}
-              className="flex-1 py-2.5 border border-gray-200 rounded-xl text-sm text-gray-600 cursor-pointer hover:bg-gray-50">
+              className="flex-1 py-2.5 rounded-xl text-sm cursor-pointer hover:opacity-80 transition-opacity"
+              style={{ background: cancelBg, border: `1px solid ${cancelBdr}`, color: cancelClr }}>
               {cancelLabel}
             </button>
             <button type="submit" disabled={pending}
-              className="flex-1 py-2.5 bg-blue-500 text-white rounded-xl text-sm font-semibold disabled:opacity-50 cursor-pointer hover:bg-blue-600 transition-colors">
+              className="flex-1 py-2.5 rounded-xl text-sm font-semibold text-white disabled:opacity-50 cursor-pointer hover:opacity-90 transition-opacity"
+              style={enterStyle}>
               {pending ? '...' : 'Enter'}
             </button>
           </div>
@@ -299,14 +313,16 @@ export default function HomePage() {
         <ElevateModal onClose={() => setShowManagerModal(false)}
           title={tr.manager_modal_title} desc={tr.manager_modal_desc}
           placeholder="Manager Password" cancelLabel={tr.cancel}
-          action={elevateToManagerAction} />
+          action={elevateToManagerAction}
+          enterStyle={{ background: isDark ? 'linear-gradient(135deg, #7A4030 0%, #5A2818 100%)' : 'linear-gradient(135deg, #E8A888 0%, #C87060 100%)' }} />
       )}
       {showOwnerModal && (
         <ElevateModal onClose={() => setShowOwnerModal(false)}
           title={lang === 'th' ? 'เข้าสู่โหมด Owner' : 'Enter Owner Mode'}
           desc={lang === 'th' ? 'กรอก Owner Password' : 'Enter your Owner Password'}
           placeholder="Owner Password" cancelLabel={tr.cancel}
-          action={elevateToOwnerAction} />
+          action={elevateToOwnerAction}
+          enterStyle={{ background: isDark ? 'linear-gradient(135deg, #5A3828 0%, #3A2010 100%)' : 'linear-gradient(135deg, #A08060 0%, #785040 100%)' }} />
       )}
     </div>
   )
