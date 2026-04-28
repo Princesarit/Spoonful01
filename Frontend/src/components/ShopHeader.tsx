@@ -49,28 +49,28 @@ export function ShopHeader({ shopName, role, loginAt }: { shopName: string; role
 
   // Position badge colors — from design palette
   const roleBgStyle = role === 'owner'
-    ? { background: isDark ? '#4A3F28' : '#3D3828', color: isDark ? '#D9C9B0' : '#F0E8DA' }
+    ? { background: isDark ? '#4A3870' : '#3D3828', color: isDark ? '#D8C8F0' : '#F0E8DA' }
     : role === 'manager'
-    ? { background: isDark ? '#7A3828' : '#CC8070', color: isDark ? '#F5B0A0' : '#FFFFFF' }
-    : { background: isDark ? '#5A4538' : '#A89080', color: isDark ? '#C8B090' : '#FFFFFF' }
+    ? { background: isDark ? '#6A3868' : '#CC8070', color: isDark ? '#F0B0E0' : '#FFFFFF' }
+    : { background: isDark ? '#3A3870' : '#A89080', color: isDark ? '#C0B8E8' : '#FFFFFF' }
 
   const logoutLabel = lang === 'th' ? 'ออกจากระบบ' : 'Logout'
   const isElevated = role === 'owner' || role === 'manager'
 
-  // Header background — warm brownish gradient in dark mode
+  // Header background — purple-to-brown gradient in dark mode
   const headerBg = isDark
-    ? 'linear-gradient(135deg, #5C4030 0%, #8B6848 100%)'
+    ? 'linear-gradient(135deg, #3D2858 0%, #7A5840 100%)'
     : '#EDE3D0'
 
   // Text colors inside header adapt to bg
   const hdrPrimary = isDark ? '#F0E8DA' : '#2E2820'
-  const hdrSecond  = isDark ? '#C8B090' : '#A89684'
-  const hdrFaint   = isDark ? '#D9C9B0' : '#8B7A6A'
+  const hdrSecond  = isDark ? '#C8B0D8' : '#A89684'
+  const hdrFaint   = isDark ? '#D8C8E8' : '#8B7A6A'
 
   return (
     <header
       className="sticky top-0 z-40 border-b"
-      style={{ background: headerBg, borderColor: isDark ? '#4A3520' : '#DDD0BC' }}
+      style={{ background: headerBg, borderColor: isDark ? '#2E1E40' : '#DDD0BC' }}
     >
       <div className="max-w-2xl mx-auto px-4 py-3 flex items-center justify-between">
         <div className="flex items-center gap-3">

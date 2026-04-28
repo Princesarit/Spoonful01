@@ -29,15 +29,15 @@ function ElevateModal({
 }) {
   const { isDark } = useShop()
   const [state, action, pending] = useActionState(elevateAction, null)
-  const modalBg   = isDark ? '#3A2C20' : '#FFFFFF'
+  const modalBg   = isDark ? '#251E38' : '#FFFFFF'
   const titleClr  = isDark ? '#F0E8DA' : '#111827'
-  const descClr   = isDark ? '#A89684' : '#6B7280'
-  const inputBdr  = isDark ? '#5A4A38' : '#E5E7EB'
-  const inputBg   = isDark ? '#2E2218' : '#FFFFFF'
+  const descClr   = isDark ? '#B0A8C8' : '#6B7280'
+  const inputBdr  = isDark ? '#453858' : '#E5E7EB'
+  const inputBg   = isDark ? '#1A1428' : '#FFFFFF'
   const inputClr  = isDark ? '#F0E8DA' : '#111827'
   const cancelBg  = isDark ? 'transparent' : 'transparent'
-  const cancelBdr = isDark ? '#5A4A38' : '#E5E7EB'
-  const cancelClr = isDark ? '#C8B090' : '#4B5563'
+  const cancelBdr = isDark ? '#453858' : '#E5E7EB'
+  const cancelClr = isDark ? '#C0B0D8' : '#4B5563'
   return (
     <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
       <div className="rounded-2xl w-full max-w-xs p-6 space-y-4 shadow-xl" style={{ background: modalBg }}>
@@ -80,14 +80,14 @@ const SHIFT_COLOR = {
   total: { day: { bg: '#C8B090', text: '#6A5030', badge: 'rgba(200,176,144,0.22)' }, night: { bg: '#5A4028', text: '#C8A880', badge: 'rgba(90,64,40,0.5)'    } },
 }
 
-// Icon colors — original vivid day / muted deep night
+// Icon colors — original vivid day / pastel muted night
 const ICON_COLOR = {
-  revenue:       { day: '#10b981', night: '#2A5E3A' },
-  expense:       { day: '#f97316', night: '#6A3820' },
-  summary:       { day: '#3b82f6', night: '#1E2878' },
-  employees:     { day: '#8b5cf6', night: '#3A1E70' },
-  schedule:      { day: '#14b8a6', night: '#185A48' },
-  'time-record': { day: '#ec4899', night: '#681838' },
+  revenue:       { day: '#10b981', night: '#7BC8A0' },
+  expense:       { day: '#f97316', night: '#D4A888' },
+  summary:       { day: '#3b82f6', night: '#90B8D8' },
+  employees:     { day: '#8b5cf6', night: '#C0A0D8' },
+  schedule:      { day: '#14b8a6', night: '#78C8B0' },
+  'time-record': { day: '#ec4899', night: '#D898B8' },
 }
 
 export default function HomePage() {
@@ -170,44 +170,55 @@ export default function HomePage() {
   const pos    = staffCounts ? (shift === 'am' ? staffCounts.amPos : shift === 'pm' ? staffCounts.pmPos : staffCounts.totalPos) : null
   const shiftLabel = shift === 'am' ? 'AM' : shift === 'pm' ? 'PM' : 'Total'
 
-  // Stat card height must match nav card natural height
-  const CARD_H = 116
   const statCls = `bg-white rounded-2xl p-4 shadow-sm border border-gray-100 flex flex-col gap-1`
 
   return (
     <div className="space-y-4">
 
-      {/* ── Grid section (stat row + nav rows) with circles floating left ── */}
-      <div className="relative" style={{ paddingLeft: 56 }}>
-
-        {/* AM / PM / Total — absolute in the 56px left channel */}
+      {/* ── Shift Tab Bar ── */}
+      <div
+        className="relative flex rounded-2xl"
+        style={{ background: isDark ? '#251E38' : '#E2D8C8', padding: 4 }}
+      >
         <div
-          className="absolute flex flex-col justify-around"
-          style={{ left: 4, top: 0, width: 40, height: CARD_H }}
-        >
-          {(['am', 'pm', 'total'] as Shift[]).map((s) => {
-            const c = SHIFT_COLOR[s][isDark ? 'night' : 'day']
-            const active = shift === s
-            return (
-              <button
-                key={s}
-                onClick={() => setShift(s)}
-                style={active ? { background: c.bg, color: c.text } : {}}
-                className={`w-10 h-10 rounded-full text-[11px] font-bold transition-all cursor-pointer select-none ${
-                  active ? 'shadow-md scale-110' : 'bg-jp-surface border border-jp-border text-jp-taupe hover:border-jp-wood'
-                }`}
-              >
-                {s === 'am' ? 'AM' : s === 'pm' ? 'PM' : 'Total'}
-              </button>
-            )
-          })}
-        </div>
+          style={{
+            position: 'absolute',
+            top: 4, bottom: 4,
+            left: `calc(4px + ${(['am','pm','total'] as Shift[]).indexOf(shift)} * (100% - 8px) / 3)`,
+            width: 'calc((100% - 8px) / 3)',
+            borderRadius: 10,
+            background: sc.bg,
+            transition: 'left 0.35s cubic-bezier(0.4, 0, 0.2, 1), background 0.4s ease',
+          }}
+        />
+        {(['am', 'pm', 'total'] as Shift[]).map((s) => {
+          const c = SHIFT_COLOR[s][isDark ? 'night' : 'day']
+          const active = shift === s
+          return (
+            <button
+              key={s}
+              onClick={() => setShift(s)}
+              style={{
+                flex: 1, position: 'relative', zIndex: 10,
+                padding: '8px 0',
+                fontSize: 12, fontWeight: 600, textAlign: 'center' as const,
+                cursor: 'pointer', userSelect: 'none' as const, border: 'none', background: 'none',
+                color: active ? c.text : isDark ? '#8878A8' : '#A89684',
+                transition: 'color 0.3s ease',
+                borderRadius: 10,
+              }}
+            >
+              {s === 'am' ? 'Lunch (AM)' : s === 'pm' ? 'Dinner (PM)' : 'Total (All Day)'}
+            </button>
+          )
+        })}
+      </div>
 
-        {/* Unified 3-col grid — stat row + nav rows, all same column width */}
-        <div className="grid grid-cols-3 gap-3">
+      {/* ── Grid (stat + nav cards) ── */}
+      <div className="grid grid-cols-3 gap-3">
 
           {/* ── Row 1: Stat cards ── */}
-          <div className={statCls} style={{ minHeight: CARD_H }}>
+          <div className={statCls}>
             <div className="flex items-start justify-between mb-1">
               <span className="text-xs text-gray-500">{lang === 'th' ? 'ยอดวันนี้' : "Today's Sales"}</span>
               <span className="text-[10px] px-1.5 py-0.5 rounded-full font-semibold"
@@ -221,7 +232,7 @@ export default function HomePage() {
             </span>
           </div>
 
-          <div className={statCls} style={{ minHeight: CARD_H }}>
+          <div className={statCls}>
             <div className="flex items-start justify-between mb-1">
               <span className="text-xs text-gray-500">{lang === 'th' ? 'พนักงาน' : 'Active Staff'}</span>
               <span className="text-[10px] px-1.5 py-0.5 rounded-full font-semibold"
@@ -239,7 +250,7 @@ export default function HomePage() {
             )}
           </div>
 
-          <div className={statCls} style={{ minHeight: CARD_H }}>
+          <div className={statCls}>
             <div className="flex items-start justify-between mb-1">
               <span className="text-xs text-gray-500">{lang === 'th' ? 'ออเดอร์' : "Today's Orders"}</span>
               <span className="text-[10px] px-1.5 py-0.5 rounded-full font-semibold"
@@ -282,14 +293,13 @@ export default function HomePage() {
             )
           })}
 
-        </div>
       </div>
 
       {/* ── Role buttons — full width (no left offset) ── */}
       {session.role === 'staff' && (
         <button onClick={() => setShowManagerModal(true)}
           className="w-full py-3 rounded-2xl text-sm font-semibold text-white cursor-pointer transition-all hover:opacity-90 active:scale-[0.99]"
-          style={{ background: isDark ? 'linear-gradient(135deg, #7A4030 0%, #5A2818 100%)' : 'linear-gradient(135deg, #E8A888 0%, #C87060 100%)' }}>
+          style={{ background: isDark ? 'linear-gradient(135deg, #6A3870 0%, #8A4850 100%)' : 'linear-gradient(135deg, #E8A888 0%, #C87060 100%)' }}>
           {tr.manager_mode_btn}
         </button>
       )}
@@ -297,7 +307,7 @@ export default function HomePage() {
       {(session.role === 'staff' || session.role === 'manager') && (
         <button onClick={() => setShowOwnerModal(true)}
           className="w-full py-3 rounded-2xl text-sm font-semibold text-white cursor-pointer transition-all hover:opacity-90 active:scale-[0.99]"
-          style={{ background: isDark ? 'linear-gradient(135deg, #5A3828 0%, #3A2010 100%)' : 'linear-gradient(135deg, #A08060 0%, #785040 100%)' }}>
+          style={{ background: isDark ? 'linear-gradient(135deg, #483878 0%, #6A4858 100%)' : 'linear-gradient(135deg, #A08060 0%, #785040 100%)' }}>
           👑 {lang === 'th' ? 'เข้าสู่โหมด Owner' : 'Enter Owner Mode'}
         </button>
       )}
@@ -314,7 +324,7 @@ export default function HomePage() {
           title={tr.manager_modal_title} desc={tr.manager_modal_desc}
           placeholder="Manager Password" cancelLabel={tr.cancel}
           action={elevateToManagerAction}
-          enterStyle={{ background: isDark ? 'linear-gradient(135deg, #7A4030 0%, #5A2818 100%)' : 'linear-gradient(135deg, #E8A888 0%, #C87060 100%)' }} />
+          enterStyle={{ background: isDark ? 'linear-gradient(135deg, #6A3870 0%, #8A4850 100%)' : 'linear-gradient(135deg, #E8A888 0%, #C87060 100%)' }} />
       )}
       {showOwnerModal && (
         <ElevateModal onClose={() => setShowOwnerModal(false)}
@@ -322,7 +332,7 @@ export default function HomePage() {
           desc={lang === 'th' ? 'กรอก Owner Password' : 'Enter your Owner Password'}
           placeholder="Owner Password" cancelLabel={tr.cancel}
           action={elevateToOwnerAction}
-          enterStyle={{ background: isDark ? 'linear-gradient(135deg, #5A3828 0%, #3A2010 100%)' : 'linear-gradient(135deg, #A08060 0%, #785040 100%)' }} />
+          enterStyle={{ background: isDark ? 'linear-gradient(135deg, #483878 0%, #6A4858 100%)' : 'linear-gradient(135deg, #A08060 0%, #785040 100%)' }} />
       )}
     </div>
   )
