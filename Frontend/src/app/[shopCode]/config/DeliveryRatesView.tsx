@@ -120,7 +120,7 @@ export default function DeliveryRatesView({
                       step="0.5"
                       value={rate.maxKm}
                       onKeyDown={(e) => ['e','E','+','-'].includes(e.key) && e.preventDefault()}
-                      onChange={(e) => { const v = Number(e.target.value); if (v > 999999) return; updateMaxKm(i, v) }}
+                      onChange={(e) => { const raw = e.target.value; if (raw.includes('.') && (raw.split('.')[1]?.length ?? 0) > 2) return; const v = Number(raw); if (v > 999999) return; updateMaxKm(i, v) }}
                       className="w-20 border border-brand-accent rounded px-2 py-1 text-sm focus:outline-none focus:ring-1 focus:ring-brand-gold"
                     />
                   ) : (
@@ -137,7 +137,7 @@ export default function DeliveryRatesView({
                         step="0.50"
                         value={rate.fee}
                         onKeyDown={(e) => ['e','E','+','-'].includes(e.key) && e.preventDefault()}
-                        onChange={(e) => { const v = Number(e.target.value); if (Math.floor(Math.abs(v)) > 999999) return; updateFee(i, v) }}
+                        onChange={(e) => { const raw = e.target.value; if (raw.includes('.') && (raw.split('.')[1]?.length ?? 0) > 2) return; const v = Number(raw); if (Math.floor(Math.abs(v)) > 999999) return; updateFee(i, v) }}
                         className="w-20 border border-brand-accent rounded px-2 py-1 text-sm focus:outline-none focus:ring-1 focus:ring-brand-gold"
                       />
                     </div>

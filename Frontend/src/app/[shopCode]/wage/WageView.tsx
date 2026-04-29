@@ -309,7 +309,7 @@ export default function WageView() {
                                   type="number" min="0"
                                   value={dayOverrides[emp.id]?.[`${di}L`] ?? (a.calcLunch > 0 ? a.calcLunch : '')}
                                   onKeyDown={(e) => ['e','E','+','-'].includes(e.key) && e.preventDefault()}
-                                  onChange={(e) => { const v = parseFloat(e.target.value) || 0; if (v > 999999) return; setOverride(emp.id, `${di}L`, v) }}
+                                  onChange={(e) => { const raw = e.target.value; if (raw.includes('.') && (raw.split('.')[1]?.length ?? 0) > 2) return; const v = parseFloat(raw) || 0; if (v > 999999) return; setOverride(emp.id, `${di}L`, v) }}
                                   className={inputCls + ' w-14'}
                                   placeholder="0"
                                 />
@@ -325,7 +325,7 @@ export default function WageView() {
                                   type="number" min="0"
                                   value={dayOverrides[emp.id]?.[`${di}D`] ?? (a.calcDinner > 0 ? a.calcDinner : '')}
                                   onKeyDown={(e) => ['e','E','+','-'].includes(e.key) && e.preventDefault()}
-                                  onChange={(e) => { const v = parseFloat(e.target.value) || 0; if (v > 999999) return; setOverride(emp.id, `${di}D`, v) }}
+                                  onChange={(e) => { const raw = e.target.value; if (raw.includes('.') && (raw.split('.')[1]?.length ?? 0) > 2) return; const v = parseFloat(raw) || 0; if (v > 999999) return; setOverride(emp.id, `${di}D`, v) }}
                                   className={inputCls + ' w-14'}
                                   placeholder="0"
                                 />
@@ -348,7 +348,7 @@ export default function WageView() {
                             <input
                               type="number" min="0" value={tax || ''}
                               onKeyDown={(e) => ['e','E','+','-'].includes(e.key) && e.preventDefault()}
-                              onChange={(e) => { const v = parseFloat(e.target.value) || 0; if (v > 999999) return; setWageTax((p) => ({ ...p, [emp.id]: v })); setSaved(false) }}
+                              onChange={(e) => { const raw = e.target.value; if (raw.includes('.') && (raw.split('.')[1]?.length ?? 0) > 2) return; const v = parseFloat(raw) || 0; if (v > 999999) return; setWageTax((p) => ({ ...p, [emp.id]: v })); setSaved(false) }}
                               placeholder="0"
                               className={inputCls}
                             />
@@ -361,7 +361,7 @@ export default function WageView() {
                             <input
                               type="number" min="0" value={paid || ''}
                               onKeyDown={(e) => ['e','E','+','-'].includes(e.key) && e.preventDefault()}
-                              onChange={(e) => { const v = parseFloat(e.target.value) || 0; if (v > 999999) return; setWagePaid((p) => ({ ...p, [emp.id]: v })); setSaved(false) }}
+                              onChange={(e) => { const raw = e.target.value; if (raw.includes('.') && (raw.split('.')[1]?.length ?? 0) > 2) return; const v = parseFloat(raw) || 0; if (v > 999999) return; setWagePaid((p) => ({ ...p, [emp.id]: v })); setSaved(false) }}
                               placeholder="0"
                               className={inputCls}
                             />

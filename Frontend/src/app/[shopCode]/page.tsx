@@ -107,6 +107,28 @@ export default function HomePage() {
   } | null>(null)
 
   useEffect(() => {
+    function calcZoom(w: number): string {
+      if (w >= 2560) return '1.8'
+      if (w >= 1920) return '1.5'
+      if (w >= 1600) return '1.3'
+      if (w >= 1440) return '1.2'
+      if (w >= 1280) return '1.1'
+      if (w >= 1100) return '1.05'
+      return ''
+    }
+    function applyZoom() {
+      const z = calcZoom(window.innerWidth)
+      document.documentElement.style.zoom = z
+    }
+    applyZoom()
+    window.addEventListener('resize', applyZoom)
+    return () => {
+      document.documentElement.style.zoom = ''
+      window.removeEventListener('resize', applyZoom)
+    }
+  }, [])
+
+  useEffect(() => {
     const todayDate = today()
     getRevenueData(shopCode).then(({ entries }) => {
       const todayEntries = entries.filter((e) => e.date === todayDate)

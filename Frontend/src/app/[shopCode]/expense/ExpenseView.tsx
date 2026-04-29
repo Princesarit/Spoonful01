@@ -324,7 +324,7 @@ export default function ExpenseView() {
                   step="0.01"
                   value={form.total || ''}
                   onKeyDown={(e) => ['e','E','+','-'].includes(e.key) && e.preventDefault()}
-                  onChange={(e) => { const v = parseFloat(e.target.value) || 0; if (Math.floor(Math.abs(v)) > 999999) return; setField('total', v) }}
+                  onChange={(e) => { const raw = e.target.value; if (raw.includes('.') && (raw.split('.')[1]?.length ?? 0) > 2) return; const v = parseFloat(raw) || 0; if (Math.floor(Math.abs(v)) > 999999) return; setField('total', v) }}
                   placeholder="0.00"
                   className="w-full border border-gray-300 rounded-lg pl-7 pr-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-gold"
                 />

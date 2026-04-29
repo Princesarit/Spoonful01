@@ -442,10 +442,15 @@ export async function clearSheetMerges(
   const sheet = meta.data.sheets?.find((s) => s.properties?.sheetId === sheetId)
   const merges = sheet?.merges ?? []
   if (merges.length === 0) return
-  const requests = merges.map((m) => ({
-    unmergeCells: { range: { sheetId, ...m } },
-  }))
-  await batchUpdateSheet(spreadsheetId, requests)
+  // One request covering the entire grid — avoids partial-range errors when
+  // individual stored merge ranges are stale from a previous inconsistent sync.
+  const rowCount = sheet?.properties?.gridProperties?.rowCount ?? 2000
+  const colCount = sheet?.properties?.gridProperties?.columnCount ?? 50
+  await batchUpdateSheet(spreadsheetId, [{
+    unmergeCells: {
+      range: { sheetId, startRowIndex: 0, endRowIndex: rowCount, startColumnIndex: 0, endColumnIndex: colCount },
+    },
+  }])
 }
 
 /**

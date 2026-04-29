@@ -62,7 +62,7 @@ export default function ExtraRateView({
                 step="0.50"
                 value={rate}
                 onKeyDown={(e) => ['e','E','+','-'].includes(e.key) && e.preventDefault()}
-                onChange={(e) => { const v = Number(e.target.value); if (Math.floor(Math.abs(v)) > 999999) return; setRate(v); setSaved(false) }}
+                onChange={(e) => { const raw = e.target.value; if (raw.includes('.') && (raw.split('.')[1]?.length ?? 0) > 2) return; const v = Number(raw); if (Math.floor(Math.abs(v)) > 999999) return; setRate(v); setSaved(false) }}
                 className="w-28 border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-gold"
               />
             ) : (

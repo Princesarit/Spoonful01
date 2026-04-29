@@ -1363,7 +1363,7 @@ export default function SummaryView() {
                             min="0"
                             value={item.amount}
                             onKeyDown={(e) => ['e','E','+','-'].includes(e.key) && e.preventDefault()}
-                            onChange={(e) => { const v = e.target.value; if (v.split('.')[0].length > 6) return; updateIncomeItem(idx, 'amount', v) }}
+                            onChange={(e) => { const v = e.target.value; if (v.split('.')[0].length > 6) return; if (v.includes('.') && (v.split('.')[1]?.length ?? 0) > 2) return; updateIncomeItem(idx, 'amount', v) }}
                             className={`w-20 text-right ${inputCls}`}
                           />
                           <input
@@ -1399,7 +1399,7 @@ export default function SummaryView() {
                             min="0"
                             value={edit.cashFromBank}
                             onKeyDown={(e) => ['e','E','+','-'].includes(e.key) && e.preventDefault()}
-                            onChange={(e) => { const v = parseFloat(e.target.value) || 0; if (Math.floor(v) > 999999) return; setEdit({ cashFromBank: String(Math.max(0, v)) }) }}
+                            onChange={(e) => { const raw = e.target.value; if (raw.includes('.') && (raw.split('.')[1]?.length ?? 0) > 2) return; const v = parseFloat(raw) || 0; if (Math.floor(v) > 999999) return; setEdit({ cashFromBank: String(Math.max(0, v)) }) }}
                             className={`w-24 text-right ${inputCls}`}
                           />
                         </div>
@@ -1427,7 +1427,7 @@ export default function SummaryView() {
                               min="0"
                               value={item.amount}
                               onKeyDown={(e) => ['e','E','+','-'].includes(e.key) && e.preventDefault()}
-                              onChange={(e) => { const v = e.target.value; if (v.split('.')[0].length > 6) return; updateExpenseItem(idx, 'amount', v) }}
+                              onChange={(e) => { const v = e.target.value; if (v.split('.')[0].length > 6) return; if (v.includes('.') && (v.split('.')[1]?.length ?? 0) > 2) return; updateExpenseItem(idx, 'amount', v) }}
                               className={`w-20 text-right ${inputCls}`}
                             />
                             <input
@@ -1472,7 +1472,7 @@ export default function SummaryView() {
                             inputMode="decimal"
                             value={edit.cashLeftInBag}
                             onKeyDown={(e) => ['e','E','+','-'].includes(e.key) && e.preventDefault()}
-                            onChange={(e) => { const v = e.target.value; if (v.split('.')[0].length > 6) return; setEdit({ cashLeftInBag: v }) }}
+                            onChange={(e) => { const v = e.target.value; if (v.split('.')[0].length > 6) return; if (v.includes('.') && (v.split('.')[1]?.length ?? 0) > 2) return; setEdit({ cashLeftInBag: v }) }}
                             placeholder="0"
                             className={`w-24 text-right ${inputCls}`}
                           />

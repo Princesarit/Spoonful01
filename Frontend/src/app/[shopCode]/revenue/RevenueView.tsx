@@ -77,7 +77,9 @@ function NumInput({
       step="0.01"
       value={value || ''}
       onChange={(e) => {
-        const v = parseFloat(e.target.value) || 0
+        const raw = e.target.value
+        if (raw.includes('.') && (raw.split('.')[1]?.length ?? 0) > 2) return
+        const v = parseFloat(raw) || 0
         if (Math.floor(Math.abs(v)) > 999999) return
         onChange(v)
       }}

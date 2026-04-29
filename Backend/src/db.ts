@@ -1163,21 +1163,25 @@ export async function getWagePayments(
 
 export async function getAllWagePayments(
   shopCode: string,
-): Promise<Map<string, Map<string, WagePaymentRow>>> {
+): Promise<{ payments: Map<string, Map<string, WagePaymentRow>>; notes: Map<string, string> }> {
   try {
     const { sid, tab } = await getShopDb(shopCode)
     const rows = await getSheetData(tab('wage_payments'), sid)
-    const result = new Map<string, Map<string, WagePaymentRow>>()
+    const payments = new Map<string, Map<string, WagePaymentRow>>()
+    const notes = new Map<string, string>()
     for (const r of rows) {
-      if (r.employeeId === '__note__') continue
-      if (!result.has(r.weekStart)) result.set(r.weekStart, new Map())
+      if (r.employeeId === '__note__') {
+        if (r.note) notes.set(r.weekStart, r.note)
+        continue
+      }
+      if (!payments.has(r.weekStart)) payments.set(r.weekStart, new Map())
       let overrides: Record<string, number> = {}
       try { overrides = r.overrides ? JSON.parse(r.overrides) : {} } catch { /* ignore */ }
-      result.get(r.weekStart)!.set(r.employeeId, { tax: Number(r.tax) || 0, paid: Number(r.paid) || 0, note: r.note || '', overrides })
+      payments.get(r.weekStart)!.set(r.employeeId, { tax: Number(r.tax) || 0, paid: Number(r.paid) || 0, note: r.note || '', overrides })
     }
-    return result
+    return { payments, notes }
   } catch {
-    return new Map()
+    return { payments: new Map(), notes: new Map() }
   }
 }
 
@@ -1694,11 +1698,8 @@ async function applyIncomeFullFormat(
     bold(si, si + 1, 0, lo.totalCols)
   }
 
-  // 5. Unmerge header area first (safe re-format)
-  requests.push({ unmergeCells: { range: { sheetId, startRowIndex: 0, endRowIndex: 2, startColumnIndex: 0, endColumnIndex: lo.totalCols } } })
-  // Unmerge then re-merge delivery tier columns in each SUM row
+  // 5. Re-merge delivery tier columns in each SUM row (full unmerge done before batchUpdate)
   for (const ri of sumRowIndices) {
-    requests.push({ unmergeCells: { range: { sheetId, startRowIndex: ri, endRowIndex: ri + 1, startColumnIndex: lo.delFirst, endColumnIndex: lo.delTotal } } })
     mrg(ri, ri + 1, lo.delFirst, lo.delTotal)
   }
 
@@ -1740,6 +1741,7 @@ async function applyIncomeFullFormat(
   // AY-AZ: grid borders
   bdr(2, totalRows, lo.sDay, lo.sDate + 1, { top: SOLID, bottom: SOLID, left: SOLID, right: SOLID, innerHorizontal: SOLID, innerVertical: SOLID })
 
+  await clearSheetMerges(sid, sheetId)
   await batchUpdateSheet(sid, requests)
 }
 
@@ -1965,6 +1967,7 @@ interface WageBlock {
   sumIdx: number              // 0-based row index of TOTAL row
   dwIdx:  number              // 0-based row index of Dinner Wage row (last row of block)
   firstKitchenRow?: number    // 0-based row index of first Kitchen employee (for divider)
+  noteRowStart: number        // 0-based row index of first NOTE row (spans 2 rows)
 }
 
 async function applyWageFullFormat(
@@ -2006,9 +2009,6 @@ async function applyWageFullFormat(
   const wrapOff = (sr: number, er: number, sc: number, ec: number) =>
     cell(sr, er, sc, ec, { wrapStrategy: 'CLIP' }, 'userEnteredFormat.wrapStrategy')
 
-  // 1. Unmerge everything first
-  requests.push({ unmergeCells: { range: { sheetId, startRowIndex: 0, endRowIndex: totalRows, startColumnIndex: 0, endColumnIndex: WAGE_COL_COUNT } } })
-
   // 2. Global defaults: font 10, no wrap, left for A-B, center for C-U
   fontSize(0, totalRows, 0, WAGE_COL_COUNT, 10)
   wrapOff(0, totalRows, 0, WAGE_COL_COUNT)
@@ -2017,7 +2017,7 @@ async function applyWageFullFormat(
   alignH(0, totalRows, 17, WAGE_COL_COUNT, 'RIGHT')  // WAGE-Remaining: right
 
   // 3. Per-block formatting
-  for (const { hStart, sumIdx, dwIdx, firstKitchenRow } of wageBlocks) {
+  for (const { hStart, sumIdx, dwIdx, firstKitchenRow, noteRowStart } of wageBlocks) {
     const h0 = hStart
     const h1 = hStart + 1
     const h2 = hStart + 2
@@ -2051,6 +2051,11 @@ async function applyWageFullFormat(
       bdr(firstKitchenRow, firstKitchenRow + 1, 0, WAGE_COL_COUNT, { top: SOLID_THICK })
     }
 
+    // Thick divider between Front and Kitchen employees is handled above
+    // NOTE box: merge G:O (cols 6–14) across 2 rows, left-align
+    mrg(noteRowStart, noteRowStart + 2, 6, 15)
+    alignH(noteRowStart, noteRowStart + 2, 6, 15, 'LEFT')
+
     // Bold: headers, SUM, Lunch/Dinner wage labels
     boldFmt(h0, h2 + 1, 0, WAGE_COL_COUNT)
     boldFmt(sumIdx, sumIdx + 1, 0, WAGE_COL_COUNT)
@@ -2064,17 +2069,19 @@ async function applyWageFullFormat(
   for (let c = 0; c <= 19; c++) cw(c, 100)
   cw(20, 120)                                             // U: Remaining cash
 
+  await clearSheetMerges(sid, sheetId)
   await batchUpdateSheet(sid, requests)
 }
 
 export async function syncWageSheet(shopCode: string): Promise<void> {
   const { sid } = await getShopDb(shopCode)
-  const [employees, timeRecords, allPayments, revenue] = await Promise.all([
+  const [employees, timeRecords, wageData, revenue] = await Promise.all([
     listEmployees(shopCode),
     listTimeRecords(shopCode),
     getAllWagePayments(shopCode),
     listRevenue(shopCode),
   ])
+  const { payments: allPayments, notes: wageNotes } = wageData
   // Group revenue by date for extra lookup
   const revenueByDate = new Map<string, RevenueEntry[]>()
   for (const e of revenue) {
@@ -2273,8 +2280,19 @@ export async function syncWageSheet(shopCode: string): Promise<void> {
     dwRow[18] = `=${dinnerSum}+${extraRef}`
     rows.push(dwRow)
 
-    // ── Blank separator (5 rows) ─────────────────────────────────────────────
-    for (let i = 0; i < 5; i++) rows.push(new Array(WAGE_COL_COUNT).fill(''))
+    // ── NOTE box (2-row tall, G:O merged) + 2 blank separator rows ───────────
+    rows.push(new Array(WAGE_COL_COUNT).fill(''))  // blank gap after SALE
+    const noteText = wageNotes.get(monday) ?? ''
+    const noteRowStart = rows.length
+    // Row 1 of NOTE: label at G (6), text at H (7) — both live in the merged cell
+    const noteRow1: (string | number | null)[] = new Array(WAGE_COL_COUNT).fill('')
+    noteRow1[6] = `NOTE :  ${noteText}`
+    rows.push(noteRow1)
+    // Row 2 of NOTE: empty (will be merged with row 1)
+    rows.push(new Array(WAGE_COL_COUNT).fill(''))
+    // Yellow bg + bold on G:O for both note rows
+    fmtRules.push({ startRow: noteRowStart, endRow: noteRowStart + 2, startCol: 6, endCol: 15, backgroundColor: W_YELLOW, bold: true })
+    for (let i = 0; i < 2; i++) rows.push(new Array(WAGE_COL_COUNT).fill(''))
 
     // ── Colors ────────────────────────────────────────────────────────────────
     // TOTAL row (19): A-B=white, C-Q+S-U=#CFE2F3, WAGE(R)=#6AA84F
@@ -2293,7 +2311,7 @@ export async function syncWageSheet(shopCode: string): Promise<void> {
     fmtRules.push({ startRow: sumIdx - sortedStaff.length, endRow: sumIdx, startCol: 18, endCol: 19, backgroundColor: W_TAX })
 
     const dwIdx = sumIdx + 3  // Dinner Wage row
-    wageBlocks.push({ hStart, sumIdx, dwIdx, firstKitchenRow })
+    wageBlocks.push({ hStart, sumIdx, dwIdx, firstKitchenRow, noteRowStart })
   }
 
   // ── Global number formats (applied across all rows) ──────────────────────
@@ -2321,11 +2339,10 @@ export async function syncWageSheet(shopCode: string): Promise<void> {
 // Total: 17 columns (A-Q)
 const SUM_SHEET = () => `Sum ${new Date().getFullYear()}`
 const SUM_COL_COUNT = 19
-const SUM_BLOCK     = 45   // rows per week block: rel 0 blank + rel 1-40 data + rel 41-44 trailing blanks (5 gap rows between weeks)
 
 export async function syncSumSheet(shopCode: string): Promise<void> {
   const { sid } = await getShopDb(shopCode)
-  const [employees, timeRecords, deliveryTrips, revenue, expenses, allPayments, cashReport] = await Promise.all([
+  const [employees, timeRecords, deliveryTrips, revenue, expenses, wageData, cashReport] = await Promise.all([
     listEmployees(shopCode, true),
     listTimeRecords(shopCode),
     listDeliveryTrips(shopCode),
@@ -2334,6 +2351,7 @@ export async function syncSumSheet(shopCode: string): Promise<void> {
     getAllWagePayments(shopCode),
     getCashReportAll(shopCode),
   ])
+  const allPayments = wageData.payments
 
   // Sort staff: Front-only → Front+Kitchen → unlabeled → Kitchen-only
   const sortedStaff = [
@@ -2381,6 +2399,8 @@ export async function syncSumSheet(shopCode: string): Promise<void> {
   const rows: (string | number | null)[][] = []
   const fmtRules: SheetFormatRule[] = []
   const cashBoxBottomRels: number[] = []
+  const blockStarts: number[] = []   // 0-based absolute row start per week
+  const blockSizes:  number[] = []   // actual row count per week block
 
   for (const monday of sortedWeeks) {
     const weekDates  = getWeekDates(monday)
@@ -2391,13 +2411,51 @@ export async function syncSumSheet(shopCode: string): Promise<void> {
     const wTrips     = deliveryTrips.filter((t) => weekDates.includes(t.date))
     const weekPmts   = allPayments.get(monday)
 
+    // ── Pre-compute everything needed for dynamic block size ──────────────────
+    const totalExpAmt    = wExp.reduce((s, e) => s + e.total, 0)
+    const weekCashRpt    = cashReport.get(monday)
+    const storedFromBank = weekCashRpt?.cashFromBank ?? 0
+    const storedInBag    = weekCashRpt?.cashLeftInBag ?? null
+    const incomeItems    = weekCashRpt?.incomeItems  ?? []
+    const expenseItems   = weekCashRpt?.expenseItems ?? []
+    const autoCashInBag  = wRev.reduce((s, r) => s + (r.lunch.cashLeftInBag ?? 0) + (r.dinner.cashLeftInBag ?? 0), 0)
+
+    const n  = Math.min(incomeItems.length,  6)
+    const m  = Math.min(expenseItems.length, 8)
+    const CS = 17 + n
+    const CB = CS + 1
+    const TC = CB + 2
+    const ES = TC + 1
+    const EX = ES + m
+    const WC = EX + 1
+    const TE = WC + 2
+    const RE = TE + 2
+    const CL = RE + 2
+    cashBoxBottomRels.push(CL + 1)
+
+    const tripFeeByDate = new Map<string, number>()
+    for (const t of wTrips) {
+      if (t.fee > 0) tripFeeByDate.set(t.date, (tripFeeByDate.get(t.date) ?? 0) + t.fee)
+    }
+    const expRows: { date: string; label: string; amount: number; paid: boolean; dueDate: string; paymentMethod: string }[] = [
+      ...wExp.map((e) => ({ date: e.date, label: e.supplier || e.description, amount: e.total, paid: e.paid, dueDate: e.dueDate ?? '', paymentMethod: e.paymentMethod ?? '' })),
+      ...[...tripFeeByDate.entries()].map(([date, fee]) => ({ date, label: 'Home', amount: fee, paid: true, dueDate: '', paymentMethod: 'Cash' })),
+    ]
+    expRows.sort((a, b) => a.date.localeCompare(b.date))
+
+    // Dynamic block size: accommodate both left side and right side (expense table)
+    const leftHeight  = Math.max(CL + 2, wageStartRel + 3)          // cash flow or wage totals
+    const rightHeight = expRows.length > 0 ? 4 + expRows.length + 1 : 0  // rel 4 start + entries + Total row
+    const actualBlockSize = Math.max(leftHeight, rightHeight) + 5    // 5 gap rows between weeks
+
     // blockStart1 = 1-based absolute row where this block starts
     const blockStart1 = rows.length + 1
     const R = (rel: number) => blockStart1 + rel
+    blockStarts.push(rows.length)
+    blockSizes.push(actualBlockSize)
 
-    // Block layout verified against Sheet5 (41 rows, rel 0-40)
     const blk: (string | number | null)[][] =
-      Array.from({ length: SUM_BLOCK }, () => new Array(SUM_COL_COUNT).fill(''))
+      Array.from({ length: actualBlockSize }, () => new Array(SUM_COL_COUNT).fill(''))
 
     // ── rel 0: blank separator ────────────────────────────────────────────────
 
@@ -2463,28 +2521,7 @@ export async function syncSumSheet(shopCode: string): Promise<void> {
     }
 
     // ── Cash flow (G=6 labels, H=7 total-labels, I=8 amounts) ────────────────
-    const totalExpAmt    = wExp.reduce((s, e) => s + e.total, 0)
-    const weekCashRpt    = cashReport.get(monday)
-    const storedFromBank = weekCashRpt?.cashFromBank ?? 0
-    const storedInBag    = weekCashRpt?.cashLeftInBag ?? null
-    const incomeItems    = weekCashRpt?.incomeItems  ?? []
-    const expenseItems   = weekCashRpt?.expenseItems ?? []
-    // fallback: auto-sum cashLeftInBag from revenue entries when not manually set
-    const autoCashInBag  = wRev.reduce((s, r) => s + (r.lunch.cashLeftInBag ?? 0) + (r.dinner.cashLeftInBag ?? 0), 0)
-
-    // ── Dynamic cash flow positions based on item counts ────────────────────
-    const n  = Math.min(incomeItems.length,  6)  // income special items (max 6)
-    const m  = Math.min(expenseItems.length, 8)  // expense special items (max 8)
-    const CS = 17 + n        // Cash sales
-    const CB = CS + 1        // Cash from bank
-    const TC = CB + 2        // Total cash (1 blank row gap)
-    const ES = TC + 1        // Expense special items start
-    const EX = ES + m        // Expenses total
-    const WC = EX + 1        // Wage (Cash) ref
-    const TE = WC + 2        // Total Exp. (1 blank row gap)
-    const RE = TE + 2        // Remaining (1 blank row gap)
-    const CL = RE + 2        // Cash left in bag (1 blank row gap)
-    cashBoxBottomRels.push(CL + 1)
+    // (n, m, CS..CL, incomeItems, expenseItems etc. all pre-computed above for blockSize)
 
     // Income special items: rel 17..CS-1
     for (let i = 0; i < n; i++) {
@@ -2532,25 +2569,13 @@ export async function syncSumSheet(shopCode: string): Promise<void> {
     blk[WS+2][1] = 'Wage (CASH)'
     blk[WS+2][2] = `=C${R(WS)}-C${R(WS+1)}`
 
-    // ── Expense list (L=11, M=12, N=13, P=15) — starts at rel 4, max 32 slots
-    // Merge regular expenses + per-day delivery fees as "Home" entries
-    const tripFeeByDate = new Map<string, number>()
-    for (const t of wTrips) {
-      if (t.fee > 0) tripFeeByDate.set(t.date, (tripFeeByDate.get(t.date) ?? 0) + t.fee)
-    }
-    const expRows: { date: string; label: string; amount: number; paid: boolean; dueDate: string; paymentMethod: string }[] = [
-      ...wExp.map((e) => ({ date: e.date, label: e.supplier || e.description, amount: e.total, paid: e.paid, dueDate: e.dueDate ?? '', paymentMethod: e.paymentMethod ?? '' })),
-      ...[...tripFeeByDate.entries()].map(([date, fee]) => ({ date, label: 'Home', amount: fee, paid: true, dueDate: '', paymentMethod: 'Cash' })),
-    ]
-    expRows.sort((a, b) => a.date.localeCompare(b.date))
-
-    const expCap   = Math.min(40, wageStartRel - 3)
+    // ── Expense list (L=11, M=12, N=13, P=15) — starts at rel 4
+    // (tripFeeByDate and expRows pre-computed above for blockSize)
     let expSlot    = 0
     let lastExpDate = ''
     const paidRels: number[] = []   // relative row indices for Paid
     const unpaidRels: number[] = [] // relative row indices for Unpaid
     for (const row of expRows) {
-      if (expSlot >= expCap) break
       const rel = 4 + expSlot
       if (row.date !== lastExpDate) {
         const di = weekDates.indexOf(row.date)
@@ -2642,7 +2667,7 @@ export async function syncSumSheet(shopCode: string): Promise<void> {
   // ── Cell merges per week ──────────────────────────────────────────────────
   const mergeReqs: object[] = []
   for (let wi = 0; wi < sortedWeeks.length; wi++) {
-    const bs = wi * SUM_BLOCK
+    const bs = blockStarts[wi]
     const merge = (r0: number, r1: number, c0: number, c1: number) =>
       mergeReqs.push({ mergeCells: { range: { sheetId, startRowIndex: bs+r0, endRowIndex: bs+r1, startColumnIndex: c0, endColumnIndex: c1 }, mergeType: 'MERGE_ALL' } })
     merge(1, 2,  3,  5)   // Lunch header D-E
@@ -2658,13 +2683,14 @@ export async function syncSumSheet(shopCode: string): Promise<void> {
   const borderReqs: object[] = []
 
   for (let wi = 0; wi < sortedWeeks.length; wi++) {
-    const bs  = wi * SUM_BLOCK
+    const bs  = blockStarts[wi]
+    const bsz = blockSizes[wi]
     const bdr = (r0: number, r1: number, c0: number, c1: number, edges: Record<string, object>) =>
       borderReqs.push({ updateBorders: { range: { sheetId, startRowIndex: bs+r0, endRowIndex: bs+r1, startColumnIndex: c0, endColumnIndex: c1 }, ...edges } })
 
     // ── Clear all borders in this block first ────────────────────────────────
     const NONE = { style: 'NONE' }
-    bdr(0, SUM_BLOCK, 0, SUM_COL_COUNT, { top: NONE, bottom: NONE, left: NONE, right: NONE, innerHorizontal: NONE, innerVertical: NONE })
+    bdr(0, bsz, 0, SUM_COL_COUNT, { top: NONE, bottom: NONE, left: NONE, right: NONE, innerHorizontal: NONE, innerVertical: NONE })
 
     // ── Revenue table: outer box + inner grid (rel 1-10, cols B-J = 1-9) ────
     bdr(1, 11, 1, 10, {
