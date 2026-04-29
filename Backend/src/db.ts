@@ -2329,7 +2329,7 @@ export async function syncWageSheet(shopCode: string): Promise<void> {
     hdr2[1] = 'Rate'
     for (let d = 0; d < 7; d++) {
       const [yy, mm, dd] = weekDates[d].split('-')
-      hdr2[2 + d * 2] = `${parseInt(dd)}/${parseInt(mm)}/${yy}`
+      hdr2[2 + d * 2] = `'${parseInt(dd)}/${parseInt(mm)}/${yy}`
     }
     rows.push(hdr2)
 
@@ -2847,15 +2847,17 @@ export async function syncSumSheet(shopCode: string): Promise<void> {
   fmtRules.push({ startRow: 0, endRow: totalRows, startCol: 8,  endCol: 9,  numberFormat: AUD_FORMAT }) // I cash flow
   fmtRules.push({ startRow: 0, endRow: totalRows, startCol: 15, endCol: 16, numberFormat: AUD_FORMAT }) // P expense $
 
-  // ── Get sheetId for merges ────────────────────────────────────────────────
+  // Write data first — ensureSheet (inside setSheetDataUserEntered) creates the sheet if it
+  // doesn't exist yet, so getSheetIdByName will always find it afterward.
+  await setSheetDataUserEntered(SUM_SHEET(), rows, sid)
+  await applyFormattingRules(SUM_SHEET(), sid, fmtRules, totalRows + 5)
+
+  // ── Get sheetId for merges + borders (sheet is guaranteed to exist now) ──
   const sheetId = await getSheetIdByName(sid, SUM_SHEET())
   if (sheetId === undefined) return
 
-  // Clear existing merges before rewriting (must unmerge each exact range individually)
+  // Clear stale merges from a previous sync before reapplying new ones
   await clearSheetMerges(sid, sheetId)
-
-  await setSheetDataUserEntered(SUM_SHEET(), rows, sid)
-  await applyFormattingRules(SUM_SHEET(), sid, fmtRules, totalRows + 5)
 
   // ── Cell merges per week ──────────────────────────────────────────────────
   const mergeReqs: object[] = []
@@ -3003,10 +3005,13 @@ export async function syncOverAllSheet(shopCode: string): Promise<void> {
 
 export async function syncAllReportSheets(shopCode: string): Promise<void> {
   const { sid } = await getShopDb(shopCode)
-  await syncIncomeSheet(shopCode)
-  await syncWageSheet(shopCode)
-  await syncSumSheet(shopCode)
-  await syncOverAllSheet(shopCode)
+  const run = async (name: string, fn: () => Promise<void>) => {
+    try { await fn() } catch (err) { console.error(`[syncAllReportSheets] ${name} failed:`, err) }
+  }
+  await run('income',  () => syncIncomeSheet(shopCode))
+  await run('wage',    () => syncWageSheet(shopCode))
+  await run('sum',     () => syncSumSheet(shopCode))
+  await run('overall', () => syncOverAllSheet(shopCode))
   await hideInternalSheets(sid)
 }
 
