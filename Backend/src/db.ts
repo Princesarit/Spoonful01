@@ -2290,6 +2290,10 @@ export async function syncWageSheet(shopCode: string): Promise<void> {
     if (!weekMap.has(mon)) weekMap.set(mon, [])
     weekMap.get(mon)!.push(r)
   }
+  // Include weeks that have saved wage payments/overrides even if no time records exist
+  for (const weekStart of allPayments.keys()) {
+    if (!weekMap.has(weekStart)) weekMap.set(weekStart, [])
+  }
   const sortedWeeks = [...weekMap.keys()].sort()
   if (sortedWeeks.length === 0) return
 
