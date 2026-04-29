@@ -49,25 +49,28 @@ const POS_COLORS: Record<string, string> = {
 }
 
 
-function ScheduleDailySummary({ employees, weekDates, getEntry, DAYS_SHORT }: {
+function ScheduleDailySummary({ employees, weekDates, getEntry, DAYS_SHORT, title, lunchLabel, dinnerLabel }: {
   employees: Employee[]
   weekDates: Date[]
   getEntry: (empId: string) => (string | null)[]
   DAYS_SHORT: string[]
+  title: string
+  lunchLabel: string
+  dinnerLabel: string
 }) {
   const frontEmps = employees.filter((e) => e.positions.includes('Front'))
   const kitchenEmps = employees.filter((e) => e.positions.includes('Kitchen'))
   if (frontEmps.length === 0 && kitchenEmps.length === 0) return null
   const rows = [
-    ...(frontEmps.length > 0 ? [{ label: 'Lunch', isLunch: true, posLabel: 'Front', posColor: 'text-blue-600', emps: frontEmps, slotOffset: 0 }] : []),
-    ...(kitchenEmps.length > 0 ? [{ label: 'Lunch', isLunch: true, posLabel: 'Kitchen', posColor: 'text-brand-gold', emps: kitchenEmps, slotOffset: 0 }] : []),
-    ...(frontEmps.length > 0 ? [{ label: 'Dinner', isLunch: false, posLabel: 'Front', posColor: 'text-blue-600', emps: frontEmps, slotOffset: 1 }] : []),
-    ...(kitchenEmps.length > 0 ? [{ label: 'Dinner', isLunch: false, posLabel: 'Kitchen', posColor: 'text-brand-gold', emps: kitchenEmps, slotOffset: 1 }] : []),
+    ...(frontEmps.length > 0 ? [{ label: lunchLabel, isLunch: true, posLabel: 'Front', posColor: 'text-blue-600', emps: frontEmps, slotOffset: 0 }] : []),
+    ...(kitchenEmps.length > 0 ? [{ label: lunchLabel, isLunch: true, posLabel: 'Kitchen', posColor: 'text-brand-gold', emps: kitchenEmps, slotOffset: 0 }] : []),
+    ...(frontEmps.length > 0 ? [{ label: dinnerLabel, isLunch: false, posLabel: 'Front', posColor: 'text-blue-600', emps: frontEmps, slotOffset: 1 }] : []),
+    ...(kitchenEmps.length > 0 ? [{ label: dinnerLabel, isLunch: false, posLabel: 'Kitchen', posColor: 'text-brand-gold', emps: kitchenEmps, slotOffset: 1 }] : []),
   ]
   return (
     <div className="bg-white rounded-xl border border-gray-100 shadow-sm overflow-hidden">
       <div className="px-4 py-2 border-b border-gray-100">
-        <span className="text-xs font-semibold text-gray-500">Daily Summary</span>
+        <span className="text-xs font-semibold text-gray-500">{title}</span>
       </div>
       <div className="overflow-x-auto">
         <table className="w-full text-xs">
@@ -308,7 +311,7 @@ export default function ScheduleView({
             onClick={() => setShowSelect(true)}
             className="text-sm bg-brand-gold text-white px-3 py-1.5 rounded-lg hover:bg-brand-gold-dark cursor-pointer"
           >
-            + Select
+            {tr.select}
           </button>
         )}
       </div>
@@ -430,7 +433,7 @@ export default function ScheduleView({
       })}
 
       {employees.length > 0 && (
-        <ScheduleDailySummary employees={employees.filter((e) => !e.fired)} weekDates={weekDates} getEntry={getEntry} DAYS_SHORT={DAYS_SHORT} />
+        <ScheduleDailySummary employees={employees.filter((e) => !e.fired)} weekDates={weekDates} getEntry={getEntry} DAYS_SHORT={DAYS_SHORT} title={tr.daily_summary} lunchLabel={tr.lunch} dinnerLabel={tr.dinner} />
       )}
 
       {employees.filter((e) => !e.fired).length === 0 && (
@@ -449,7 +452,7 @@ export default function ScheduleView({
           </button>
         ) : !canSaveThisWeek ? (
           <div className="w-full py-3 bg-gray-100 text-gray-400 rounded-xl font-semibold text-sm text-center">
-            บันทึก Week {prevWeekStr} ก่อน
+            {tr.save_previous_week_first(prevWeekStr)}
           </div>
         ) : (
           <button
@@ -466,27 +469,27 @@ export default function ScheduleView({
       {auditModal && (
         <div className="fixed inset-0 bg-black/40 flex items-end justify-center z-50 p-4">
           <div className="bg-white rounded-2xl w-full max-w-sm p-6 space-y-4">
-            <h3 className="font-bold text-gray-900">บันทึกการเปลี่ยนแปลง</h3>
+            <h3 className="font-bold text-gray-900">{tr.edit_log_title}</h3>
             <div className="text-xs text-gray-500 bg-gray-50 rounded-lg px-3 py-2">{auditModal.label}</div>
             <div className="space-y-3">
               <div>
-                <label className="text-xs text-gray-500 block mb-1">ชื่อผู้แก้ไข *</label>
+                <label className="text-xs text-gray-500 block mb-1">{tr.editor_name_label}</label>
                 <input
                   type="text"
                   autoFocus
                   value={auditModal.editorName}
                   onChange={(e) => setAuditModal((p) => p && ({ ...p, editorName: e.target.value }))}
-                  placeholder="กรอกชื่อ"
+                  placeholder={tr.enter_name_placeholder}
                   className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-gold"
                 />
               </div>
               <div>
-                <label className="text-xs text-gray-500 block mb-1">หมายเหตุ</label>
+                <label className="text-xs text-gray-500 block mb-1">{tr.note_label}</label>
                 <input
                   type="text"
                   value={auditModal.note}
                   onChange={(e) => setAuditModal((p) => p && ({ ...p, note: e.target.value }))}
-                  placeholder="เหตุผล (ถ้ามี)"
+                  placeholder={tr.reason_optional_placeholder}
                   className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-gold"
                 />
               </div>
@@ -517,9 +520,9 @@ export default function ScheduleView({
         return (
           <div className="fixed inset-0 bg-black/40 flex items-end justify-center z-50 p-4">
             <div className="bg-white rounded-2xl w-full max-w-sm p-6 space-y-4">
-              <h3 className="font-bold text-gray-900">Select Employee</h3>
+              <h3 className="font-bold text-gray-900">{tr.select_employee}</h3>
               {available.length === 0 ? (
-                <p className="text-sm text-gray-400 text-center py-4">All employees are already in this week.</p>
+                <p className="text-sm text-gray-400 text-center py-4">{tr.all_employees_already}</p>
               ) : (
                 <div className="space-y-2 max-h-64 overflow-y-auto">
                   {available.map((emp) => (

@@ -222,28 +222,28 @@ export default function ExpenseView() {
       {deleteAudit && (
         <div className="fixed inset-0 bg-black/40 flex items-end justify-center z-50 p-4">
           <div className="bg-white rounded-2xl w-full max-w-sm p-6 space-y-4">
-            <h3 className="font-bold text-red-600">ยืนยันการลบ</h3>
+            <h3 className="font-bold text-red-600">{tr.confirm_delete_title}</h3>
             <div className="text-xs text-gray-500 bg-red-50 rounded-lg px-3 py-2">
-              ลบ: <span className="font-semibold text-gray-700">{deleteAudit.entry.supplier}</span> ${fmtAUD(deleteAudit.entry.total)}
+              {tr.delete_label}: <span className="font-semibold text-gray-700">{deleteAudit.entry.supplier}</span> ${fmtAUD(deleteAudit.entry.total)}
             </div>
             <div className="space-y-3">
               <div>
-                <label className="text-xs text-gray-500 block mb-1">ชื่อผู้แก้ไข *</label>
+                <label className="text-xs text-gray-500 block mb-1">{tr.editor_name_label}</label>
                 <input
                   type="text" autoFocus
                   value={deleteAudit.editorName}
                   onChange={(e) => setDeleteAudit((p) => p && ({ ...p, editorName: e.target.value }))}
-                  placeholder="กรอกชื่อ"
+                  placeholder={tr.enter_name_placeholder}
                   className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-red-400"
                 />
               </div>
               <div>
-                <label className="text-xs text-gray-500 block mb-1">หมายเหตุ</label>
+                <label className="text-xs text-gray-500 block mb-1">{tr.note_label}</label>
                 <input
                   type="text"
                   value={deleteAudit.note}
                   onChange={(e) => setDeleteAudit((p) => p && ({ ...p, note: e.target.value }))}
-                  placeholder="เหตุผล (ถ้ามี)"
+                  placeholder={tr.reason_optional_placeholder}
                   className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-red-400"
                 />
               </div>
@@ -287,13 +287,13 @@ export default function ExpenseView() {
             {/* Filled by (required) */}
             <div>
               <label className="text-xs text-gray-500 block mb-1">
-                Filled by <span className="text-red-400">*</span>
+                {tr.filled_by_label.replace(' *', '')} <span className="text-red-400">*</span>
               </label>
               <input
                 type="text"
                 value={form.filledBy ?? ''}
                 onChange={(e) => setField('filledBy', e.target.value)}
-                placeholder="Your name..."
+                placeholder={tr.your_name_placeholder}
                 className={`w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-gold ${
                   !form.filledBy?.trim() ? 'border-red-300' : 'border-gray-300'
                 }`}
@@ -302,20 +302,20 @@ export default function ExpenseView() {
 
             {/* Description / Name */}
             <div>
-              <label className="text-xs text-gray-500 block mb-1">Description / Name</label>
+              <label className="text-xs text-gray-500 block mb-1">{tr.desc_name_label}</label>
               <input
                 type="text"
                 autoFocus
                 value={form.supplier}
                 onChange={(e) => setField('supplier', e.target.value)}
-                placeholder="e.g. Woolworths, BBQ ducks, Home..."
+                placeholder={tr.desc_name_placeholder}
                 className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-gold"
               />
             </div>
 
             {/* Amount */}
             <div>
-              <label className="text-xs text-gray-500 block mb-1">Amount (AUD $)</label>
+              <label className="text-xs text-gray-500 block mb-1">{tr.amount_aud_label}</label>
               <div className="relative">
                 <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm text-gray-400 font-medium">$</span>
                 <input
@@ -333,7 +333,7 @@ export default function ExpenseView() {
 
             {/* Payment Method */}
             <div>
-              <label className="text-xs text-gray-500 block mb-2">Payment Method</label>
+              <label className="text-xs text-gray-500 block mb-2">{tr.payment_method_label}</label>
               <div className="flex gap-2">
                 {(['Cash', 'Credit Card', 'Online Banking'] as PaymentMethod[]).map((m) => (
                   <button
@@ -358,7 +358,7 @@ export default function ExpenseView() {
             {/* Online Banking: bank account */}
             {form.paymentMethod === 'Online Banking' && (
               <div>
-                <label className="text-xs text-gray-500 block mb-1">Bank Account</label>
+                <label className="text-xs text-gray-500 block mb-1">{tr.bank_account_label}</label>
                 <input
                   type="text"
                   value={form.bankAccount ?? ''}
@@ -398,7 +398,7 @@ export default function ExpenseView() {
             {!form.paid && (
               <div>
                 <label className="text-xs text-gray-500 block mb-1">
-                  Due Date <span className="text-red-400">*</span>
+                  {tr.due_date_label} <span className="text-red-400">*</span>
                 </label>
                 <input
                   type="date"
@@ -414,12 +414,12 @@ export default function ExpenseView() {
 
             {/* Notes */}
             <div>
-              <label className="text-xs text-gray-500 block mb-1">Notes (optional)</label>
+              <label className="text-xs text-gray-500 block mb-1">{tr.notes_optional_label}</label>
               <input
                 type="text"
                 value={form.description}
                 onChange={(e) => setField('description', e.target.value)}
-                placeholder="Additional notes..."
+                placeholder={tr.additional_notes_placeholder}
                 className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-gold"
               />
             </div>
@@ -427,22 +427,22 @@ export default function ExpenseView() {
             {form.id && (
               <div className="space-y-2 border-t border-gray-100 pt-3">
                 <div>
-                  <label className="text-xs text-gray-500 block mb-1">ชื่อผู้แก้ไข *</label>
+                  <label className="text-xs text-gray-500 block mb-1">{tr.editor_name_label}</label>
                   <input
                     type="text"
                     value={form._editAuditName ?? ''}
                     onChange={(e) => setForm((p) => p && ({ ...p, _editAuditName: e.target.value }))}
-                    placeholder="กรอกชื่อ"
+                    placeholder={tr.enter_name_placeholder}
                     className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-gold"
                   />
                 </div>
                 <div>
-                  <label className="text-xs text-gray-500 block mb-1">หมายเหตุ</label>
+                  <label className="text-xs text-gray-500 block mb-1">{tr.note_label}</label>
                   <input
                     type="text"
                     value={form._editAuditNote ?? ''}
                     onChange={(e) => setForm((p) => p && ({ ...p, _editAuditNote: e.target.value }))}
-                    placeholder="เหตุผล (ถ้ามี)"
+                    placeholder={tr.reason_optional_placeholder}
                     className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-gold"
                   />
                 </div>

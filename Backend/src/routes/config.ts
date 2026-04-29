@@ -1,8 +1,8 @@
 import { Router, Response } from 'express'
-import { listDeliveryRates, saveDeliveryRates, getDeliveryFee, saveDeliveryFee, getExtraRate, saveExtraRate, appendAuditLog } from '../db'
+import { listDeliveryRates, saveDeliveryRates, getDeliveryFee, saveDeliveryFee, getExtraRate, saveExtraRate, appendAuditLog, listDeliverySuppliers, saveDeliverySuppliers } from '../db'
 import { requireShopAuth, requireOwner } from '../middleware/auth'
 import type { AuthRequest } from '../middleware/auth'
-import type { DeliveryRate } from '../types'
+import type { DeliveryRate, DeliverySupplier } from '../types'
 
 const router = Router({ mergeParams: true })
 
@@ -75,6 +75,26 @@ router.post('/audit-log', requireShopAuth, async (req: AuthRequest, res: Respons
       editorName: string; note: string; employeeName: string; shift: string; changes: string
     }
     await appendAuditLog(req.params.shopCode, { editorName, note, employeeName, shift, changes })
+    res.json({ ok: true })
+  } catch {
+    res.status(500).json({ error: 'Server error' })
+  }
+})
+
+// GET /:shopCode/config/suppliers
+router.get('/suppliers', requireShopAuth, async (req: AuthRequest, res: Response) => {
+  try {
+    const suppliers = await listDeliverySuppliers(req.params.shopCode)
+    res.json(suppliers)
+  } catch {
+    res.status(500).json({ error: 'Server error' })
+  }
+})
+
+// PUT /:shopCode/config/suppliers — owner only
+router.put('/suppliers', requireOwner, async (req: AuthRequest, res: Response) => {
+  try {
+    await saveDeliverySuppliers(req.params.shopCode, req.body as DeliverySupplier[])
     res.json({ ok: true })
   } catch {
     res.status(500).json({ error: 'Server error' })

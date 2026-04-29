@@ -1529,7 +1529,7 @@ function incomeLayout(nTiers: number, suppliers: DeliverySupplier[]) {
   const gap1     = lCash + 1
 
   // Dinner section: same structure offset from gap1
-  const dBase = gap1  // dEftpos = gap1
+  const dBase = gap1 + 1  // gap1 = separator column between Lunch and Dinner
   const dSupCols: Record<string, { online?: number; cards?: number; cash?: number }> = {}
   for (const [id, sc] of Object.entries(lSupCols)) {
     const dsc: { online?: number; cards?: number; cash?: number } = {}
@@ -1543,8 +1543,8 @@ function incomeLayout(nTiers: number, suppliers: DeliverySupplier[]) {
   const dCash    = dTotal + 1
   const gap2     = dCash + 1
 
-  // Combined section (after gap2)
-  const c = gap2
+  // Combined section (after gap2 separator between Dinner and Total)
+  const c = gap2 + 1
   const cEftpos  = c,    cLfyOnl = c+1,  cUber   = c+2,  cDD     = c+3
   const cCash    = c+4,  cLunch  = c+5,  cDinner = c+6,  cEftpos2= c+7
   const cLfy     = c+8,  cUber2  = c+9,  cDin2   = c+10, cCash2  = c+11
@@ -1621,7 +1621,7 @@ function makeIncomeHdr0(lo: IncomeLayout, deliveryRates: DeliveryRate[], supplie
   })
   r[lo.delTotal] = 'total'
   r[lo.lEftpos]  = 'LUNCH'
-  r[lo.gap1]     = 'DINNER'
+  r[lo.dEftpos]  = 'DINNER'
   return r
 }
 
@@ -1681,200 +1681,199 @@ async function applyIncomeFullFormat(
   lo: IncomeLayout,
   totalRows: number,
   sumRowIndices: number[],
+  suppliers: DeliverySupplier[],
 ): Promise<void> {
   const sheetId = await getSheetIdByName(sid, INCOME_SHEET())
   if (sheetId === undefined) return
 
-  const BLACK = { red: 0, green: 0, blue: 0 }
-  const SOLID = { style: 'SOLID',       color: BLACK }
-
-  // Full color palette from Seed shop Income 2026 analysis
-  const C_WHITE   = { red: 1,     green: 1,     blue: 1     }
-  // C_HEADER removed — Row 0/1 now use section-specific colors
-  const C_LGRAY   = { red: 0.941, green: 0.941, blue: 0.941 }  // near-white — lunch/dinner data
-  const C_MGRAY   = { red: 0.851, green: 0.851, blue: 0.851 }  // medium gray — combined, cDin2, cCashBag
-  const C_DGRAY   = { red: 0.800, green: 0.800, blue: 0.800 }  // dark gray — delTotal, surcharge, SUM rows
-  const C_VDGRAY  = { red: 0.600, green: 0.600, blue: 0.600 }  // very dark gray — dCash
-  const C_XDGRAY  = { red: 0.400, green: 0.400, blue: 0.400 }  // extra dark gray — cEftpos2
-  const C_LCASH   = { red: 0.718, green: 0.718, blue: 0.718 }  // lCash gray
-  const C_LGREEN  = { red: 0.714, green: 0.843, blue: 0.659 }  // light green — bills, cUber2
-  const C_LLGREEN = { red: 0.851, green: 0.918, blue: 0.831 }  // lighter green — delivery tiers
-  const C_MGREEN  = { red: 0.576, green: 0.769, blue: 0.490 }  // medium green — cLunch, cDinner
-  const C_LBLUE   = { red: 0.812, green: 0.886, blue: 0.953 }  // light blue — gap1, cLfy, cTotal, sTotal, sCashBag
-  const C_MBLUE   = { red: 0.624, green: 0.769, blue: 0.910 }  // medium blue — cCash2
-  const C_AMBER   = { red: 1.000, green: 0.753, blue: 0.000 }  // amber/orange — running total
-  const C_LORANGE = { red: 0.980, green: 0.800, blue: 0.612 }  // light orange — sLTot, sEffTot
-  const C_PORANGE = { red: 0.988, green: 0.898, blue: 0.800 }  // pale orange — sDTot, sCashTot
-  const C_YELLOW  = { red: 1,     green: 1,     blue: 0     }  // yellow — SUM running
+  const BLACK    = { red: 0, green: 0, blue: 0 }
+  const SOLID    = { style: 'SOLID', color: BLACK }
+  const C_WHITE  = { red: 1,     green: 1,     blue: 1     }
+  const C_LGRAY  = { red: 0.941, green: 0.941, blue: 0.941 }
+  const C_MGRAY  = { red: 0.851, green: 0.851, blue: 0.851 }
+  const C_DGRAY  = { red: 0.800, green: 0.800, blue: 0.800 }
+  const C_VDGRAY = { red: 0.600, green: 0.600, blue: 0.600 }
+  const C_XDGRAY = { red: 0.400, green: 0.400, blue: 0.400 }
+  const C_LCASH  = { red: 0.718, green: 0.718, blue: 0.718 }
+  const C_LGREEN = { red: 0.714, green: 0.843, blue: 0.659 }
+  const C_LLGREEN= { red: 0.851, green: 0.918, blue: 0.831 }
+  const C_MGREEN = { red: 0.576, green: 0.769, blue: 0.490 }
+  const C_LBLUE  = { red: 0.812, green: 0.886, blue: 0.953 }
+  const C_MBLUE  = { red: 0.624, green: 0.769, blue: 0.910 }
+  const C_AMBER  = { red: 1.000, green: 0.753, blue: 0.000 }
+  const C_LORANGE= { red: 0.980, green: 0.800, blue: 0.612 }
+  const C_PORANGE= { red: 0.988, green: 0.898, blue: 0.800 }
+  const C_YELLOW = { red: 1,     green: 1,     blue: 0     }
+  const C_HDR_WARM={ red: 1, green: 0.945, blue: 0.8 }
 
   const requests: object[] = []
-
-  const bg = (sr: number, er: number, sc: number, ec: number, color: object) =>
+  const bg  = (sr: number, er: number, sc: number, ec: number, color: object) =>
     requests.push({ repeatCell: { range: { sheetId, startRowIndex: sr, endRowIndex: er, startColumnIndex: sc, endColumnIndex: ec }, cell: { userEnteredFormat: { backgroundColor: color } }, fields: 'userEnteredFormat.backgroundColor' } })
-
-  const bold = (sr: number, er: number, sc: number, ec: number) =>
+  const bold= (sr: number, er: number, sc: number, ec: number) =>
     requests.push({ repeatCell: { range: { sheetId, startRowIndex: sr, endRowIndex: er, startColumnIndex: sc, endColumnIndex: ec }, cell: { userEnteredFormat: { textFormat: { bold: true } } }, fields: 'userEnteredFormat.textFormat.bold' } })
-
   const bdr = (sr: number, er: number, sc: number, ec: number, sides: Record<string, object>) =>
     requests.push({ updateBorders: { range: { sheetId, startRowIndex: sr, endRowIndex: er, startColumnIndex: sc, endColumnIndex: ec }, ...sides } })
-
   const mrg = (sr: number, er: number, sc: number, ec: number) =>
     requests.push({ mergeCells: { range: { sheetId, startRowIndex: sr, endRowIndex: er, startColumnIndex: sc, endColumnIndex: ec }, mergeType: 'MERGE_ALL' } })
-
-  const cw = (col: number, width: number) =>
+  const cw  = (col: number, width: number) =>
     requests.push({ updateDimensionProperties: { range: { sheetId, dimension: 'COLUMNS', startIndex: col, endIndex: col + 1 }, properties: { pixelSize: width }, fields: 'pixelSize' } })
-
   const fgw = (sr: number, er: number, sc: number, ec: number) =>
     requests.push({ repeatCell: { range: { sheetId, startRowIndex: sr, endRowIndex: er, startColumnIndex: sc, endColumnIndex: ec }, cell: { userEnteredFormat: { textFormat: { foregroundColor: { red: 1, green: 1, blue: 1 } } } }, fields: 'userEnteredFormat.textFormat.foregroundColor' } })
 
-  const C_HDR_WARM = { red: 1, green: 0.945, blue: 0.8 }   // warm yellow for DoorDash header cols
+  const SUP_HDR_COLORS: object[] = [C_LBLUE, C_LGREEN, C_HDR_WARM, C_LORANGE, C_PORANGE, C_LGRAY]
 
   // 1. Global white reset
   bg(0, totalRows, 0, lo.totalCols, C_WHITE)
 
-  // 2. Row 0 (hdr0): section-based colors matching Test sheet
-  bg(0, 1, 0, 2, C_MGRAY)                             // A,B: medium gray
-  bg(0, 1, 2, lo.lEftpos, C_VDGRAY)                  // C-L (bills+delivery): dark gray
-  bg(0, 1, lo.lEftpos, lo.gap1, C_XDGRAY)            // LUNCH merged: extra dark
-  bg(0, 1, lo.gap1, lo.gap2, C_VDGRAY)               // DINNER merged: dark gray
-  bg(0, 1, lo.cEftpos, lo.surcharge, C_LBLUE)         // Combined merged: light blue
-  bg(0, 1, lo.surcharge, lo.surcharge + 1, C_DGRAY)  // AU: gray
-  bg(0, 1, lo.running, lo.totalCols, C_MGRAY)         // AV onwards: medium gray
-  bg(0, 1, lo.gap3, lo.gap4 + 1, C_WHITE)             // AW, AX: white separators
-  bold(0, 1, lo.lEftpos, lo.gap1)                     // LUNCH label: bold
-  fgw(0, 1, lo.lEftpos, lo.gap1)                      // LUNCH label: white text
-  fgw(0, 1, lo.gap1, lo.gap2)                         // DINNER label: white text
+  // 2. hdr0 (row 0) — section labels
+  bg(0, 1, 0, 2, C_MGRAY)
+  bg(0, 1, 2, lo.lEftpos, C_VDGRAY)
+  bg(0, 1, lo.lEftpos, lo.gap1, C_XDGRAY)
+  bg(0, 1, lo.dEftpos, lo.gap2, C_VDGRAY)
+  bg(0, 1, lo.cEftpos, lo.surcharge, C_LBLUE)
+  bg(0, 1, lo.surcharge, lo.surcharge+1, C_DGRAY)
+  bg(0, 1, lo.running, lo.totalCols, C_MGRAY)
+  bg(0, 1, lo.gap3, lo.gap4+1, C_WHITE)
+  bold(0, 1, lo.lEftpos, lo.gap1)
+  fgw(0, 1, lo.lEftpos, lo.gap1)
+  fgw(0, 1, lo.dEftpos, lo.gap2)
 
-  // Row 1 (hdr1): per-column header colors matching Test sheet
-  bg(1, 2, 0, 2, C_MGRAY)                             // A, B
-  bg(1, 2, 2, lo.lEftpos, C_VDGRAY)                  // C-L (bills + Home Delivery merged)
-  // Lunch columns
-  bg(1, 2, lo.lEftpos,  lo.lEftpos  + 1, C_LCASH)   // M: Eftpos
-  bg(1, 2, lo.lLfyOnl,  lo.lLfyCash + 1, C_LBLUE)   // N-P: LFY (light blue)
-  bg(1, 2, lo.lUber,    lo.lUber    + 1, C_LGREEN)   // Q: Uber
-  bg(1, 2, lo.lDD,      lo.lDD      + 1, C_HDR_WARM) // R: DoorDash (warm)
-  bg(1, 2, lo.lCashBag, lo.lCashBag + 1, C_YELLOW)   // S: Cash in Bag (yellow)
-  bg(1, 2, lo.lTotal,   lo.lTotal   + 1, C_VDGRAY)   // T: Total Sale (dark)
-  bg(1, 2, lo.lCash,    lo.lCash    + 1, C_LCASH)    // U: Cash Sale
-  bg(1, 2, lo.gap1,     lo.gap1     + 1, C_LBLUE)    // V: separator
-  // Dinner columns (mirrors lunch)
-  bg(1, 2, lo.dEftpos,  lo.dEftpos  + 1, C_LCASH)   // W: Eftpos
-  bg(1, 2, lo.dLfyOnl,  lo.dLfyCash + 1, C_LBLUE)   // X-Z: LFY
-  bg(1, 2, lo.dUber,    lo.dUber    + 1, C_LGREEN)   // AA: Uber
-  bg(1, 2, lo.dDD,      lo.dDD      + 1, C_HDR_WARM) // AB: DoorDash
-  bg(1, 2, lo.dCashBag, lo.dCashBag + 1, C_YELLOW)   // AC: Cash in Bag (yellow)
-  bg(1, 2, lo.dTotal,   lo.dTotal   + 1, C_LCASH)    // AD: Total Sale
-  bg(1, 2, lo.dCash,    lo.dCash    + 1, C_VDGRAY)   // AE: Cash Sale (dark)
-  // Combined section
-  bg(1, 2, lo.cEftpos,  lo.cEftpos  + 1, C_DGRAY)   // AG
-  bg(1, 2, lo.cLfyOnl,  lo.cLfyOnl  + 1, { red: 0.788, green: 0.855, blue: 0.973 })  // AH
-  bg(1, 2, lo.cUber,    lo.cUber    + 1, C_LLGREEN)  // AI
-  bg(1, 2, lo.cDD,      lo.cDD      + 1, C_HDR_WARM) // AJ
-  bg(1, 2, lo.cCash,    lo.cCash    + 1, C_LCASH)    // AK
-  bg(1, 2, lo.cLunch,   lo.cDinner  + 1, C_DGRAY)    // AL-AM: Lunch/Dinner
-  bg(1, 2, lo.cEftpos2, lo.cEftpos2 + 1, C_LCASH)   // AN
-  bg(1, 2, lo.cLfy,     lo.cLfy     + 1, C_LBLUE)    // AO
-  bg(1, 2, lo.cUber2,   lo.cUber2   + 1, C_LGREEN)   // AP
-  bg(1, 2, lo.cDin2,    lo.cDin2    + 1, { red: 1, green: 0.949, blue: 0.8 })  // AQ
-  bg(1, 2, lo.cCash2,   lo.cCash2   + 1, C_DGRAY)    // AR
-  bg(1, 2, lo.cTotal,   lo.cTotal   + 1, C_DGRAY)    // AS
-  bg(1, 2, lo.cCashBag, lo.cCashBag + 1, C_YELLOW)   // AT: yellow
-  bg(1, 2, lo.surcharge,lo.surcharge+ 1, C_DGRAY)    // AU
-  bg(1, 2, lo.running,  lo.running  + 1, C_AMBER)    // AV: amber
-  // Simplified section header
-  bg(1, 2, lo.sDay,    lo.sDate    + 1, C_MGRAY)     // AY-AZ
-  bg(1, 2, lo.sLEff,   lo.sDCash   + 1, C_LLGREEN)  // BA-BD: light green
-  bg(1, 2, lo.sLTot,   lo.sDTot    + 1, C_MGRAY)    // BE-BF: gray
-  bg(1, 2, lo.sEffTot, lo.sTotal   + 1, C_LLGREEN)  // BG-BI: light green
-  bg(1, 2, lo.sCashBag,lo.sCashBag + 1, C_MGRAY)    // BJ: gray
+  // 3. hdr1 (row 1) — column labels with dynamic supplier colors
+  bg(1, 2, 0, 2, C_MGRAY)
+  bg(1, 2, 2, lo.lEftpos, C_VDGRAY)
+  bg(1, 2, lo.lEftpos, lo.lEftpos+1, C_LCASH)
+  for (let sIdx = 0; sIdx < suppliers.length; sIdx++) {
+    const sc = lo.lSupCols[suppliers[sIdx].id]
+    if (!sc) continue
+    const offs = ([sc.online, sc.cards, sc.cash] as (number|undefined)[]).filter((v): v is number => v !== undefined)
+    if (!offs.length) continue
+    const minO = Math.min(...offs), maxO = Math.max(...offs)
+    const hc = SUP_HDR_COLORS[sIdx % SUP_HDR_COLORS.length]
+    bg(1, 2, lo.lEftpos + minO, lo.lEftpos + maxO + 1, hc)
+    bg(1, 2, lo.dEftpos + minO, lo.dEftpos + maxO + 1, hc)
+  }
+  bg(1, 2, lo.lCashBag, lo.lCashBag+1, C_YELLOW)
+  bg(1, 2, lo.lTotal,   lo.lTotal+1,   C_VDGRAY)
+  bg(1, 2, lo.lCash,    lo.lCash+1,    C_LCASH)
+  bg(1, 2, lo.gap1,     lo.gap1+1,     C_WHITE)
+  bg(1, 2, lo.dEftpos,  lo.dEftpos+1,  C_LCASH)
+  bg(1, 2, lo.dCashBag, lo.dCashBag+1, C_YELLOW)
+  bg(1, 2, lo.dTotal,   lo.dTotal+1,   C_LCASH)
+  bg(1, 2, lo.dCash,    lo.dCash+1,    C_VDGRAY)
+  bg(1, 2, lo.cEftpos,  lo.cEftpos+1,  C_DGRAY)
+  bg(1, 2, lo.cLfyOnl,  lo.cLfyOnl+1,  { red: 0.788, green: 0.855, blue: 0.973 })
+  bg(1, 2, lo.cUber,    lo.cUber+1,    C_LLGREEN)
+  bg(1, 2, lo.cDD,      lo.cDD+1,      C_HDR_WARM)
+  bg(1, 2, lo.cCash,    lo.cCash+1,    C_LCASH)
+  bg(1, 2, lo.cLunch,   lo.cDinner+1,  C_DGRAY)
+  bg(1, 2, lo.cEftpos2, lo.cEftpos2+1, C_LCASH)
+  bg(1, 2, lo.cLfy,     lo.cLfy+1,     C_LBLUE)
+  bg(1, 2, lo.cUber2,   lo.cUber2+1,   C_LGREEN)
+  bg(1, 2, lo.cDin2,    lo.cDin2+1,    { red: 1, green: 0.949, blue: 0.8 })
+  bg(1, 2, lo.cCash2,   lo.cCash2+1,   C_DGRAY)
+  bg(1, 2, lo.cTotal,   lo.cTotal+1,   C_DGRAY)
+  bg(1, 2, lo.cCashBag, lo.cCashBag+1, C_YELLOW)
+  bg(1, 2, lo.surcharge,lo.surcharge+1, C_DGRAY)
+  bg(1, 2, lo.running,  lo.running+1,  C_AMBER)
+  bg(1, 2, lo.sDay,     lo.sDate+1,    C_MGRAY)
+  bg(1, 2, lo.sLEff,    lo.sDCash+1,   C_LLGREEN)
+  bg(1, 2, lo.sLTot,    lo.sDTot+1,    C_MGRAY)
+  bg(1, 2, lo.sEffTot,  lo.sTotal+1,   C_LLGREEN)
+  bg(1, 2, lo.sCashBag, lo.sCashBag+1, C_MGRAY)
 
-  // 3. Per-column colors for all data+SUM rows (rows 2 onward)
+  // 4. Data + SUM rows (row 2 onward) — column section colors
   const d = 2
-  bg(d, totalRows, 2, 5, C_LGREEN)                           // C-E: bills
-  bg(d, totalRows, lo.delFirst, lo.delLast + 1, C_LLGREEN)  // delivery tiers
-  bg(d, totalRows, lo.delTotal, lo.delTotal + 1, C_DGRAY)   // del total
-  bg(d, totalRows, lo.lEftpos, lo.lTotal + 1, C_LGRAY)      // lunch data (lEftpos..lTotal)
-  bg(d, totalRows, lo.lCash, lo.lCash + 1, C_LCASH)         // lCash
-  bg(d, totalRows, lo.gap1, lo.gap1 + 1, C_LBLUE)           // gap1 separator
-  bg(d, totalRows, lo.dEftpos, lo.dTotal + 1, C_LGRAY)      // dinner data (dEftpos..dTotal)
-  bg(d, totalRows, lo.dCash, lo.dCash + 1, C_VDGRAY)        // dCash
-  bg(d, totalRows, lo.cEftpos, lo.cCash + 1, C_MGRAY)       // combined main (cEftpos..cCash)
-  bg(d, totalRows, lo.cLunch, lo.cDinner + 1, C_MGREEN)     // cLunch, cDinner
-  bg(d, totalRows, lo.cEftpos2, lo.cEftpos2 + 1, C_XDGRAY) // cEftpos2
-  fgw(d, totalRows, lo.cEftpos2, lo.cEftpos2 + 1)           // cEftpos2: white text
-  bg(d, totalRows, lo.cLfy, lo.cLfy + 1, C_LBLUE)           // cLfy
-  bg(d, totalRows, lo.cUber2, lo.cUber2 + 1, C_LGREEN)      // cUber2
-  bg(d, totalRows, lo.cDin2, lo.cDin2 + 1, C_MGRAY)         // cDin2
-  bg(d, totalRows, lo.cCash2, lo.cCash2 + 1, C_MBLUE)       // cCash2
-  bg(d, totalRows, lo.cTotal, lo.cTotal + 1, C_LBLUE)        // cTotal
-  bg(d, totalRows, lo.cCashBag, lo.cCashBag + 1, C_MGRAY)   // cCashBag
-  bg(d, totalRows, lo.surcharge, lo.surcharge + 1, C_DGRAY) // surcharge
-  bg(d, totalRows, lo.gap2, lo.gap2 + 1, C_WHITE)             // AF gap2: white separator
-  bg(d, totalRows, lo.gap3, lo.gap4 + 1, C_WHITE)             // AW, AX gap3+4: white
-  bg(d, totalRows, lo.running, lo.running + 1, C_AMBER)      // running (amber)
-  bg(d, totalRows, lo.sLTot, lo.sLTot + 1, C_LORANGE)       // sLTot
-  bg(d, totalRows, lo.sDTot, lo.sDTot + 1, C_PORANGE)       // sDTot
-  bg(d, totalRows, lo.sEffTot, lo.sEffTot + 1, C_LORANGE)   // sEffTot
-  bg(d, totalRows, lo.sCashTot, lo.sCashTot + 1, C_PORANGE) // sCashTot
-  bg(d, totalRows, lo.sTotal, lo.sTotal + 1, C_LBLUE)        // sTotal
-  bg(d, totalRows, lo.sCashBag, lo.sCashBag + 1, C_LBLUE)   // sCashBag
+  bg(d, totalRows, 2, lo.delFirst, C_LGREEN)
+  bg(d, totalRows, lo.delFirst, lo.delLast+1, C_LLGREEN)
+  bg(d, totalRows, lo.delTotal, lo.delTotal+1, C_DGRAY)
+  bg(d, totalRows, lo.lEftpos, lo.lTotal+1, C_LGRAY)
+  bg(d, totalRows, lo.lCash, lo.lCash+1, C_LCASH)
+  bg(d, totalRows, lo.gap1, lo.gap1+1, C_WHITE)
+  bg(d, totalRows, lo.dEftpos, lo.dTotal+1, C_LGRAY)
+  bg(d, totalRows, lo.dCash, lo.dCash+1, C_VDGRAY)
+  bg(d, totalRows, lo.cEftpos, lo.cCash+1, C_MGRAY)
+  bg(d, totalRows, lo.cLunch, lo.cDinner+1, C_MGREEN)
+  bg(d, totalRows, lo.cEftpos2, lo.cEftpos2+1, C_XDGRAY)
+  fgw(d, totalRows, lo.cEftpos2, lo.cEftpos2+1)
+  bg(d, totalRows, lo.cLfy, lo.cLfy+1, C_LBLUE)
+  bg(d, totalRows, lo.cUber2, lo.cUber2+1, C_LGREEN)
+  bg(d, totalRows, lo.cDin2, lo.cDin2+1, C_MGRAY)
+  bg(d, totalRows, lo.cCash2, lo.cCash2+1, C_MBLUE)
+  bg(d, totalRows, lo.cTotal, lo.cTotal+1, C_LBLUE)
+  bg(d, totalRows, lo.cCashBag, lo.cCashBag+1, C_MGRAY)
+  bg(d, totalRows, lo.surcharge, lo.surcharge+1, C_DGRAY)
+  bg(d, totalRows, lo.gap2, lo.gap2+1, C_WHITE)
+  bg(d, totalRows, lo.gap3, lo.gap4+1, C_WHITE)
+  bg(d, totalRows, lo.running, lo.running+1, C_AMBER)
+  bg(d, totalRows, lo.sLTot, lo.sLTot+1, C_LORANGE)
+  bg(d, totalRows, lo.sDTot, lo.sDTot+1, C_PORANGE)
+  bg(d, totalRows, lo.sEffTot, lo.sEffTot+1, C_LORANGE)
+  bg(d, totalRows, lo.sCashTot, lo.sCashTot+1, C_PORANGE)
+  bg(d, totalRows, lo.sTotal, lo.sTotal+1, C_LBLUE)
+  bg(d, totalRows, lo.sCashBag, lo.sCashBag+1, C_LBLUE)
 
-  // 4. SUM rows: mostly dark gray, with specific overrides from Test sheet
+  // 5. SUM row overrides
   for (const si of sumRowIndices) {
-    bg(si, si + 1, 0, lo.totalCols, C_DGRAY)                       // base: dark gray
-    bg(si, si + 1, 2, 5, C_VDGRAY)                                 // C-E bills: darker
-    bg(si, si + 1, lo.delTotal, lo.delTotal + 1, C_VDGRAY)         // L del total: darker
-    bg(si, si + 1, lo.gap1, lo.gap1 + 1, C_LBLUE)                  // V gap1: keep light blue
-    bg(si, si + 1, lo.gap2, lo.gap2 + 1, C_WHITE)                  // AF gap2: white separator
-    bg(si, si + 1, lo.gap3, lo.gap4 + 1, C_WHITE)                  // AW, AX gap3+4: white
-    bg(si, si + 1, lo.cCash2, lo.cCashBag + 1, C_MGRAY)           // AR-AT: slightly lighter
-    bg(si, si + 1, lo.running, lo.running + 1, C_YELLOW)           // AV: yellow
-    bg(si, si + 1, lo.sDay, lo.totalCols, C_MGRAY)                 // simplified: medium gray
-    bold(si, si + 1, 0, lo.totalCols)
+    bg(si, si+1, 0, lo.totalCols, C_DGRAY)
+    bg(si, si+1, 2, lo.delFirst, C_VDGRAY)
+    bg(si, si+1, lo.delTotal, lo.delTotal+1, C_VDGRAY)
+    bg(si, si+1, lo.gap1, lo.gap1+1, C_WHITE)
+    bg(si, si+1, lo.gap2, lo.gap2+1, C_WHITE)
+    bg(si, si+1, lo.gap3, lo.gap4+1, C_WHITE)
+    bg(si, si+1, lo.cCash2, lo.cCashBag+1, C_MGRAY)
+    bg(si, si+1, lo.running, lo.running+1, C_YELLOW)
+    bg(si, si+1, lo.sDay, lo.totalCols, C_MGRAY)
+    bold(si, si+1, 0, lo.totalCols)
+    mrg(si, si+1, lo.delFirst, lo.delTotal)
   }
 
-  // 5. Re-merge delivery tier columns in each SUM row (full unmerge done before batchUpdate)
-  for (const ri of sumRowIndices) {
-    mrg(ri, ri + 1, lo.delFirst, lo.delTotal)
+  // 6. Global merges (header rows)
+  mrg(0, 1, lo.lEftpos, lo.gap1)
+  mrg(0, 1, lo.dEftpos, lo.gap2)
+  mrg(0, 1, lo.cEftpos, lo.surcharge)
+  mrg(1, 2, lo.delFirst, lo.delTotal+1)
+
+  // 7. Column widths
+  const BILL_WIDTHS = [58, 60, 67]
+  for (let i = 0; i < suppliers.length; i++) cw(2 + i, BILL_WIDTHS[i] ?? 60)
+  for (let i = 0; i < lo.nTiers; i++) cw(lo.delFirst + i, 54)
+  cw(lo.delTotal, 77)
+  cw(lo.lEftpos, 80)
+  for (let sIdx = 0; sIdx < suppliers.length; sIdx++) {
+    const sc = lo.lSupCols[suppliers[sIdx].id]
+    if (!sc) continue
+    if (sc.online !== undefined) cw(lo.lEftpos + sc.online, 103)
+    if (sc.cards  !== undefined) cw(lo.lEftpos + sc.cards,  124)
+    if (sc.cash   !== undefined) cw(lo.lEftpos + sc.cash,   119)
   }
-
-  // 6. Merge cells
-  mrg(0, 1, lo.lEftpos, lo.gap1)          // LUNCH header
-  mrg(0, 1, lo.gap1, lo.gap2)             // DINNER header (V1:AE1)
-  mrg(0, 1, lo.cEftpos, lo.surcharge)     // Combined header
-  mrg(1, 2, lo.delFirst, lo.delTotal + 1) // Home Delivery (row 1)
-
-  // 7. Column widths (from Seed sheet)
-  cw(2, 58); cw(3, 60); cw(4, 67)                          // C,D,E bills
-  for (let i = 0; i < lo.nTiers; i++) cw(lo.delFirst + i, 54) // delivery tiers
-  cw(lo.delTotal, 77)                                       // del total
-  cw(lo.lEftpos, 80);   cw(lo.lLfyOnl, 103)
-  cw(lo.lLfyCard, 124); cw(lo.lLfyCash, 119); cw(lo.lUber, 129)
-  cw(lo.gap1, 58)                                           // gap/separator
-  cw(lo.dLfyOnl, 153);  cw(lo.dLfyCard, 124); cw(lo.dLfyCash, 119); cw(lo.dUber, 129)
-  cw(lo.gap2, 67)                                           // gap/separator
+  cw(lo.gap1, 18)
+  cw(lo.dEftpos, 80)
+  for (let sIdx = 0; sIdx < suppliers.length; sIdx++) {
+    const sc = lo.lSupCols[suppliers[sIdx].id]
+    if (!sc) continue
+    if (sc.online !== undefined) cw(lo.dEftpos + sc.online, sIdx === 0 ? 153 : 103)
+    if (sc.cards  !== undefined) cw(lo.dEftpos + sc.cards,  124)
+    if (sc.cash   !== undefined) cw(lo.dEftpos + sc.cash,   119)
+  }
+  cw(lo.gap2, 18)
   cw(lo.cEftpos2, 127); cw(lo.cLfy, 116)
   cw(lo.cCash2, 94);    cw(lo.cCashBag, 131); cw(lo.surcharge, 94)
   cw(lo.gap3, 81);      cw(lo.gap4, 84)
   cw(lo.sEffTot, 118);  cw(lo.sCashBag, 128)
 
   // 8. Borders
-  // A-L: full grid
-  bdr(0, totalRows, 0, lo.delTotal + 1, { top: SOLID, bottom: SOLID, left: SOLID, right: SOLID, innerHorizontal: SOLID, innerVertical: SOLID })
-  // SOLID right separators
-  bdr(2, totalRows, lo.lTotal,  lo.lTotal  + 1, { right: SOLID })
-  bdr(2, totalRows, lo.lCash,   lo.lCash   + 1, { right: SOLID })
-  bdr(2, totalRows, lo.gap1,    lo.gap1    + 1, { right: SOLID })
-  bdr(2, totalRows, lo.dTotal,  lo.dTotal  + 1, { right: SOLID })
-  bdr(2, totalRows, lo.dCash,   lo.dCash   + 1, { right: SOLID })
-  bdr(2, totalRows, lo.sDate,   lo.sDate   + 1, { right: SOLID })
-  bdr(2, totalRows, lo.sDCash,  lo.sDCash  + 1, { right: SOLID })
-  bdr(2, totalRows, lo.sTotal,  lo.sTotal  + 1, { right: SOLID })
-  // Thin structural borders
-  bdr(2, totalRows, lo.cEftpos,  lo.cEftpos  + 1, { left:  SOLID })
-  bdr(2, totalRows, lo.cCashBag, lo.cCashBag + 1, { right: SOLID })
-  // AY-AZ: grid borders
-  bdr(2, totalRows, lo.sDay, lo.sDate + 1, { top: SOLID, bottom: SOLID, left: SOLID, right: SOLID, innerHorizontal: SOLID, innerVertical: SOLID })
+  bdr(0, totalRows, 0, lo.delTotal+1, { top: SOLID, bottom: SOLID, left: SOLID, right: SOLID, innerHorizontal: SOLID, innerVertical: SOLID })
+  bdr(2, totalRows, lo.lTotal,  lo.lTotal+1,  { right: SOLID })
+  bdr(2, totalRows, lo.lCash,   lo.lCash+1,   { right: SOLID })
+  bdr(2, totalRows, lo.gap1,    lo.gap1+1,    { right: SOLID })
+  bdr(2, totalRows, lo.dTotal,  lo.dTotal+1,  { right: SOLID })
+  bdr(2, totalRows, lo.dCash,   lo.dCash+1,   { right: SOLID })
+  bdr(2, totalRows, lo.sDate,   lo.sDate+1,   { right: SOLID })
+  bdr(2, totalRows, lo.sDCash,  lo.sDCash+1,  { right: SOLID })
+  bdr(2, totalRows, lo.sTotal,  lo.sTotal+1,  { right: SOLID })
+  bdr(2, totalRows, lo.cEftpos, lo.cEftpos+1, { left: SOLID })
+  bdr(2, totalRows, lo.cCashBag,lo.cCashBag+1,{ right: SOLID })
+  bdr(2, totalRows, lo.sDay, lo.sDate+1, { top: SOLID, bottom: SOLID, left: SOLID, right: SOLID, innerHorizontal: SOLID, innerVertical: SOLID })
 
   await clearSheetMerges(sid, sheetId)
   await batchUpdateSheet(sid, requests)
@@ -1916,7 +1915,7 @@ export async function syncIncomeSheet(shopCode: string): Promise<void> {
   }
   const sortedWeeks = [...weekMap.keys()].sort()
 
-  // Two header rows (row 0 and row 1 in the sheet, 0-indexed)
+  // One header block at top; all weeks flow underneath
   const rows: (string | number | null)[][] = [makeIncomeHdr0(lo, rates, suppliers), makeIncomeHdr1(lo, suppliers)]
   const fmtRules: SheetFormatRule[] = []
   const sumRowIndices: number[] = []
@@ -2101,7 +2100,8 @@ export async function syncIncomeSheet(shopCode: string): Promise<void> {
     sumRow[lo.sDay] = 'Sum'
 
     // Dynamic sumCols covering all numeric columns
-    const sumCols: number[] = [2, 3, 4]
+    const sumCols: number[] = []
+    for (let i = 2; i < lo.delFirst; i++) sumCols.push(i)  // bill cols (one per supplier)
     sumCols.push(lo.delTotal)  // delivery tiers handled separately below
     for (let i = lo.lEftpos;   i <= lo.lCash;     i++) sumCols.push(i)
     for (let i = lo.dEftpos;   i <= lo.dCash;     i++) sumCols.push(i)
@@ -2122,20 +2122,17 @@ export async function syncIncomeSheet(shopCode: string): Promise<void> {
 
   // ── Global number formats ─────────────────────────────────────────────────
   const totalRows = rows.length
-  // Integer: C through delivery total (bills + delivery counts)
-  fmtRules.push({ startRow: 2, endRow: totalRows, startCol: 2, endCol: lo.delTotal + 1, numberFormat: INT_FORMAT })
-  // AUD: Lunch, Dinner, Combined, Simplified
-  fmtRules.push({ startRow: 2, endRow: totalRows, startCol: lo.lEftpos, endCol: lo.lCash    + 1, numberFormat: AUD_FORMAT })
-  fmtRules.push({ startRow: 2, endRow: totalRows, startCol: lo.dEftpos, endCol: lo.dCash    + 1, numberFormat: AUD_FORMAT })
-  fmtRules.push({ startRow: 2, endRow: totalRows, startCol: lo.cEftpos, endCol: lo.running  + 1, numberFormat: AUD_FORMAT })
-  fmtRules.push({ startRow: 2, endRow: totalRows, startCol: lo.sLEff,   endCol: lo.sRunning + 1, numberFormat: AUD_FORMAT })
-  // Date: B (col 1) and sDate
-  fmtRules.push({ startRow: 2, endRow: totalRows, startCol: 1,          endCol: 2,               numberFormat: DATE_FORMAT })
-  fmtRules.push({ startRow: 2, endRow: totalRows, startCol: lo.sDate,   endCol: lo.sDate    + 1, numberFormat: DATE_FORMAT })
+  fmtRules.push({ startRow: 2, endRow: totalRows, startCol: 2,          endCol: lo.delTotal + 1,  numberFormat: INT_FORMAT })
+  fmtRules.push({ startRow: 2, endRow: totalRows, startCol: lo.lEftpos, endCol: lo.lCash    + 1,  numberFormat: AUD_FORMAT })
+  fmtRules.push({ startRow: 2, endRow: totalRows, startCol: lo.dEftpos, endCol: lo.dCash    + 1,  numberFormat: AUD_FORMAT })
+  fmtRules.push({ startRow: 2, endRow: totalRows, startCol: lo.cEftpos, endCol: lo.running  + 1,  numberFormat: AUD_FORMAT })
+  fmtRules.push({ startRow: 2, endRow: totalRows, startCol: lo.sLEff,   endCol: lo.sRunning + 1,  numberFormat: AUD_FORMAT })
+  fmtRules.push({ startRow: 2, endRow: totalRows, startCol: 1,          endCol: 2,                numberFormat: DATE_FORMAT })
+  fmtRules.push({ startRow: 2, endRow: totalRows, startCol: lo.sDate,   endCol: lo.sDate    + 1,  numberFormat: DATE_FORMAT })
 
   await setSheetDataUserEntered(INCOME_SHEET(), rows, sid)
   await applyFormattingRules(INCOME_SHEET(), sid, fmtRules)
-  await applyIncomeFullFormat(sid, lo, rows.length, sumRowIndices)
+  await applyIncomeFullFormat(sid, lo, rows.length, sumRowIndices, suppliers)
 }
 
 // ── Wage 2026 ─────────────────────────────────────────────────────────────────

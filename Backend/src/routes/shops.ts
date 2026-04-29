@@ -1,6 +1,6 @@
 import { Router, Request, Response } from 'express'
 import { listShops, saveShops, invalidateShopCache, migrateShopToOwnSpreadsheet, syncAllEmployeesToMaster } from '../db'
-import { createSpreadsheet } from '../sheets'
+import { assertSpreadsheetAccess } from '../sheets'
 import { config } from '../config'
 import type { StoredShop } from '../types'
 
@@ -36,12 +36,11 @@ router.get('/admin', async (req: Request, res: Response) => {
 
 // POST /shops — เพิ่มสาขาใหม่
 router.post('/', async (req: Request, res: Response) => {
-  const { password, name, restaurantPassword, managerPassword, ownerPassword, spreadsheetId: providedSheetId } = req.body as {
+  const { password, name, restaurantPassword, managerPassword, spreadsheetId: providedSheetId } = req.body as {
     password: string
     name: string
     restaurantPassword: string
     managerPassword: string
-    ownerPassword?: string
     spreadsheetId?: string
   }
   if (!verifyMaster(password)) {
@@ -52,6 +51,10 @@ router.post('/', async (req: Request, res: Response) => {
     res.status(400).json({ error: 'กรุณากรอกชื่อสาขา' })
     return
   }
+  if (!providedSheetId?.trim()) {
+    res.status(400).json({ error: 'โปรดดูคู่มือการสร้างสาขาใหม่' })
+    return
+  }
   try {
     const all = await listShops()
     const maxCode = all.reduce((max, s) => {
@@ -60,25 +63,25 @@ router.post('/', async (req: Request, res: Response) => {
     }, 0)
     const code = String(maxCode + 1).padStart(2, '0')
 
-    // ใช้ Spreadsheet ID ที่ระบุ หรือสร้างใหม่ถ้าไม่ได้ระบุ
-    const spreadsheetId = providedSheetId?.trim() || await createSpreadsheet(`Spoonful - ${name.trim()}`)
+    const spreadsheetId = providedSheetId.trim()
+    await assertSpreadsheetAccess(spreadsheetId)
 
-    const shop: StoredShop = { code, name: name.trim(), restaurantPassword, managerPassword, ownerPassword: ownerPassword || undefined, spreadsheetId }
+    const shop: StoredShop = { code, name: name.trim(), restaurantPassword, managerPassword, spreadsheetId }
     await saveShops([...all, shop])
     res.json({ ok: true, code, spreadsheetId })
-  } catch {
-    res.status(500).json({ error: 'Server error' })
+  } catch (err) {
+    console.error('[shops:add]', err)
+    res.status(500).json({ error: 'โปรดดูคู่มือการสร้างสาขาใหม่' })
   }
 })
 
 // PUT /shops/:code — แก้ไขสาขา
 router.put('/:code', async (req: Request, res: Response) => {
-  const { password, name, restaurantPassword, managerPassword, ownerPassword, spreadsheetId } = req.body as {
+  const { password, name, restaurantPassword, managerPassword, spreadsheetId } = req.body as {
     password: string
     name: string
     restaurantPassword: string
     managerPassword: string
-    ownerPassword?: string
     spreadsheetId?: string
   }
   if (!verifyMaster(password)) {
@@ -97,7 +100,7 @@ router.put('/:code', async (req: Request, res: Response) => {
       name: name.trim(),
       restaurantPassword,
       managerPassword,
-      ownerPassword: ownerPassword || undefined,
+      ownerPassword: undefined,
       spreadsheetId: spreadsheetId?.trim() || all[idx].spreadsheetId,
     }
     await saveShops(all)

@@ -2,7 +2,13 @@
 
 import { getSession } from '@/lib/session'
 import { DEFAULT_DELIVERY_RATES } from '@/lib/config'
-import type { DeliveryRate } from '@/lib/types'
+import type { DeliveryRate, DeliverySupplier } from '@/lib/types'
+
+const DEFAULT_SUPPLIERS: DeliverySupplier[] = [
+  { id: 'lfy',      name: 'LFY',      hasOnline: true,  hasCards: true,  hasCash: true  },
+  { id: 'uber',     name: 'Uber Eat', hasOnline: true,  hasCards: false, hasCash: false },
+  { id: 'doordash', name: 'DoorDash', hasOnline: true,  hasCards: false, hasCash: false },
+]
 
 const BACKEND_URL = (process.env.BACKEND_URL ?? 'http://localhost:4000').replace(/\/$/, '')
 
@@ -97,6 +103,33 @@ export async function saveExtraRate(shopCode: string, rate: number): Promise<voi
     body: JSON.stringify({ rate }),
   })
   if (!res.ok) throw new Error('Failed to save extra rate')
+}
+
+export async function getDeliverySuppliers(shopCode: string): Promise<DeliverySupplier[]> {
+  const session = await getSession()
+  if (!session || session.shopCode !== shopCode) return DEFAULT_SUPPLIERS
+  try {
+    const res = await fetch(`${BACKEND_URL}/${shopCode}/config/suppliers`, {
+      headers: authHeader(session.token),
+      cache: 'no-store',
+    })
+    if (!res.ok) return DEFAULT_SUPPLIERS
+    return await res.json() as DeliverySupplier[]
+  } catch {
+    return DEFAULT_SUPPLIERS
+  }
+}
+
+export async function saveDeliverySuppliers(shopCode: string, suppliers: DeliverySupplier[]): Promise<void> {
+  const session = await getSession()
+  if (!session || session.shopCode !== shopCode || session.role !== 'owner')
+    throw new Error('Unauthorized')
+  const res = await fetch(`${BACKEND_URL}/${shopCode}/config/suppliers`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json', ...authHeader(session.token) },
+    body: JSON.stringify(suppliers),
+  })
+  if (!res.ok) throw new Error('Failed to save suppliers')
 }
 
 export async function saveConfigAuditLog(

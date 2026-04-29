@@ -25,7 +25,6 @@ const auth = new google.auth.GoogleAuth({
 
 const sheetsApi = google.sheets({ version: 'v4', auth })
 const driveApi = google.drive({ version: 'v3', auth })
-
 // Cache ชื่อ sheet แยกตาม spreadsheetId
 const sheetTitleCacheMap = new Map<string, Set<string>>()
 
@@ -785,14 +784,23 @@ export async function hideInternalSheets(spreadsheetId: string): Promise<void> {
   await batchUpdateSheet(spreadsheetId, requests)
 }
 
+export async function assertSpreadsheetAccess(spreadsheetId: string): Promise<void> {
+  await sheetsApi.spreadsheets.get({
+    spreadsheetId,
+    fields: 'spreadsheetId',
+  })
+}
+
 /**
  * สร้าง Spreadsheet ใหม่สำหรับสาขา — คืน spreadsheetId
  */
 export async function createSpreadsheet(title: string): Promise<string> {
   const res = await driveApi.files.create({
+    supportsAllDrives: true,
     requestBody: {
       name: title,
       mimeType: 'application/vnd.google-apps.spreadsheet',
+      ...(config.googleDriveFolderId ? { parents: [config.googleDriveFolderId] } : {}),
     },
     fields: 'id',
   })

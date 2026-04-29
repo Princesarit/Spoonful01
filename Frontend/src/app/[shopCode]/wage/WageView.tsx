@@ -6,8 +6,11 @@ import { useParams } from 'next/navigation'
 import type { Employee, TimeRecord } from '@/lib/types'
 import { getWageData, getWagePayments, saveWagePayments } from './actions'
 import { useToast } from '@/components/Toast'
+import { useShop } from '@/components/ShopProvider'
+import { translations } from '@/lib/translations'
 
-const DAY_SHORT = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
+const DAY_SHORT_EN = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
+const DAY_SHORT_TH = ['จ', 'อ', 'พ', 'พฤ', 'ศ', 'ส', 'อา']
 
 function getMondayStr(date: Date): string {
   const d = new Date(date)
@@ -54,6 +57,9 @@ const inputCls = 'w-14 border border-gray-300 rounded px-1 py-0.5 text-center fo
 
 export default function WageView() {
   const { shopCode } = useParams() as { shopCode: string }
+  const { lang } = useShop()
+  const tr = translations[lang]
+  const DAY_SHORT = lang === 'en' ? DAY_SHORT_EN : DAY_SHORT_TH
   const { showToast, toastEl } = useToast()
   const [weekStart, setWeekStart] = useState(() => getMondayStr(new Date()))
   const [employees, setEmployees] = useState<Employee[]>([])
@@ -123,9 +129,9 @@ export default function WageView() {
       await saveWagePayments(shopCode, weekStart, payments, weekNote)
       setSaved(true)
       setEditMode(false)
-      showToast('บันทึกสำเร็จ')
+      showToast(tr.save_success)
     } catch (err) {
-      showToast('บันทึกไม่สำเร็จ: ' + String(err), 'error')
+      showToast(`${tr.save_fail}: ${String(err)}`, 'error')
     } finally {
       setSaving(false)
     }
@@ -200,8 +206,8 @@ export default function WageView() {
       <div className="px-4 space-y-3">
         {/* Header */}
         <div className="flex items-center gap-2 pt-1">
-          <Link href={`/${shopCode}/summary`} className="text-gray-400 hover:text-gray-600 text-sm">← Back</Link>
-          <h2 className="text-lg font-bold text-gray-800 flex-1">Wage Summary</h2>
+          <Link href={`/${shopCode}/summary`} className="text-gray-400 hover:text-gray-600 text-sm">{tr.back}</Link>
+          <h2 className="text-lg font-bold text-gray-800 flex-1">{tr.wage_summary_title}</h2>
         </div>
 
         {/* Week nav + Edit + Save */}
@@ -217,23 +223,23 @@ export default function WageView() {
                 onClick={() => { setEditMode((v) => !v); setSaved(false) }}
                 className={`px-4 py-2.5 rounded-xl text-sm font-semibold cursor-pointer whitespace-nowrap transition-colors border ${editMode ? 'bg-yellow-100 border-yellow-400 text-yellow-800 hover:bg-yellow-200' : 'bg-white border-gray-300 text-gray-700 hover:bg-gray-50'}`}
               >
-                {editMode ? '✏️ Editing' : '✏️ Edit'}
+                {editMode ? `✏️ ${tr.editing}` : `✏️ ${tr.edit}`}
               </button>
               <button
                 onClick={handleSave}
                 disabled={saving}
                 className="px-4 py-2.5 bg-green-600 text-white rounded-xl text-sm font-semibold hover:bg-green-700 disabled:opacity-50 cursor-pointer whitespace-nowrap transition-colors"
               >
-                {saving ? 'Saving...' : saved ? '✓ Saved' : '💾 Save to Sheet'}
+                {saving ? tr.saving : saved ? tr.saved : `💾 ${tr.save_to_sheet}`}
               </button>
             </>
           )}
         </div>
 
         {loading ? (
-          <div className="text-center py-12 text-gray-400 text-sm">Loading...</div>
+          <div className="text-center py-12 text-gray-400 text-sm">{tr.loading}</div>
         ) : employees.length === 0 ? (
-          <div className="text-center py-12 text-gray-400 text-sm">ไม่มีพนักงาน</div>
+          <div className="text-center py-12 text-gray-400 text-sm">{tr.no_employees}</div>
         ) : (
           <>
             <div className="bg-white rounded-xl border border-gray-100 shadow-sm overflow-x-auto">
@@ -241,18 +247,18 @@ export default function WageView() {
                 <thead>
                   {/* Row 1: Day headers */}
                   <tr className="bg-gray-200 font-semibold text-gray-700">
-                    <th className="border border-gray-300 px-2 py-1.5 text-left bg-yellow-200 text-gray-800 dark:text-yellow-200 whitespace-nowrap">WAGE ADJUSTED</th>
-                    <th className="border border-gray-300 px-2 py-1.5 text-center bg-yellow-200 text-gray-700 dark:text-yellow-300 whitespace-nowrap">Since {dates[0]}</th>
+                    <th className="border border-gray-300 px-2 py-1.5 text-left bg-yellow-200 text-gray-800 dark:text-yellow-200 whitespace-nowrap">{tr.wage_adjusted}</th>
+                    <th className="border border-gray-300 px-2 py-1.5 text-center bg-yellow-200 text-gray-700 dark:text-yellow-300 whitespace-nowrap">{tr.since_label} {dates[0]}</th>
                     {DAY_SHORT.map((name) => (
                       <th key={name} colSpan={2} className="border border-gray-300 px-1 py-1.5 text-center">
                         {name}
                       </th>
                     ))}
                     <th className="border border-gray-300 px-2 py-1.5 text-center bg-gray-300">Extra</th>
-                    <th className="border border-gray-300 px-2 py-1.5 text-center bg-green-100 text-green-800 dark:text-green-300">WAGE</th>
-                    <th className="border border-gray-300 px-2 py-1.5 text-center bg-gray-200">TAX</th>
-                    <th className="border border-gray-300 px-2 py-1.5 text-center bg-gray-200">PAID</th>
-                    <th className="border border-gray-300 px-2 py-1.5 text-center bg-gray-200">Remaining</th>
+                    <th className="border border-gray-300 px-2 py-1.5 text-center bg-green-100 text-green-800 dark:text-green-300">{tr.wage_label}</th>
+                    <th className="border border-gray-300 px-2 py-1.5 text-center bg-gray-200">{tr.tax_label}</th>
+                    <th className="border border-gray-300 px-2 py-1.5 text-center bg-gray-200">{tr.paid_label_short}</th>
+                    <th className="border border-gray-300 px-2 py-1.5 text-center bg-gray-200">{tr.remaining_label}</th>
                   </tr>
 
                   {/* Row 2: Dates */}
@@ -273,8 +279,8 @@ export default function WageView() {
 
                   {/* Row 3: L / D sub-headers */}
                   <tr className="bg-gray-50 text-gray-500">
-                    <th className="border border-gray-300 px-2 py-1 text-left">Name</th>
-                    <th className="border border-gray-300 px-2 py-1 text-center">Rate</th>
+                    <th className="border border-gray-300 px-2 py-1 text-left">{tr.name_label}</th>
+                    <th className="border border-gray-300 px-2 py-1 text-center">{tr.rate_label}</th>
                     {dates.map((d) => (
                       <Fragment key={d}>
                         <th className="border border-gray-300 px-1 py-1 text-center bg-yellow-50 text-yellow-600 w-12">L</th>
@@ -378,7 +384,7 @@ export default function WageView() {
 
                   {/* TOTAL row */}
                   <tr className="bg-orange-50 font-bold border-t-2 border-orange-200">
-                    <td className="border border-gray-300 px-2 py-1.5 text-gray-700" colSpan={2}>TOTAL</td>
+                    <td className="border border-gray-300 px-2 py-1.5 text-gray-700" colSpan={2}>{tr.total_label.toUpperCase()}</td>
                     {dayTotals.map((dt, i) => (
                       <Fragment key={i}>
                         <td className="border border-gray-300 px-1 py-1.5 text-center text-orange-700">
@@ -437,14 +443,14 @@ export default function WageView() {
 
                   {/* SALE row */}
                   <tr className="bg-gray-100">
-                    <td className="border border-gray-200 px-2 py-1.5 font-medium text-gray-600" colSpan={2}>SALE</td>
+                    <td className="border border-gray-200 px-2 py-1.5 font-medium text-gray-600" colSpan={2}>{tr.sale_label.toUpperCase()}</td>
                     <td className="border border-gray-200 px-2 py-1.5" colSpan={14} />
                     <td className="border border-gray-200 px-3 py-1.5 text-right" colSpan={2}>
-                      <div className="text-[10px] text-gray-400">Lunch Wage</div>
+                      <div className="text-[10px] text-gray-400">{tr.lunch_wage}</div>
                       <div className="font-bold text-orange-600">{totalLunchWage.toFixed(0)}</div>
                     </td>
                     <td className="border border-gray-200 px-3 py-1.5 text-right" colSpan={3}>
-                      <div className="text-[10px] text-gray-400">Dinner Wage</div>
+                      <div className="text-[10px] text-gray-400">{tr.dinner_wage}</div>
                       <div className="font-bold text-blue-600">{totalDinnerWage.toFixed(0)}</div>
                     </td>
                   </tr>
@@ -454,18 +460,18 @@ export default function WageView() {
 
             {/* Note section */}
             <div className="bg-white rounded-xl border border-gray-100 shadow-sm px-4 py-3">
-              <div className="text-xs font-semibold text-gray-500 mb-1.5">Note (optional)</div>
+              <div className="text-xs font-semibold text-gray-500 mb-1.5">{tr.note_optional}</div>
               {editMode ? (
                 <textarea
                   value={weekNote}
                   onChange={(e) => { setWeekNote(e.target.value); setSaved(false) }}
-                  placeholder="บันทึกประจำสัปดาห์..."
+                  placeholder={tr.week_note_placeholder}
                   rows={2}
                   className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-blue-400 resize-none"
                 />
               ) : (
                 <div className="text-sm text-gray-700 min-h-8">
-                  {weekNote || <span className="text-gray-300 italic">ไม่มีบันทึก</span>}
+                  {weekNote || <span className="text-gray-300 italic">{tr.no_note}</span>}
                 </div>
               )}
             </div>

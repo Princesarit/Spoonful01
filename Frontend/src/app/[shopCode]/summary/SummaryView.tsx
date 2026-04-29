@@ -667,21 +667,29 @@ function DonutChart({ netSales, onlineOrders }: { netSales: number; onlineOrders
 function TotalsGrid({ totals }: { totals: Totals }) {
   const { lang } = useShop()
   const tr = translations[lang]
+  const items = [
+    { label: 'Total sale', value: totals.totalSale, color: 'text-brand-gold' },
+    { label: 'Total eftpos', value: totals.totalEftpos, color: 'text-blue-600' },
+    { label: 'Net sales', value: totals.netSales, color: 'text-gray-800' },
+    { label: 'Online Orders', value: totals.onlineOrders, color: 'text-gray-800' },
+    { label: 'Cash Expense', value: totals.cashExpense, color: 'text-red-500' },
+    { label: tr.cash_leave_day, value: totals.cashLeave, color: totals.cashLeave >= 0 ? 'text-green-600' : 'text-red-600' },
+  ]
   return (
-    <div className="grid grid-cols-2 gap-0 divide-x divide-y divide-gray-100">
-      {[
-        { label: 'Total sale', value: totals.totalSale, color: 'text-brand-gold' },
-        { label: 'Total eftpos', value: totals.totalEftpos, color: 'text-blue-600' },
-        { label: 'Net sales', value: totals.netSales, color: 'text-gray-800' },
-        { label: 'Online Orders', value: totals.onlineOrders, color: 'text-gray-800' },
-        { label: 'Cash Expense', value: totals.cashExpense, color: 'text-red-500' },
-        { label: tr.cash_leave_day, value: totals.cashLeave, color: totals.cashLeave >= 0 ? 'text-green-600' : 'text-red-600' },
-      ].map(({ label, value, color }) => (
-        <div key={label} className="p-3">
-          <div className="text-xs text-gray-400 mb-0.5">{label}</div>
-          <div className={`text-sm font-bold ${color}`}>{fmt(value)} $</div>
-        </div>
-      ))}
+    <div className="grid grid-cols-2 gap-0">
+      {items.map(({ label, value, color }, i) => {
+        const isLeft = i % 2 === 0
+        const isLastRow = i >= items.length - 2
+        return (
+          <div
+            key={label}
+            className={`p-3${isLeft ? ' border-r border-gray-100' : ''}${!isLastRow ? ' border-b border-gray-100' : ''}`}
+          >
+            <div className="text-xs text-gray-400 mb-0.5">{label}</div>
+            <div className={`text-sm font-bold ${color}`}>{fmt(value)} $</div>
+          </div>
+        )
+      })}
     </div>
   )
 }
@@ -697,6 +705,7 @@ function NoteField({
 }) {
   const { lang } = useShop()
   const tr = translations[lang]
+  const { showToast } = useToast()
   const [note, setNote] = useState(initialNote)
   const [editing, setEditing] = useState(false)
   const [saving, setSaving] = useState(false)

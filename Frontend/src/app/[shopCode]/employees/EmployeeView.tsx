@@ -141,7 +141,7 @@ export default function EmployeeView({
       (e) => e.name.toLowerCase() === trimmed && e.id !== (editing?.id ?? '')
     )
     if (isDuplicate) {
-      setNameError('มีพนักงานชื่อนี้อยู่แล้ว')
+      setNameError(tr.duplicate_name)
       return
     }
     setNameError('')
@@ -318,7 +318,7 @@ export default function EmployeeView({
                     )}
                     {emp.deliveryFeePerTrip && emp.positions.includes('Home') && (
                       <span className="text-xs text-blue-600 bg-blue-50 px-2 py-0.5 rounded-full">
-                        🚚 ${emp.deliveryFeePerTrip}/รอบ
+                        🚚 ${emp.deliveryFeePerTrip}/{lang === 'en' ? 'trip' : 'รอบ'}
                       </span>
                     )}
                   </div>
@@ -361,29 +361,29 @@ export default function EmployeeView({
       {deleteAudit && (
         <div className="fixed inset-0 bg-black/40 flex items-end justify-center z-50 p-4">
           <div className="bg-white rounded-2xl w-full max-w-sm p-6 space-y-4">
-            <h3 className="font-bold text-red-600">ยืนยันการลบ</h3>
+            <h3 className="font-bold text-red-600">{tr.confirm_delete_title}</h3>
             <div className="text-xs text-gray-500 bg-red-50 rounded-lg px-3 py-2">
-              ลบพนักงาน: <span className="font-semibold text-gray-700">{deleteAudit.emp.name}</span>
+              {tr.delete_label}: <span className="font-semibold text-gray-700">{deleteAudit.emp.name}</span>
             </div>
             <div className="space-y-3">
               <div>
-                <label className="text-xs text-gray-500 block mb-1">ชื่อผู้แก้ไข *</label>
+                <label className="text-xs text-gray-500 block mb-1">{tr.editor_name_label}</label>
                 <input
                   type="text"
                   autoFocus
                   value={deleteAudit.editorName}
                   onChange={(e) => setDeleteAudit((p) => p && ({ ...p, editorName: e.target.value }))}
-                  placeholder="กรอกชื่อ"
+                  placeholder={tr.enter_name_placeholder}
                   className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-red-400"
                 />
               </div>
               <div>
-                <label className="text-xs text-gray-500 block mb-1">หมายเหตุ</label>
+                <label className="text-xs text-gray-500 block mb-1">{tr.note_label}</label>
                 <input
                   type="text"
                   value={deleteAudit.note}
                   onChange={(e) => setDeleteAudit((p) => p && ({ ...p, note: e.target.value }))}
-                  placeholder="เหตุผล (ถ้ามี)"
+                  placeholder={tr.reason_optional_placeholder}
                   className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-red-400"
                 />
               </div>
@@ -540,22 +540,22 @@ export default function EmployeeView({
             {editing && (
               <div className="space-y-2 border-t border-gray-100 pt-3">
                 <div>
-                  <label className="text-xs text-gray-500 block mb-1">ชื่อผู้แก้ไข *</label>
+                  <label className="text-xs text-gray-500 block mb-1">{tr.editor_name_label}</label>
                   <input
                     type="text"
                     value={editorName}
                     onChange={(e) => setEditorName(e.target.value)}
-                    placeholder="กรอกชื่อ"
+                    placeholder={tr.enter_name_placeholder}
                     className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-brand-gold"
                   />
                 </div>
                 <div>
-                  <label className="text-xs text-gray-500 block mb-1">หมายเหตุ</label>
+                  <label className="text-xs text-gray-500 block mb-1">{tr.note_label}</label>
                   <input
                     type="text"
                     value={editNote}
                     onChange={(e) => setEditNote(e.target.value)}
-                    placeholder="เหตุผล (ถ้ามี)"
+                    placeholder={tr.reason_optional_placeholder}
                     className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-brand-gold"
                   />
                 </div>

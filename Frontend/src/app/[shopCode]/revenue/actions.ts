@@ -1,7 +1,13 @@
 'use server'
 
 import { getSession } from '@/lib/session'
-import type { RevenueEntry, DeliveryPlatform } from '@/lib/types'
+import type { RevenueEntry, DeliveryPlatform, DeliverySupplier } from '@/lib/types'
+
+const DEFAULT_SUPPLIERS: DeliverySupplier[] = [
+  { id: 'lfy',      name: 'LFY',      hasOnline: true,  hasCards: true,  hasCash: true  },
+  { id: 'uber',     name: 'Uber Eat', hasOnline: true,  hasCards: false, hasCash: false },
+  { id: 'doordash', name: 'DoorDash', hasOnline: true,  hasCards: false, hasCash: false },
+]
 
 const BACKEND_URL = (process.env.BACKEND_URL ?? 'http://localhost:4000').replace(/\/$/, '')
 
@@ -57,6 +63,21 @@ export async function saveAuditLog(
       body: JSON.stringify(entry),
     })
   } catch { /* audit failure should not block the action */ }
+}
+
+export async function getDeliverySuppliers(shopCode: string): Promise<DeliverySupplier[]> {
+  const session = await getSession()
+  if (!session || session.shopCode !== shopCode) return DEFAULT_SUPPLIERS
+  try {
+    const res = await fetch(`${BACKEND_URL}/${shopCode}/config/suppliers`, {
+      headers: authHeader(session.token),
+      cache: 'no-store',
+    })
+    if (!res.ok) return DEFAULT_SUPPLIERS
+    return await res.json() as DeliverySupplier[]
+  } catch {
+    return DEFAULT_SUPPLIERS
+  }
 }
 
 export async function savePlatforms(shopCode: string, platforms: DeliveryPlatform[]) {

@@ -422,7 +422,7 @@ export default function TimeRecordView() {
           <div className="text-center">
             <div className="text-sm font-semibold text-gray-700" suppressHydrationWarning>{weekLabel(weekStart, locale)}</div>
             {isPast && <div className="text-xs text-gray-400 mt-0.5">{tr.read_only}</div>}
-            {isFuture && <div className="text-xs text-orange-400 mt-0.5">ยังไม่ถึงสัปดาห์นี้</div>}
+            {isFuture && <div className="text-xs text-orange-400 mt-0.5">{tr.future_week}</div>}
           </div>
           <button
             onClick={() => { setWeekStart((p) => addWeeks(p, 1)); setWeekEditing(false) }}
@@ -567,7 +567,7 @@ export default function TimeRecordView() {
             className="border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-gold"
           />
           {!isToday && (
-            <p className="text-xs text-orange-500 mt-1">⚠ ดูได้อย่างเดียว (ไม่ใช่วันนี้)</p>
+            <p className="text-xs text-orange-500 mt-1">{tr.read_only_not_today}</p>
           )}
         </div>
 
@@ -600,7 +600,7 @@ export default function TimeRecordView() {
           const gridCols = buckets.length <= 3 ? `grid-cols-${buckets.length + 1}` : 'grid-cols-4'
           return (
             <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-4">
-              <div className="text-xs font-semibold text-gray-600 mb-3">Delivery Count</div>
+              <div className="text-xs font-semibold text-gray-600 mb-3">{tr.delivery_count}</div>
               <div className={`grid ${gridCols} gap-2 text-center`}>
                 {buckets.map(({ label, count, color }) => (
                   <div key={label} className={`rounded-lg py-2 ${color}`}>
@@ -610,7 +610,7 @@ export default function TimeRecordView() {
                 ))}
                 <div className="rounded-lg py-2 bg-brand-gold-light text-brand-gold font-bold">
                   <div className="text-lg">{total}</div>
-                  <div className="text-[10px] mt-0.5">Total</div>
+                  <div className="text-[10px] mt-0.5">{tr.total_col}</div>
                 </div>
               </div>
             </div>
@@ -649,10 +649,10 @@ export default function TimeRecordView() {
                       <div>
                         <div className="flex items-center gap-1.5 flex-wrap">
                           <span className="text-xs font-semibold text-gray-700">{emp.name}</span>
-                          {emp.defaultDays[0] && <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-orange-100 text-orange-600">Lunch</span>}
-                          {emp.defaultDays[1] && <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-blue-100 text-blue-600">Dinner</span>}
+                          {emp.defaultDays[0] && <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-orange-100 text-orange-600">{tr.lunch}</span>}
+                          {emp.defaultDays[1] && <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-blue-100 text-blue-600">{tr.dinner}</span>}
                           {emp.deliveryFeePerTrip != null && (
-                            <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-green-100 text-green-700">฿{emp.deliveryFeePerTrip}/รอบ</span>
+                            <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-green-100 text-green-700">฿{emp.deliveryFeePerTrip}/{tr.trip_unit}</span>
                           )}
                         </div>
                         <div className="text-xs text-gray-400">
@@ -684,7 +684,7 @@ export default function TimeRecordView() {
                             }}
                             className="text-xs bg-brand-gold text-white px-2.5 py-1 rounded-lg hover:bg-brand-gold-dark cursor-pointer"
                           >
-                            Edit
+                            {tr.edit}
                           </button>
                         ) : (
                           canEdit && <button
@@ -735,7 +735,7 @@ export default function TimeRecordView() {
                       </div>
                     ))}
                     <div className="px-4 pb-1 flex items-center gap-2">
-                      <label className="text-xs text-blue-500 font-medium">Cash on Delivery</label>
+                      <label className="text-xs text-blue-500 font-medium">{tr.cash_on_delivery}</label>
                       <input
                         type="number"
                         min="0"
@@ -749,7 +749,7 @@ export default function TimeRecordView() {
                       />
                     </div>
                     <div className="px-4 pb-3 flex items-center gap-2">
-                      <label className="text-xs text-gray-400 font-medium">Note</label>
+                      <label className="text-xs text-gray-400 font-medium">{tr.note_label}</label>
                       <input
                         type="text"
                         disabled={isSaved}
@@ -773,29 +773,29 @@ export default function TimeRecordView() {
       {weekAuditModal && (
         <div className="fixed inset-0 bg-black/40 flex items-end justify-center z-50 p-4">
           <div className="bg-white rounded-2xl w-full max-w-sm p-6 space-y-4">
-            <h3 className="font-bold text-gray-900">บันทึกการแก้ไข</h3>
+            <h3 className="font-bold text-gray-900">{tr.edit_log_title}</h3>
             <div className="text-xs text-gray-500 bg-gray-50 rounded-lg px-3 py-2">
               Edit weekly time records: week of {isoDate(weekStart)}
             </div>
             <div className="space-y-3">
               <div>
-                <label className="text-xs text-gray-500 block mb-1">ชื่อผู้แก้ไข *</label>
+                <label className="text-xs text-gray-500 block mb-1">{tr.editor_name_label}</label>
                 <input
                   type="text"
                   autoFocus
                   value={weekAuditModal.editorName}
                   onChange={(e) => setWeekAuditModal((p) => p && ({ ...p, editorName: e.target.value }))}
-                  placeholder="กรอกชื่อ"
+                  placeholder={tr.enter_name_placeholder}
                   className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-gold"
                 />
               </div>
               <div>
-                <label className="text-xs text-gray-500 block mb-1">หมายเหตุ</label>
+                <label className="text-xs text-gray-500 block mb-1">{tr.note_label}</label>
                 <input
                   type="text"
                   value={weekAuditModal.note}
                   onChange={(e) => setWeekAuditModal((p) => p && ({ ...p, note: e.target.value }))}
-                  placeholder="เหตุผลการแก้ไข (ถ้ามี)"
+                  placeholder={tr.reason_optional_placeholder}
                   className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-gold"
                 />
               </div>
@@ -823,7 +823,7 @@ export default function TimeRecordView() {
       {auditModal && (
         <div className="fixed inset-0 bg-black/40 flex items-end justify-center z-50 p-4">
           <div className="bg-white rounded-2xl w-full max-w-sm p-6 space-y-4">
-            <h3 className="font-bold text-gray-900">บันทึกการแก้ไข</h3>
+            <h3 className="font-bold text-gray-900">{tr.edit_log_title}</h3>
             <div className="text-xs text-gray-500 bg-gray-50 rounded-lg px-3 py-2">
               <span className="font-medium text-gray-700">{auditModal.emp.name}</span>
               {' · '}
@@ -831,23 +831,23 @@ export default function TimeRecordView() {
             </div>
             <div className="space-y-3">
               <div>
-                <label className="text-xs text-gray-500 block mb-1">ชื่อผู้แก้ไข *</label>
+                <label className="text-xs text-gray-500 block mb-1">{tr.editor_name_label}</label>
                 <input
                   type="text"
                   autoFocus
                   value={auditModal.editorName}
                   onChange={(e) => setAuditModal((p) => p && ({ ...p, editorName: e.target.value }))}
-                  placeholder="กรอกชื่อ"
+                  placeholder={tr.enter_name_placeholder}
                   className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-gold"
                 />
               </div>
               <div>
-                <label className="text-xs text-gray-500 block mb-1">หมายเหตุ</label>
+                <label className="text-xs text-gray-500 block mb-1">{tr.note_label}</label>
                 <input
                   type="text"
                   value={auditModal.remark}
                   onChange={(e) => setAuditModal((p) => p && ({ ...p, remark: e.target.value }))}
-                  placeholder="เหตุผลการแก้ไข (ถ้ามี)"
+                  placeholder={tr.reason_optional_placeholder}
                   className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-gold"
                 />
               </div>
@@ -885,7 +885,7 @@ export default function TimeRecordView() {
             <div className="bg-white rounded-2xl w-full max-w-sm p-6 space-y-4">
               {selectingEmp ? (
                 <>
-                  <h3 className="font-bold text-gray-900">{selectingEmp.name} — เลือก Shift</h3>
+                  <h3 className="font-bold text-gray-900">{selectingEmp.name} — {tr.select_shift}</h3>
                   <div className="flex gap-3">
                     {(['lunch', 'dinner'] as const).map((shift) => {
                       const iid = `${selectingEmp.id}_${shift}`
@@ -901,8 +901,8 @@ export default function TimeRecordView() {
                               : taken ? 'border-gray-200 bg-gray-50 text-gray-300 cursor-not-allowed' : 'border-blue-300 bg-blue-50 text-blue-600 hover:bg-blue-100 cursor-pointer'
                           }`}
                         >
-                          {shift === 'lunch' ? '☀️ Lunch' : '🌙 Dinner'}
-                          {taken && <span className="block text-[10px] mt-0.5">เลือกแล้ว</span>}
+                          {shift === 'lunch' ? `☀️ ${tr.lunch}` : `🌙 ${tr.dinner}`}
+                          {taken && <span className="block text-[10px] mt-0.5">{tr.selected}</span>}
                         </button>
                       )
                     })}
@@ -916,9 +916,9 @@ export default function TimeRecordView() {
                 </>
               ) : (
                 <>
-                  <h3 className="font-bold text-gray-900">เลือกพนักงาน</h3>
+                  <h3 className="font-bold text-gray-900">{tr.select_employee}</h3>
                   {available.length === 0 ? (
-                    <p className="text-sm text-gray-400 text-center py-4">ไม่มีพนักงานที่จะเพิ่ม</p>
+                    <p className="text-sm text-gray-400 text-center py-4">{tr.no_employees_to_add}</p>
                   ) : (
                     <div className="space-y-2 max-h-72 overflow-y-auto">
                       {available.map((emp) => (

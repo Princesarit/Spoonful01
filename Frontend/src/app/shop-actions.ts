@@ -33,14 +33,13 @@ export async function addShopAction(
   name: string,
   restaurantPassword: string,
   managerPassword: string,
-  ownerPassword: string,
   spreadsheetId?: string,
 ): Promise<{ error: string } | { ok: true }> {
   try {
     const res = await fetch(`${BACKEND_URL}/shops`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ password, name, restaurantPassword, managerPassword, ownerPassword: ownerPassword || undefined, spreadsheetId: spreadsheetId || undefined }),
+      body: JSON.stringify({ password, name, restaurantPassword, managerPassword, spreadsheetId: spreadsheetId || undefined }),
     })
     const data = await res.json() as { error?: string }
     if (!res.ok) return { error: data.error ?? 'เกิดข้อผิดพลาด' }
@@ -56,14 +55,13 @@ export async function updateShopAction(
   name: string,
   restaurantPassword: string,
   managerPassword: string,
-  ownerPassword: string,
   spreadsheetId?: string,
 ): Promise<{ error: string } | { ok: true }> {
   try {
     const res = await fetch(`${BACKEND_URL}/shops/${encodeURIComponent(code)}`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ password, name, restaurantPassword, managerPassword, ownerPassword: ownerPassword || undefined, spreadsheetId: spreadsheetId || undefined }),
+      body: JSON.stringify({ password, name, restaurantPassword, managerPassword, spreadsheetId: spreadsheetId || undefined }),
     })
     const data = await res.json() as { error?: string }
     if (!res.ok) return { error: data.error ?? 'เกิดข้อผิดพลาด' }

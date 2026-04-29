@@ -3,8 +3,8 @@
 import { useState, useEffect } from 'react'
 import Link from 'next/link'
 import { useParams } from 'next/navigation'
-import type { MealRevenue, RevenueEntry } from '@/lib/types'
-import { getRevenueData, saveRevenueEntry, deleteRevenueEntry, saveAuditLog } from './actions'
+import type { MealRevenue, RevenueEntry, DeliverySupplier } from '@/lib/types'
+import { getRevenueData, saveRevenueEntry, deleteRevenueEntry, saveAuditLog, getDeliverySuppliers } from './actions'
 import { useShop } from '@/components/ShopProvider'
 import { translations } from '@/lib/translations'
 import { useToast } from '@/components/Toast'
@@ -22,7 +22,7 @@ function today(): string {
 }
 
 function emptyMeal(): MealRevenue {
-  return { eftpos: 0, lfyOnline: 0, lfyCards: 0, lfyCash: 0, uberOnline: 0, doorDash: 0, cashLeftInBag: 0, cashSale: 0, totalSale: 0 }
+  return { eftpos: 0, lfyOnline: 0, lfyCards: 0, lfyCash: 0, uberOnline: 0, doorDash: 0, cashLeftInBag: 0, cashSale: 0, totalSale: 0, supplierExtras: {} }
 }
 
 function emptyEntry(date: string): RevenueEntry {
@@ -38,7 +38,8 @@ function emptyEntry(date: string): RevenueEntry {
 }
 
 function calcCashSale(m: MealRevenue): number {
-  return m.totalSale - m.eftpos - m.lfyOnline - m.uberOnline - m.doorDash
+  const extrasOnline = Object.values(m.supplierExtras ?? {}).reduce((s, v) => s + (v.online ?? 0), 0)
+  return m.totalSale - m.eftpos - m.lfyOnline - m.uberOnline - m.doorDash - extrasOnline
 }
 
 // For legacy entries that have totalSale but no cashSale, derive cashSale
@@ -56,6 +57,18 @@ function mealHasData(m: MealRevenue): boolean {
 
 function fmt(n: number): string {
   return n.toLocaleString('en-AU', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+}
+
+function getBillCount(entry: RevenueEntry, supId: string, mode: 'lunch' | 'dinner'): number {
+  const legacyMap: Record<string, { lunch: keyof RevenueEntry; dinner: keyof RevenueEntry }> = {
+    lfy:      { lunch: 'lunchLfyBills',      dinner: 'dinnerLfyBills'      },
+    uber:     { lunch: 'lunchUberBills',      dinner: 'dinnerUberBills'     },
+    doordash: { lunch: 'lunchDoorDashBills',  dinner: 'dinnerDoorDashBills' },
+  }
+  const keys = legacyMap[supId]
+  if (keys) return (entry[keys[mode]] as number) ?? 0
+  const extras = mode === 'lunch' ? entry.lunchSupplierBills : entry.dinnerSupplierBills
+  return extras?.[supId] ?? 0
 }
 
 function mealDisplayTotal(m: MealRevenue): number {
@@ -135,43 +148,87 @@ function MealDetailRows({ meal }: { meal: MealRevenue }) {
 
 // ── Meal form section ──────────────────────────────────────────────────────────
 function MealSection({
-  label, color, meal, onFieldChange,
+  label, color, meal, suppliers, onFieldChange, onSupplierChange,
 }: {
-  label: string; color: string; meal: MealRevenue; onFieldChange: (key: keyof MealRevenue, val: number) => void
+  label: string; color: string; meal: MealRevenue
+  suppliers: DeliverySupplier[]
+  onFieldChange: (key: keyof MealRevenue, val: number) => void
+  onSupplierChange: (supId: string, channel: 'online' | 'cards' | 'cash', val: number) => void
 }) {
-  const fields: Array<{ key: keyof MealRevenue; label: string; yellow?: boolean }> = [
-    { key: 'eftpos', label: 'Eftpos' },
-    { key: 'lfyOnline', label: 'LFY Paid Online' },
-    { key: 'lfyCards', label: 'LFY Cards' },
-    { key: 'lfyCash', label: 'LFY Cash' },
-    { key: 'uberOnline', label: 'Uber Eat Online' },
-    { key: 'doorDash', label: 'DoorDash' },
-    { key: 'totalSale', label: 'Total Sale' },
-    { key: 'cashLeftInBag', label: 'Cash Left in Bag', yellow: true },
-  ]
+  // legacy field getters per supplier id
+  function legacyGet(supId: string, channel: 'online' | 'cards' | 'cash'): number {
+    if (supId === 'lfy')      { if (channel === 'online') return meal.lfyOnline; if (channel === 'cards') return meal.lfyCards; if (channel === 'cash') return meal.lfyCash }
+    if (supId === 'uber')     { if (channel === 'online') return meal.uberOnline }
+    if (supId === 'doordash') { if (channel === 'online') return meal.doorDash }
+    return meal.supplierExtras?.[supId]?.[channel] ?? 0
+  }
+  function legacyKey(supId: string, channel: 'online' | 'cards' | 'cash'): keyof MealRevenue | null {
+    if (supId === 'lfy')      { if (channel === 'online') return 'lfyOnline'; if (channel === 'cards') return 'lfyCards'; if (channel === 'cash') return 'lfyCash' }
+    if (supId === 'uber')     { if (channel === 'online') return 'uberOnline' }
+    if (supId === 'doordash') { if (channel === 'online') return 'doorDash' }
+    return null
+  }
 
-  const cashSale = meal.totalSale - meal.eftpos - meal.lfyOnline - meal.uberOnline - meal.doorDash
+  const extrasOnline = Object.values(meal.supplierExtras ?? {}).reduce((s, v) => s + (v.online ?? 0), 0)
+  const cashSale = meal.totalSale - meal.eftpos - meal.lfyOnline - meal.uberOnline - meal.doorDash - extrasOnline
   const cashSaleError = cashSale < 0
-  const lfyCardsError = (meal.lfyCards + meal.lfyCash) > meal.eftpos
+  const lfySup = suppliers.find((s) => s.id === 'lfy')
+  const lfyCardsError = lfySup ? (meal.lfyCards + meal.lfyCash) > meal.eftpos : false
+
+  const CHANNEL_LABELS: Record<string, string> = { online: 'Online', cards: 'Cards', cash: 'Cash' }
 
   return (
     <div className="border border-gray-200 rounded-xl overflow-hidden">
       <div className={`px-4 py-2.5 font-semibold text-sm ${color}`}>{label}</div>
       <div className="p-4 space-y-2.5">
-        {fields.map(({ key, label: lbl, yellow }) => {
-          const isError = (key === 'lfyCards' || key === 'lfyCash') && lfyCardsError
-          return (
-            <div key={key}>
-              <div className="flex items-center gap-3">
-                <label className={`text-xs w-36 shrink-0 ${isError ? 'text-red-500 font-medium' : 'text-gray-500'}`}>{lbl}</label>
-                <NumInput value={(meal[key] as number) ?? 0} onChange={(v) => onFieldChange(key, v)} yellow={yellow} error={isError} />
+        {/* Eftpos — always first */}
+        <div className="flex items-center gap-3">
+          <label className="text-xs w-36 shrink-0 text-gray-500">Eftpos</label>
+          <NumInput value={meal.eftpos} onChange={(v) => onFieldChange('eftpos', v)} />
+        </div>
+
+        {/* Dynamic supplier fields */}
+        {suppliers.map((s) => {
+          const channels: Array<'online' | 'cards' | 'cash'> = [
+            ...(s.hasOnline ? ['online' as const] : []),
+            ...(s.hasCards  ? ['cards'  as const] : []),
+            ...(s.hasCash   ? ['cash'   as const] : []),
+          ]
+          return channels.map((ch) => {
+            const isLfyCardsCash = (s.id === 'lfy') && (ch === 'cards' || ch === 'cash')
+            const isError = isLfyCardsCash && lfyCardsError
+            const lk = legacyKey(s.id, ch)
+            return (
+              <div key={`${s.id}-${ch}`}>
+                <div className="flex items-center gap-3">
+                  <label className={`text-xs w-36 shrink-0 ${isError ? 'text-red-500 font-medium' : 'text-gray-500'}`}>
+                    {s.name} {CHANNEL_LABELS[ch]}
+                  </label>
+                  <NumInput
+                    value={legacyGet(s.id, ch)}
+                    onChange={(v) => lk ? onFieldChange(lk, v) : onSupplierChange(s.id, ch, v)}
+                    error={isError}
+                  />
+                </div>
+                {isError && (
+                  <p className="text-[10px] text-red-500 mt-0.5 ml-39">LFY Cards + Cash ต้องไม่เกิน Eftpos</p>
+                )}
               </div>
-              {isError && (
-                <p className="text-[10px] text-red-500 mt-0.5 ml-39">LFY Cards + LFY Cash ต้องไม่เกิน Eftpos</p>
-              )}
-            </div>
-          )
+            )
+          })
         })}
+
+        {/* Total Sale */}
+        <div className="flex items-center gap-3">
+          <label className="text-xs w-36 shrink-0 text-gray-500">Total Sale</label>
+          <NumInput value={meal.totalSale} onChange={(v) => onFieldChange('totalSale', v)} />
+        </div>
+        {/* Cash Left in Bag */}
+        <div className="flex items-center gap-3">
+          <label className="text-xs w-36 shrink-0 text-gray-500">Cash Left in Bag</label>
+          <NumInput value={meal.cashLeftInBag} onChange={(v) => onFieldChange('cashLeftInBag', v)} yellow />
+        </div>
+
         <div className={`flex items-center justify-between rounded-lg px-3 py-2 ${cashSaleError ? 'bg-red-50' : 'bg-gray-50'}`}>
           <span className={`text-xs font-medium ${cashSaleError ? 'text-red-600' : 'text-gray-600'}`}>Cash Sale (auto)</span>
           <span className={`text-sm font-bold ${cashSaleError ? 'text-red-600' : 'text-gray-700'}`}>${fmt(cashSale)}</span>
@@ -199,9 +256,12 @@ export default function RevenueView() {
   const [deleteMealAudit, setDeleteMealAudit] = useState<{ id: string; date: string; mode: FormMode } | null>(null)
   const [deleteMealEditor, setDeleteMealEditor] = useState('')
   const [deleteMealNote, setDeleteMealNote] = useState('')
-  const [billLfy, setBillLfy] = useState(0)
-  const [billUber, setBillUber] = useState(0)
-  const [billDD, setBillDD] = useState(0)
+  const [suppliers, setSuppliers] = useState<DeliverySupplier[]>([
+    { id: 'lfy', name: 'LFY', hasOnline: true, hasCards: true, hasCash: true },
+    { id: 'uber', name: 'Uber Eat', hasOnline: true, hasCards: false, hasCash: false },
+    { id: 'doordash', name: 'DoorDash', hasOnline: true, hasCards: false, hasCash: false },
+  ])
+  const [billCounts, setBillCounts] = useState<Record<string, number>>({})
   const [extraMealMode, setExtraMealMode] = useState<FormMode | null>(null)
   const [extraFront, setExtraFront] = useState(0)
   const [extraKitchen, setExtraKitchen] = useState(0)
@@ -212,8 +272,8 @@ export default function RevenueView() {
 
   useEffect(() => {
     setLoading(true)
-    getRevenueData(shopCode)
-      .then(({ entries: e }) => setEntries(e))
+    Promise.all([getRevenueData(shopCode), getDeliverySuppliers(shopCode)])
+      .then(([{ entries: e }, sups]) => { setEntries(e); setSuppliers(sups) })
       .catch(console.error)
       .finally(() => setLoading(false))
   }, [shopCode])
@@ -223,16 +283,24 @@ export default function RevenueView() {
   const lunchDone = dayEntry ? mealHasData(dayEntry.lunch) : false
   const dinnerDone = dayEntry ? mealHasData(dayEntry.dinner) : false
 
+  const LEGACY_BILL_KEYS: Record<string, { lunch: keyof RevenueEntry; dinner: keyof RevenueEntry }> = {
+    lfy:      { lunch: 'lunchLfyBills',      dinner: 'dinnerLfyBills'      },
+    uber:     { lunch: 'lunchUberBills',      dinner: 'dinnerUberBills'     },
+    doordash: { lunch: 'lunchDoorDashBills',  dinner: 'dinnerDoorDashBills' },
+  }
+
   function initBillCounts(entry: RevenueEntry, mode: FormMode) {
-    if (mode === 'lunch') {
-      setBillLfy(entry.lunchLfyBills ?? 0)
-      setBillUber(entry.lunchUberBills ?? 0)
-      setBillDD(entry.lunchDoorDashBills ?? 0)
-    } else {
-      setBillLfy(entry.dinnerLfyBills ?? 0)
-      setBillUber(entry.dinnerUberBills ?? 0)
-      setBillDD(entry.dinnerDoorDashBills ?? 0)
+    const counts: Record<string, number> = {}
+    for (const s of suppliers) {
+      const keys = LEGACY_BILL_KEYS[s.id]
+      if (keys) {
+        counts[s.id] = (entry[keys[mode]] as number) ?? 0
+      } else {
+        const extras = mode === 'lunch' ? entry.lunchSupplierBills : entry.dinnerSupplierBills
+        counts[s.id] = extras?.[s.id] ?? 0
+      }
     }
+    setBillCounts(counts)
   }
 
   function openForm(mode: FormMode) {
@@ -251,9 +319,11 @@ export default function RevenueView() {
       const base: MealRevenue = prev.mode === 'lunch' ? prev.entry.lunch : prev.entry.dinner
       const updated = { ...base, [key]: val }
       if (key === 'cashLeftInBag' && updated.totalSale === 0 && val > 0) {
-        updated.totalSale = updated.eftpos + updated.lfyOnline + updated.uberOnline + updated.doorDash + val
+        const extrasOnline = Object.values(updated.supplierExtras ?? {}).reduce((s, v) => s + (v.online ?? 0), 0)
+        updated.totalSale = updated.eftpos + updated.lfyOnline + updated.uberOnline + updated.doorDash + extrasOnline + val
       }
-      updated.cashSale = updated.totalSale - updated.eftpos - updated.lfyOnline - updated.uberOnline - updated.doorDash
+      const extrasOnline = Object.values(updated.supplierExtras ?? {}).reduce((s, v) => s + (v.online ?? 0), 0)
+      updated.cashSale = updated.totalSale - updated.eftpos - updated.lfyOnline - updated.uberOnline - updated.doorDash - extrasOnline
       return { ...prev, entry: { ...prev.entry, [prev.mode]: updated } }
     })
   }
@@ -273,9 +343,21 @@ export default function RevenueView() {
     if (cashSaleVal < 0) return
     setSaving(true)
     try {
-      const billPatch = formState.mode === 'lunch'
-        ? { lunchLfyBills: billLfy || undefined, lunchUberBills: billUber || undefined, lunchDoorDashBills: billDD || undefined }
-        : { dinnerLfyBills: billLfy || undefined, dinnerUberBills: billUber || undefined, dinnerDoorDashBills: billDD || undefined }
+      const billPatch: Partial<RevenueEntry> = {}
+      const extraBills: Record<string, number> = {}
+      for (const s of suppliers) {
+        const val = billCounts[s.id] ?? 0
+        const keys = LEGACY_BILL_KEYS[s.id]
+        if (keys) {
+          (billPatch as Record<string, unknown>)[keys[formState.mode]] = val || undefined
+        } else if (val) {
+          extraBills[s.id] = val
+        }
+      }
+      if (Object.keys(extraBills).length > 0) {
+        if (formState.mode === 'lunch') billPatch.lunchSupplierBills = extraBills
+        else billPatch.dinnerSupplierBills = extraBills
+      }
       const toSave = { ...formState.entry, ...billPatch }
       await saveRevenueEntry(shopCode, toSave)
       // Audit log
@@ -388,6 +470,7 @@ export default function RevenueView() {
           <label className="text-xs text-gray-500 shrink-0">{tr.view_date}</label>
           <input
             type="date"
+            title={tr.view_date}
             value={filterDate}
             onChange={(e) => setFilterDate(e.target.value)}
             className="border border-gray-300 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-gold"
@@ -436,11 +519,11 @@ export default function RevenueView() {
                 <div className="flex items-center gap-2">
                   <span className="font-semibold text-yellow-700 text-sm">LUNCH</span>
                   {/* Per-meal bill counts */}
-                  {((dayEntry.lunchLfyBills ?? 0) > 0 || (dayEntry.lunchUberBills ?? 0) > 0 || (dayEntry.lunchDoorDashBills ?? 0) > 0) && (
-                    <div className="flex gap-1 text-[10px]">
-                      {(dayEntry.lunchLfyBills ?? 0) > 0 && <span className="bg-orange-100 text-orange-600 px-1.5 py-0.5 rounded-full">LFY ×{dayEntry.lunchLfyBills}</span>}
-                      {(dayEntry.lunchUberBills ?? 0) > 0 && <span className="bg-blue-100 text-blue-600 px-1.5 py-0.5 rounded-full">Uber ×{dayEntry.lunchUberBills}</span>}
-                      {(dayEntry.lunchDoorDashBills ?? 0) > 0 && <span className="bg-red-100 text-red-600 px-1.5 py-0.5 rounded-full">DD ×{dayEntry.lunchDoorDashBills}</span>}
+                  {suppliers.some((s) => getBillCount(dayEntry, s.id, 'lunch') > 0) && (
+                    <div className="flex gap-1 text-[10px] flex-wrap">
+                      {suppliers.filter((s) => getBillCount(dayEntry, s.id, 'lunch') > 0).map((s) => (
+                        <span key={s.id} className="bg-orange-100 text-orange-600 px-1.5 py-0.5 rounded-full">{s.name} ×{getBillCount(dayEntry, s.id, 'lunch')}</span>
+                      ))}
                     </div>
                   )}
                 </div>
@@ -482,11 +565,11 @@ export default function RevenueView() {
                 <div className="flex items-center gap-2">
                   <span className="font-semibold text-blue-700 text-sm">DINNER</span>
                   {/* Per-meal bill counts */}
-                  {((dayEntry.dinnerLfyBills ?? 0) > 0 || (dayEntry.dinnerUberBills ?? 0) > 0 || (dayEntry.dinnerDoorDashBills ?? 0) > 0) && (
-                    <div className="flex gap-1 text-[10px]">
-                      {(dayEntry.dinnerLfyBills ?? 0) > 0 && <span className="bg-orange-100 text-orange-600 px-1.5 py-0.5 rounded-full">LFY ×{dayEntry.dinnerLfyBills}</span>}
-                      {(dayEntry.dinnerUberBills ?? 0) > 0 && <span className="bg-blue-100 text-blue-600 px-1.5 py-0.5 rounded-full">Uber ×{dayEntry.dinnerUberBills}</span>}
-                      {(dayEntry.dinnerDoorDashBills ?? 0) > 0 && <span className="bg-red-100 text-red-600 px-1.5 py-0.5 rounded-full">DD ×{dayEntry.dinnerDoorDashBills}</span>}
+                  {suppliers.some((s) => getBillCount(dayEntry, s.id, 'dinner') > 0) && (
+                    <div className="flex gap-1 text-[10px] flex-wrap">
+                      {suppliers.filter((s) => getBillCount(dayEntry, s.id, 'dinner') > 0).map((s) => (
+                        <span key={s.id} className="bg-blue-100 text-blue-600 px-1.5 py-0.5 rounded-full">{s.name} ×{getBillCount(dayEntry, s.id, 'dinner')}</span>
+                      ))}
                     </div>
                   )}
                 </div>
@@ -685,6 +768,7 @@ export default function RevenueView() {
                 <label className="text-xs text-gray-500 block mb-1">{tr.date_label}</label>
                 <input
                   type="date"
+                  title={tr.date_label}
                   value={form.date}
                   onChange={(e) => setEntryField('date', e.target.value)}
                   className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-gold"
@@ -692,24 +776,21 @@ export default function RevenueView() {
               </div>
             )}
 
-            {/* Bill Counts — per meal, independent state to avoid meal-field interference */}
+            {/* Bill Counts — per supplier */}
             <div>
               <div className="text-xs text-gray-500 font-medium mb-2">Bill Counts</div>
-              <div className="grid grid-cols-3 gap-2">
-                {([
-                  { label: 'LFY', val: billLfy, set: setBillLfy },
-                  { label: 'Uber', val: billUber, set: setBillUber },
-                  { label: 'DoorDash', val: billDD, set: setBillDD },
-                ] as const).map(({ label, val, set }) => (
-                  <div key={label}>
-                    <label className="text-[10px] text-gray-400 block mb-1">{label}</label>
+              <div className={`grid gap-2 ${suppliers.length <= 3 ? 'grid-cols-3' : 'grid-cols-2'}`}>
+                {suppliers.map((s) => (
+                  <div key={s.id}>
+                    <label className="text-[10px] text-gray-400 block mb-1">{s.name}</label>
                     <input
                       type="number"
                       min="0"
-                      value={val || ''}
+                      value={billCounts[s.id] || ''}
                       onKeyDown={(e) => ['e','E','+','-'].includes(e.key) && e.preventDefault()}
-                      onChange={(e) => { const v = parseInt(e.target.value) || 0; if (v > 999999) return; set(v) }}
+                      onChange={(e) => { const v = parseInt(e.target.value) || 0; if (v > 999999) return; setBillCounts((p) => ({ ...p, [s.id]: v })) }}
                       placeholder="0"
+                      title={`${s.name} bills`}
                       className="w-full border border-gray-300 rounded-lg px-2 py-1.5 text-sm text-center focus:outline-none focus:ring-2 focus:ring-brand-gold"
                     />
                   </div>
@@ -723,14 +804,28 @@ export default function RevenueView() {
                 label="🌞 LUNCH"
                 color="bg-yellow-50 text-yellow-800"
                 meal={form.lunch}
+                suppliers={suppliers}
                 onFieldChange={setMealField}
+                onSupplierChange={(supId, ch, val) => setFormState((prev) => {
+                  if (!prev) return prev
+                  const meal = prev.entry.lunch
+                  const extras = { ...(meal.supplierExtras ?? {}), [supId]: { ...(meal.supplierExtras?.[supId] ?? {}), [ch]: val } }
+                  return { ...prev, entry: { ...prev.entry, lunch: { ...meal, supplierExtras: extras } } }
+                })}
               />
             ) : (
               <MealSection
                 label="🌙 DINNER"
                 color="bg-blue-50 text-blue-800"
                 meal={form.dinner}
+                suppliers={suppliers}
                 onFieldChange={setMealField}
+                onSupplierChange={(supId, ch, val) => setFormState((prev) => {
+                  if (!prev) return prev
+                  const meal = prev.entry.dinner
+                  const extras = { ...(meal.supplierExtras ?? {}), [supId]: { ...(meal.supplierExtras?.[supId] ?? {}), [ch]: val } }
+                  return { ...prev, entry: { ...prev.entry, dinner: { ...meal, supplierExtras: extras } } }
+                })}
               />
             )}
 

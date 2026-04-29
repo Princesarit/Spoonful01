@@ -61,16 +61,25 @@ export interface DeliveryPlatform {
   name: string
 }
 
+export interface DeliverySupplier {
+  id: string
+  name: string
+  hasOnline: boolean
+  hasCards: boolean
+  hasCash: boolean
+}
+
 export interface MealRevenue {
-  eftpos: number        // Eftpos payment
-  lfyOnline: number     // Local for You - Paid Online
-  lfyCards: number      // Local for You - Cards
-  lfyCash: number       // Local for You - Cash
-  uberOnline: number    // Uber Eat - Paid Online
-  doorDash: number      // DoorDash
-  cashLeftInBag: number // Cash left in bag
-  cashSale?: number     // user-entered cash sale (legacy entries derive from totalSale)
-  totalSale: number     // auto-calculated: eftpos + lfyOnline + lfyCash + uberOnline + doorDash + cashSale
+  eftpos: number
+  lfyOnline: number
+  lfyCards: number
+  lfyCash: number
+  uberOnline: number
+  doorDash: number
+  cashLeftInBag: number
+  cashSale?: number
+  totalSale: number
+  supplierExtras?: Record<string, { online?: number; cards?: number; cash?: number }>
 }
 
 export interface RevenueEntry {
@@ -85,6 +94,8 @@ export interface RevenueEntry {
   dinnerLfyBills?: number
   dinnerUberBills?: number
   dinnerDoorDashBills?: number
+  lunchSupplierBills?: Record<string, number>
+  dinnerSupplierBills?: Record<string, number>
   lunch: MealRevenue
   dinner: MealRevenue
   frontExtra?: number   // legacy — kept for backward compat

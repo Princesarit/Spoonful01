@@ -4,4 +4,5 @@ export const config = {
   spreadsheetId: process.env.SPREADSHEET_ID ?? '',
   masterPassword: process.env.MASTER_PASSWORD ?? '',
   googleKeyFile: process.env.GOOGLE_SERVICE_ACCOUNT_KEY_FILE ?? './service-account.json',
+  googleDriveFolderId: process.env.GOOGLE_DRIVE_FOLDER_ID ?? '',
 }
