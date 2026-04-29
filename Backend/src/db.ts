@@ -16,6 +16,7 @@ import type {
   DailyNote,
   StoredShop,
   DeliveryRate,
+  DeliverySupplier,
 } from './types'
 import { config } from './config'
 
@@ -693,6 +694,8 @@ const REV_HEADERS = [
   'dinnerFrontExtra', 'dinnerKitchenExtra', 'dinnerNote', 'dinnerRecorderName',
   // Meta (col 34)
   'deleted',
+  // Supplier extras (cols 35-36)
+  'lunchSupplierExtras', 'dinnerSupplierExtras',
 ]
 
 function emptyMeal(): MealRevenue {
@@ -700,16 +703,21 @@ function emptyMeal(): MealRevenue {
 }
 
 function rowToMeal(r: Record<string, string>, prefix: string): MealRevenue {
+  // Map prefix 'l' → column key 'lunchSupplierExtras', 'd' → 'dinnerSupplierExtras'
+  const extrasKey = prefix === 'l' ? 'lunchSupplierExtras' : 'dinnerSupplierExtras'
   return {
-    eftpos:       Number(r[`${prefix}_eftpos`])       || 0,
-    lfyOnline:    Number(r[`${prefix}_lfyOnline`])    || 0,
-    lfyCards:     Number(r[`${prefix}_lfyCards`])     || 0,
-    lfyCash:      Number(r[`${prefix}_lfyCash`])      || 0,
-    uberOnline:   Number(r[`${prefix}_uberOnline`])   || 0,
-    doorDash:     Number(r[`${prefix}_doorDash`])     || 0,
-    cashLeftInBag:Number(r[`${prefix}_cashLeftInBag`])|| 0,
-    cashSale:     Number(r[`${prefix}_cashSale`])     || 0,
-    totalSale:    Number(r[`${prefix}_totalSale`])    || 0,
+    eftpos:        Number(r[`${prefix}_eftpos`])        || 0,
+    lfyOnline:     Number(r[`${prefix}_lfyOnline`])     || 0,
+    lfyCards:      Number(r[`${prefix}_lfyCards`])      || 0,
+    lfyCash:       Number(r[`${prefix}_lfyCash`])       || 0,
+    uberOnline:    Number(r[`${prefix}_uberOnline`])    || 0,
+    doorDash:      Number(r[`${prefix}_doorDash`])      || 0,
+    cashLeftInBag: Number(r[`${prefix}_cashLeftInBag`]) || 0,
+    cashSale:      Number(r[`${prefix}_cashSale`])      || 0,
+    totalSale:     Number(r[`${prefix}_totalSale`])     || 0,
+    supplierExtras: (() => {
+      try { return r[extrasKey] ? JSON.parse(r[extrasKey]) as Record<string, { online?: number; cards?: number; cash?: number }> : undefined } catch { return undefined }
+    })(),
   }
 }
 
@@ -831,6 +839,10 @@ function mealToRow(m: MealRevenue): (string | number)[] {
   return [m.eftpos, m.lfyOnline, m.lfyCards, m.lfyCash, m.uberOnline, m.doorDash, m.cashLeftInBag, m.cashSale ?? 0, m.totalSale]
 }
 
+function mealSupplierExtrasJson(m: MealRevenue): string {
+  return JSON.stringify(m.supplierExtras ?? {})
+}
+
 function effectiveMealTotal(m: MealRevenue): number {
   if (m.totalSale > 0) return m.totalSale
   return m.eftpos + m.lfyOnline + m.uberOnline + m.doorDash + (m.cashSale ?? 0)
@@ -919,6 +931,9 @@ export async function saveRevenue(shopCode: string, entries: RevenueEntry[]): Pr
     e.dinnerFrontExtra ?? '', e.dinnerKitchenExtra ?? '', e.dinnerNote ?? '', e.dinnerRecorderName ?? '',
     // Meta
     e.deleted ? 'true' : '',
+    // Supplier extras
+    mealSupplierExtrasJson(e.lunch),
+    mealSupplierExtrasJson(e.dinner),
   ])
   await setSheetData(sheetName, REV_HEADERS, rows, sid)
 
@@ -1126,6 +1141,39 @@ export async function saveExtraRate(shopCode: string, rate: number): Promise<voi
   const kept = existing.filter((r) => r.key !== 'extra_rate').map((r): [string, string] => [r.key, r.value])
   kept.push(['extra_rate', String(rate)])
   await saveConfigRows(shopCode, kept)
+}
+
+// ─── Delivery Suppliers ───────────────────────────────────────────────────────
+
+const SUPPLIER_HEADERS = ['id', 'name', 'hasOnline', 'hasCards', 'hasCash']
+
+export const DEFAULT_SUPPLIERS: DeliverySupplier[] = [
+  { id: 'lfy',      name: 'LFY',      hasOnline: true,  hasCards: true,  hasCash: true  },
+  { id: 'uber',     name: 'Uber Eat', hasOnline: true,  hasCards: false, hasCash: false },
+  { id: 'doordash', name: 'DoorDash', hasOnline: true,  hasCards: false, hasCash: false },
+]
+
+export async function listDeliverySuppliers(shopCode: string): Promise<DeliverySupplier[]> {
+  try {
+    const { sid, tab } = await getShopDb(shopCode)
+    const rows = await getSheetData(tab('delivery_suppliers'), sid)
+    if (rows.length === 0) return DEFAULT_SUPPLIERS
+    return rows.map(r => ({
+      id: r.id,
+      name: r.name,
+      hasOnline: r.hasOnline === 'true',
+      hasCards:  r.hasCards  === 'true',
+      hasCash:   r.hasCash   === 'true',
+    }))
+  } catch {
+    return DEFAULT_SUPPLIERS
+  }
+}
+
+export async function saveDeliverySuppliers(shopCode: string, suppliers: DeliverySupplier[]): Promise<void> {
+  const { sid, tab } = await getShopDb(shopCode)
+  const rows = suppliers.map(s => [s.id, s.name, String(s.hasOnline), String(s.hasCards), String(s.hasCash)])
+  await setSheetData(tab('delivery_suppliers'), SUPPLIER_HEADERS, rows, sid)
 }
 
 // ─── Wage Payments (TAX / CASH PAID per week per employee) ───────────────────
@@ -1453,45 +1501,117 @@ function colLetter(n: number): string {
   return s
 }
 
-/** Build dynamic column layout for the Income sheet based on number of delivery tiers. */
-function incomeLayout(nTiers: number) {
-  const d = 5            // first delivery tier column (F)
-  const j = d + nTiers + 1  // first lunch column (J when nTiers=3)
+/** Build dynamic column layout for the Income sheet based on delivery tiers and suppliers. */
+function incomeLayout(nTiers: number, suppliers: DeliverySupplier[]) {
+  // Bill count cols: one per supplier, starting at col 2
+  const billCols: Record<string, number> = {}
+  suppliers.forEach((s, i) => { billCols[s.id] = 2 + i })
+
+  const d = 2 + suppliers.length  // first delivery tier col
+  const j = d + nTiers + 1        // first lunch col (eftpos)
+
+  // Per-supplier payment columns within lunch section (offsets from j+1)
+  let lOff = 1  // j+0 = eftpos, j+1 = first supplier col
+  const lSupCols: Record<string, { online?: number; cards?: number; cash?: number }> = {}
+  for (const s of suppliers) {
+    const sc: { online?: number; cards?: number; cash?: number } = {}
+    if (s.hasOnline) { sc.online = lOff++ }
+    if (s.hasCards)  { sc.cards  = lOff++ }
+    if (s.hasCash)   { sc.cash   = lOff++ }
+    lSupCols[s.id] = sc
+  }
+  const nSupCols = lOff - 1  // total supplier-specific cols per meal
+
+  // Lunch fixed cols (after supplier cols)
+  const lCashBag = j + 1 + nSupCols
+  const lTotal   = lCashBag + 1
+  const lCash    = lTotal + 1
+  const gap1     = lCash + 1
+
+  // Dinner section: same structure offset from gap1
+  const dBase = gap1  // dEftpos = gap1
+  const dSupCols: Record<string, { online?: number; cards?: number; cash?: number }> = {}
+  for (const [id, sc] of Object.entries(lSupCols)) {
+    const dsc: { online?: number; cards?: number; cash?: number } = {}
+    if (sc.online !== undefined) dsc.online = sc.online  // same relative offset
+    if (sc.cards  !== undefined) dsc.cards  = sc.cards
+    if (sc.cash   !== undefined) dsc.cash   = sc.cash
+    dSupCols[id] = dsc
+  }
+  const dCashBag = dBase + 1 + nSupCols
+  const dTotal   = dCashBag + 1
+  const dCash    = dTotal + 1
+  const gap2     = dCash + 1
+
+  // Combined section (after gap2)
+  const c = gap2
+  const cEftpos  = c,    cLfyOnl = c+1,  cUber   = c+2,  cDD     = c+3
+  const cCash    = c+4,  cLunch  = c+5,  cDinner = c+6,  cEftpos2= c+7
+  const cLfy     = c+8,  cUber2  = c+9,  cDin2   = c+10, cCash2  = c+11
+  const cTotal   = c+12, cCashBag= c+13, surcharge=c+14, running = c+15
+  const gap3     = c+16, gap4    = c+17
+
+  // Simplified section
+  const s2        = gap4 + 1
+  const sxDay     = s2,    sxDate    = s2+1
+  const sxLEff    = s2+2,  sxLCash   = s2+3, sxDEff  = s2+4, sxDCash  = s2+5
+  const sxLTot    = s2+6,  sxDTot    = s2+7, sxEffTot= s2+8, sxCashTot= s2+9
+  const sxTotal   = s2+10, sxCashBag = s2+11, sxRunning = s2+12
+  const totalCols = sxRunning + 1
+
   return {
-    nTiers,
-    totalCols: j + 51,
+    nTiers, billCols, lSupCols, dSupCols, nSupCols,
+    totalCols,
     // Delivery
-    delFirst:  d,
-    delLast:   d + nTiers - 1,
-    delTotal:  d + nTiers,
-    // Lunch (9 cols)
-    lEftpos:  j,    lLfyOnl:  j+1,  lLfyCard: j+2,
-    lLfyCash: j+3,  lUber:    j+4,  lDD:      j+5,
-    lCashBag: j+6,  lTotal:   j+7,  lCash:    j+8,
-    gap1:     j+9,
-    // Dinner (9 cols)
-    dEftpos:  j+10, dLfyOnl:  j+11, dLfyCard: j+12,
-    dLfyCash: j+13, dUber:    j+14, dDD:      j+15,
-    dCashBag: j+16, dTotal:   j+17, dCash:    j+18,
-    gap2:     j+19,
-    // Combined (16 cols)
-    cEftpos:  j+20, cLfyOnl:  j+21, cUber:    j+22, cDD:      j+23,
-    cCash:    j+24, cLunch:   j+25, cDinner:  j+26, cEftpos2: j+27,
-    cLfy:     j+28, cUber2:   j+29, cDin2:    j+30, cCash2:   j+31,
-    cTotal:   j+32, cCashBag: j+33, surcharge:j+34, running:  j+35,
-    gap3:     j+36, gap4:     j+37,
-    // Simplified (13 cols)
-    sDay:     j+38, sDate:    j+39,
-    sLEff:    j+40, sLCash:   j+41, sDEff:    j+42, sDCash:   j+43,
-    sLTot:    j+44, sDTot:    j+45, sEffTot:  j+46, sCashTot: j+47,
-    sTotal:   j+48, sCashBag: j+49, sRunning: j+50,
+    delFirst: d, delLast: d + nTiers - 1, delTotal: d + nTiers,
+    // Lunch
+    lEftpos: j, lCashBag, lTotal, lCash, gap1,
+    // Dinner
+    dEftpos: dBase, dCashBag, dTotal, dCash, gap2,
+    // Combined
+    cEftpos, cLfyOnl, cUber, cDD,
+    cCash, cLunch, cDinner, cEftpos2,
+    cLfy, cUber2, cDin2, cCash2,
+    cTotal, cCashBag, surcharge, running,
+    gap3, gap4,
+    // Simplified
+    sxDay, sxDate, sxLEff, sxLCash, sxDEff, sxDCash, sxLTot, sxDTot, sxEffTot, sxCashTot,
+    sxTotal, sxCashBag, sxRunning,
+    // Backward-compat aliases for lunch supplier cols (absolute column indices)
+    get lLfyOnl()  { return lSupCols['lfy']?.online  !== undefined ? j + lSupCols['lfy'].online!  : -1 },
+    get lLfyCard() { return lSupCols['lfy']?.cards   !== undefined ? j + lSupCols['lfy'].cards!   : -1 },
+    get lLfyCash() { return lSupCols['lfy']?.cash    !== undefined ? j + lSupCols['lfy'].cash!    : -1 },
+    get lUber()    { return lSupCols['uber']?.online !== undefined ? j + lSupCols['uber'].online! : -1 },
+    get lDD()      { return lSupCols['doordash']?.online !== undefined ? j + lSupCols['doordash'].online! : -1 },
+    // Backward-compat aliases for dinner supplier cols (absolute column indices)
+    get dLfyOnl()  { return dSupCols['lfy']?.online  !== undefined ? dBase + 1 + dSupCols['lfy'].online!  - 1 : -1 },
+    get dLfyCard() { return dSupCols['lfy']?.cards   !== undefined ? dBase + 1 + dSupCols['lfy'].cards!   - 1 : -1 },
+    get dLfyCash() { return dSupCols['lfy']?.cash    !== undefined ? dBase + 1 + dSupCols['lfy'].cash!    - 1 : -1 },
+    get dUber()    { return dSupCols['uber']?.online !== undefined ? dBase + 1 + dSupCols['uber'].online! - 1 : -1 },
+    get dDD()      { return dSupCols['doordash']?.online !== undefined ? dBase + 1 + dSupCols['doordash'].online! - 1 : -1 },
+    // Simplified section aliases (backward compat)
+    get sDay()     { return sxDay },
+    get sDate()    { return sxDate },
+    get sLEff()    { return sxLEff },
+    get sLCash()   { return sxLCash },
+    get sDEff()    { return sxDEff },
+    get sDCash()   { return sxDCash },
+    get sLTot()    { return sxLTot },
+    get sDTot()    { return sxDTot },
+    get sEffTot()  { return sxEffTot },
+    get sCashTot() { return sxCashTot },
+    get sTotal()   { return sxTotal },
+    get sCashBag() { return sxCashBag },
+    get sRunning() { return sxRunning },
   }
 }
 
 type IncomeLayout = ReturnType<typeof incomeLayout>
 
-function makeIncomeHdr0(lo: IncomeLayout, deliveryRates: import('./types').DeliveryRate[]): (string | number | null)[] {
+function makeIncomeHdr0(lo: IncomeLayout, deliveryRates: DeliveryRate[], suppliers: DeliverySupplier[]): (string | number | null)[] {
   const r = new Array(lo.totalCols).fill('') as (string | number | null)[]
+  // Bill count cols: supplier name per column
+  suppliers.forEach((s) => { r[lo.billCols[s.id]] = s.name })
   // Delivery tier labels
   deliveryRates.forEach((rate, i) => {
     const prevMax = i === 0 ? 0 : deliveryRates[i - 1].maxKm
@@ -1505,33 +1625,48 @@ function makeIncomeHdr0(lo: IncomeLayout, deliveryRates: import('./types').Deliv
   return r
 }
 
-function makeIncomeHdr1(lo: IncomeLayout): (string | number | null)[] {
+function makeIncomeHdr1(lo: IncomeLayout, suppliers: DeliverySupplier[]): (string | number | null)[] {
   const r = new Array(lo.totalCols).fill('') as (string | number | null)[]
-  r[2] = 'LFY';  r[3] = 'Uber Eat';  r[4] = 'DoorDash'
+  // Bill count sub-headers
+  suppliers.forEach((s) => { r[lo.billCols[s.id]] = 'Bills' })
   r[lo.delFirst] = 'Home Delivery'
-  // Lunch
-  r[lo.lEftpos]  = 'Eftpos';              r[lo.lLfyOnl]  = 'Local for You paid online'
-  r[lo.lLfyCard] = 'Local for You Cards'; r[lo.lLfyCash] = 'Local for You Cash'
-  r[lo.lUber]    = 'Uber Eat Paid online'; r[lo.lDD]     = 'DoorDash'
-  r[lo.lCashBag] = 'Cash left in Bag';   r[lo.lTotal]   = 'Total Sale'; r[lo.lCash] = 'Cash Sale'
-  // Dinner
-  r[lo.dEftpos]  = 'Eftpos';              r[lo.dLfyOnl]  = 'Local for You paid online'
-  r[lo.dLfyCard] = 'Local for You Cards'; r[lo.dLfyCash] = 'Local for You Cash'
-  r[lo.dUber]    = 'Uber Eat Paid online'; r[lo.dDD]     = 'DoorDash'
-  r[lo.dCashBag] = 'Cash left in bag';   r[lo.dTotal]   = 'Total Sale'; r[lo.dCash] = 'Cash Sale'
+  // Lunch: eftpos first, then per-supplier cols, then fixed
+  r[lo.lEftpos] = 'Eftpos'
+  for (const s of suppliers) {
+    const sc = lo.lSupCols[s.id]
+    if (!sc) continue
+    if (sc.online !== undefined) r[lo.lEftpos + sc.online] = `${s.name} Online`
+    if (sc.cards  !== undefined) r[lo.lEftpos + sc.cards]  = `${s.name} Cards`
+    if (sc.cash   !== undefined) r[lo.lEftpos + sc.cash]   = `${s.name} Cash`
+  }
+  r[lo.lCashBag] = 'Cash left in Bag'
+  r[lo.lTotal]   = 'Total Sale'
+  r[lo.lCash]    = 'Cash Sale'
+  // Dinner: same structure
+  r[lo.dEftpos] = 'Eftpos'
+  for (const s of suppliers) {
+    const sc = lo.dSupCols[s.id]
+    if (!sc) continue
+    if (sc.online !== undefined) r[lo.dEftpos + 1 + sc.online - 1] = `${s.name} Online`
+    if (sc.cards  !== undefined) r[lo.dEftpos + 1 + sc.cards  - 1] = `${s.name} Cards`
+    if (sc.cash   !== undefined) r[lo.dEftpos + 1 + sc.cash   - 1] = `${s.name} Cash`
+  }
+  r[lo.dCashBag] = 'Cash left in bag'
+  r[lo.dTotal]   = 'Total Sale'
+  r[lo.dCash]    = 'Cash Sale'
   // Combined
   r[lo.cEftpos]  = 'Total Eftpos';         r[lo.cLfyOnl]  = 'Daily online Local for You'
-  r[lo.cUber]    = 'Daily online Uber Eat'; r[lo.cDD]     = 'Daily Online DoorDash'
-  r[lo.cCash]    = 'Total Cash';            r[lo.cLunch]  = 'Total Lunch'; r[lo.cDinner] = 'Total Dinner'
-  r[lo.cEftpos2] = 'Total Eftpos + Credit'; r[lo.cLfy]   = 'Total Local for You'
-  r[lo.cUber2]   = 'Total Uber Eat';        r[lo.cDin2]  = 'Total DoorDash'
-  r[lo.cCash2]   = 'Total Cash';            r[lo.cTotal] = 'Total'; r[lo.cCashBag] = 'Total Cash left in bag'
+  r[lo.cUber]    = 'Daily online Uber Eat'; r[lo.cDD]      = 'Daily Online DoorDash'
+  r[lo.cCash]    = 'Total Cash';            r[lo.cLunch]   = 'Total Lunch'; r[lo.cDinner] = 'Total Dinner'
+  r[lo.cEftpos2] = 'Total Eftpos + Credit'; r[lo.cLfy]     = 'Total Local for You'
+  r[lo.cUber2]   = 'Total Uber Eat';        r[lo.cDin2]    = 'Total DoorDash'
+  r[lo.cCash2]   = 'Total Cash';            r[lo.cTotal]   = 'Total'; r[lo.cCashBag] = 'Total Cash left in bag'
   // Simplified
-  r[lo.sLEff]    = 'Eftpos';  r[lo.sLCash]   = 'Cash'
-  r[lo.sDEff]    = 'Eftpos';  r[lo.sDCash]   = 'Cash'
-  r[lo.sLTot]    = 'Total Lunch';  r[lo.sDTot]    = 'Total Dinner'
-  r[lo.sEffTot]  = 'Total Eftpos + Uber + online order'
-  r[lo.sCashTot] = 'Total Cash';  r[lo.sTotal]   = 'Total'; r[lo.sCashBag] = 'Total - Expense = Cash in the Bag'
+  r[lo.sxLEff]    = 'Eftpos';  r[lo.sxLCash]   = 'Cash'
+  r[lo.sxDEff]    = 'Eftpos';  r[lo.sxDCash]   = 'Cash'
+  r[lo.sxLTot]    = 'Total Lunch';  r[lo.sxDTot]    = 'Total Dinner'
+  r[lo.sxEffTot]  = 'Total Eftpos + Uber + online order'
+  r[lo.sxCashTot] = 'Total Cash';   r[lo.sxTotal]   = 'Total'; r[lo.sxCashBag] = 'Total - Expense = Cash in the Bag'
   return r
 }
 
@@ -1745,12 +1880,25 @@ async function applyIncomeFullFormat(
   await batchUpdateSheet(sid, requests)
 }
 
+function getSupplierBills(entry: RevenueEntry | undefined, supId: string, mode: 'lunch' | 'dinner'): number {
+  if (!entry) return 0
+  const legacyMap: Record<string, { lunch: keyof RevenueEntry; dinner: keyof RevenueEntry }> = {
+    lfy:      { lunch: 'lunchLfyBills',      dinner: 'dinnerLfyBills'      },
+    uber:     { lunch: 'lunchUberBills',      dinner: 'dinnerUberBills'     },
+    doordash: { lunch: 'lunchDoorDashBills',  dinner: 'dinnerDoorDashBills' },
+  }
+  const keys = legacyMap[supId]
+  if (keys) return (entry[keys[mode]] as number | undefined) ?? 0
+  return 0
+}
+
 export async function syncIncomeSheet(shopCode: string): Promise<void> {
   const { sid } = await getShopDb(shopCode)
-  const [revenue, deliveryTrips, deliveryRates] = await Promise.all([
+  const [revenue, deliveryTrips, deliveryRates, suppliers] = await Promise.all([
     listRevenue(shopCode),
     listDeliveryTrips(shopCode),
     listDeliveryRates(shopCode),
+    listDeliverySuppliers(shopCode),
   ])
   if (revenue.length === 0) return
 
@@ -1758,7 +1906,7 @@ export async function syncIncomeSheet(shopCode: string): Promise<void> {
   const rates = deliveryRates.length > 0 ? deliveryRates : [
     { maxKm: 4, fee: 0 }, { maxKm: 6, fee: 0 }, { maxKm: 9999, fee: 0 },
   ]
-  const lo = incomeLayout(rates.length)
+  const lo = incomeLayout(rates.length, suppliers)
 
   const weekMap = new Map<string, RevenueEntry[]>()
   for (const e of revenue) {
@@ -1769,7 +1917,7 @@ export async function syncIncomeSheet(shopCode: string): Promise<void> {
   const sortedWeeks = [...weekMap.keys()].sort()
 
   // Two header rows (row 0 and row 1 in the sheet, 0-indexed)
-  const rows: (string | number | null)[][] = [makeIncomeHdr0(lo, rates), makeIncomeHdr1(lo)]
+  const rows: (string | number | null)[][] = [makeIncomeHdr0(lo, rates, suppliers), makeIncomeHdr1(lo, suppliers)]
   const fmtRules: SheetFormatRule[] = []
   const sumRowIndices: number[] = []
 
@@ -1788,10 +1936,7 @@ export async function syncIncomeSheet(shopCode: string): Promise<void> {
       const entry = weekEntries.find((e) => e.date === date)
 
       const l    = entry?.lunch    ?? emptyMeal()
-      const d    = entry?.dinner   ?? emptyMeal()
-      const lfyB = (entry?.lunchLfyBills ?? 0) + (entry?.dinnerLfyBills ?? 0)
-      const ubrB = (entry?.lunchUberBills ?? 0) + (entry?.dinnerUberBills ?? 0)
-      const ddB  = (entry?.lunchDoorDashBills ?? 0) + (entry?.dinnerDoorDashBills ?? 0)
+      const dn   = entry?.dinner   ?? emptyMeal()
 
       const dayTrips = deliveryTrips.filter((t) => t.date === date)
 
@@ -1820,9 +1965,9 @@ export async function syncIncomeSheet(shopCode: string): Promise<void> {
       //   Mon: blank  |  Tue: Mon_sTotal + Tue_sTotal  |  Wed-Sun: sRunning_prev + sTotal_curr
       let bh: string | number = ''
       if (di === 1 && prevDataRn !== null) {
-        bh = `=${colLetter(lo.sTotal)}${prevDataRn}+${colLetter(lo.sTotal)}${rn}`
+        bh = `=${colLetter(lo.sxTotal)}${prevDataRn}+${colLetter(lo.sxTotal)}${rn}`
       } else if (di >= 2 && prevDataRn !== null) {
-        bh = `=${colLetter(lo.sRunning)}${prevDataRn}+${colLetter(lo.sTotal)}${rn}`
+        bh = `=${colLetter(lo.sxRunning)}${prevDataRn}+${colLetter(lo.sxTotal)}${rn}`
       }
 
       const [yr, mo, dy] = date.split('-').map(Number)
@@ -1832,8 +1977,13 @@ export async function syncIncomeSheet(shopCode: string): Promise<void> {
       row[0] = DAY_ABBR[di]
       row[1] = `=DATE(${yr},${mo},${dy})`
 
-      // C(2)-E(4) Bills
-      row[2] = lfyB; row[3] = ubrB; row[4] = ddB
+      // Bill count columns — one per supplier
+      for (const s of suppliers) {
+        const col = lo.billCols[s.id]
+        if (col !== undefined) {
+          row[col] = getSupplierBills(entry, s.id, 'lunch') + getSupplierBills(entry, s.id, 'dinner')
+        }
+      }
 
       // Delivery tier columns (dynamic)
       for (let ti = 0; ti < rates.length; ti++) {
@@ -1844,31 +1994,75 @@ export async function syncIncomeSheet(shopCode: string): Promise<void> {
       }
       row[lo.delTotal] = `=SUM(${colLetter(lo.delFirst)}${rn}:${colLetter(lo.delLast)}${rn})`
 
-      // Lunch
-      row[lo.lEftpos]  = l.eftpos;        row[lo.lLfyOnl]  = l.lfyOnline
-      row[lo.lLfyCard] = l.lfyCards;      row[lo.lLfyCash] = l.lfyCash
-      row[lo.lUber]    = l.uberOnline;    row[lo.lDD]      = l.doorDash
-      row[lo.lCashBag] = l.cashLeftInBag; row[lo.lTotal]   = effectiveMealTotal(l)
+      // Lunch — eftpos, then per-supplier cols, then fixed cols
+      row[lo.lEftpos]  = l.eftpos
+      for (const s of suppliers) {
+        const sc = lo.lSupCols[s.id]
+        if (!sc) continue
+        const extras = l.supplierExtras?.[s.id] ?? {}
+        const legacyOnline = s.id === 'lfy' ? l.lfyOnline : s.id === 'uber' ? l.uberOnline : s.id === 'doordash' ? l.doorDash : 0
+        const legacyCards  = s.id === 'lfy' ? l.lfyCards  : 0
+        const legacyCash   = s.id === 'lfy' ? l.lfyCash   : 0
+        if (sc.online !== undefined) row[lo.lEftpos + sc.online] = extras.online ?? legacyOnline
+        if (sc.cards  !== undefined) row[lo.lEftpos + sc.cards]  = extras.cards  ?? legacyCards
+        if (sc.cash   !== undefined) row[lo.lEftpos + sc.cash]   = extras.cash   ?? legacyCash
+      }
+      row[lo.lCashBag] = l.cashLeftInBag
+      row[lo.lTotal]   = effectiveMealTotal(l)
       row[lo.lCash]    = l.cashSale ?? 0
 
-      // Dinner
-      row[lo.dEftpos]  = d.eftpos;        row[lo.dLfyOnl]  = d.lfyOnline
-      row[lo.dLfyCard] = d.lfyCards;      row[lo.dLfyCash] = d.lfyCash
-      row[lo.dUber]    = d.uberOnline;    row[lo.dDD]      = d.doorDash
-      row[lo.dCashBag] = d.cashLeftInBag; row[lo.dTotal]   = effectiveMealTotal(d)
-      row[lo.dCash]    = d.cashSale ?? 0
+      // Dinner — same structure
+      row[lo.dEftpos]  = dn.eftpos
+      for (const s of suppliers) {
+        const sc = lo.dSupCols[s.id]
+        if (!sc) continue
+        const extras = dn.supplierExtras?.[s.id] ?? {}
+        const legacyOnline = s.id === 'lfy' ? dn.lfyOnline : s.id === 'uber' ? dn.uberOnline : s.id === 'doordash' ? dn.doorDash : 0
+        const legacyCards  = s.id === 'lfy' ? dn.lfyCards  : 0
+        const legacyCash   = s.id === 'lfy' ? dn.lfyCash   : 0
+        if (sc.online !== undefined) row[lo.dEftpos + 1 + sc.online - 1] = extras.online ?? legacyOnline
+        if (sc.cards  !== undefined) row[lo.dEftpos + 1 + sc.cards  - 1] = extras.cards  ?? legacyCards
+        if (sc.cash   !== undefined) row[lo.dEftpos + 1 + sc.cash   - 1] = extras.cash   ?? legacyCash
+      }
+      row[lo.dCashBag] = dn.cashLeftInBag
+      row[lo.dTotal]   = effectiveMealTotal(dn)
+      row[lo.dCash]    = dn.cashSale ?? 0
 
-      // Combined
+      // Combined — build online total from all suppliers that have online
+      const lOnlineParts = suppliers.filter(s => lo.lSupCols[s.id]?.online !== undefined)
+        .map(s => `${colLetter(lo.lEftpos + lo.lSupCols[s.id].online!)}${rn}`)
+      const dOnlineParts = suppliers.filter(s => lo.dSupCols[s.id]?.online !== undefined)
+        .map(s => `${colLetter(lo.dEftpos + 1 + lo.dSupCols[s.id].online! - 1)}${rn}`)
+
+      // LFY total (all lfy columns: online + cards + cash)
+      const lfyLParts = Object.entries(lo.lSupCols['lfy'] ?? {}).map(([, off]) => `${colLetter(lo.lEftpos + off)}${rn}`)
+      const lfyDParts = Object.entries(lo.dSupCols['lfy'] ?? {}).map(([, off]) => `${colLetter(lo.dEftpos + 1 + off - 1)}${rn}`)
+      const lfyFormula = [...lfyLParts, ...lfyDParts].join('+') || '0'
+
+      // Uber total
+      const uberLOff = lo.lSupCols['uber']?.online
+      const uberDOff = lo.dSupCols['uber']?.online
+      const uberLRef = uberLOff !== undefined ? `${colLetter(lo.lEftpos + uberLOff)}${rn}` : '0'
+      const uberDRef = uberDOff !== undefined ? `${colLetter(lo.dEftpos + 1 + uberDOff - 1)}${rn}` : '0'
+
       row[lo.cEftpos]  = `=${colLetter(lo.dEftpos)}${rn}+${colLetter(lo.lEftpos)}${rn}`
-      row[lo.cLfyOnl]  = `=${colLetter(lo.lLfyOnl)}${rn}+${colLetter(lo.dLfyOnl)}${rn}`
-      row[lo.cUber]    = `=${colLetter(lo.lUber)}${rn}+${colLetter(lo.dUber)}${rn}`
-      row[lo.cDD]      = `=${colLetter(lo.lDD)}${rn}+${colLetter(lo.dDD)}${rn}`
+      row[lo.cLfyOnl]  = lOnlineParts.length + dOnlineParts.length > 0
+        ? `=${[...lOnlineParts, ...dOnlineParts].join('+')}`
+        : 0
+      row[lo.cUber]    = `=${uberLRef}+${uberDRef}`
+      row[lo.cDD]      = (() => {
+        const ddLOff = lo.lSupCols['doordash']?.online
+        const ddDOff = lo.dSupCols['doordash']?.online
+        const lRef = ddLOff !== undefined ? `${colLetter(lo.lEftpos + ddLOff)}${rn}` : '0'
+        const dRef = ddDOff !== undefined ? `${colLetter(lo.dEftpos + 1 + ddDOff - 1)}${rn}` : '0'
+        return `=${lRef}+${dRef}`
+      })()
       row[lo.cCash]    = `=${colLetter(lo.lCash)}${rn}+${colLetter(lo.dCash)}${rn}`
       row[lo.cLunch]   = `=${colLetter(lo.lTotal)}${rn}`
       row[lo.cDinner]  = `=${colLetter(lo.dTotal)}${rn}`
       row[lo.cEftpos2] = `=${colLetter(lo.cEftpos)}${rn}`
-      row[lo.cLfy]     = `=${colLetter(lo.lLfyOnl)}${rn}+${colLetter(lo.lLfyCard)}${rn}+${colLetter(lo.lLfyCash)}${rn}+${colLetter(lo.dLfyOnl)}${rn}+${colLetter(lo.dLfyCard)}${rn}+${colLetter(lo.dLfyCash)}${rn}`
-      row[lo.cUber2]   = `=${colLetter(lo.lUber)}${rn}+${colLetter(lo.dUber)}${rn}`
+      row[lo.cLfy]     = `=${lfyFormula}`
+      row[lo.cUber2]   = `=${uberLRef}+${uberDRef}`
       row[lo.cDin2]    = `=${colLetter(lo.cDinner)}${rn}`
       row[lo.cCash2]   = `=${colLetter(lo.lCash)}${rn}+${colLetter(lo.dCash)}${rn}`
       row[lo.cTotal]   = `=${colLetter(lo.cLunch)}${rn}+${colLetter(lo.cDinner)}${rn}`
@@ -1876,20 +2070,22 @@ export async function syncIncomeSheet(shopCode: string): Promise<void> {
       row[lo.surcharge] = ar
       row[lo.running]   = as
 
-      // Simplified view
-      row[lo.sDay]     = DAY_ABBR[di]
-      row[lo.sDate]    = `=${colLetter(1)}${rn}`
-      row[lo.sLEff]    = `=${colLetter(lo.lEftpos)}${rn}+${colLetter(lo.lLfyOnl)}${rn}+${colLetter(lo.lUber)}${rn}`
-      row[lo.sLCash]   = `=${colLetter(lo.lCash)}${rn}`
-      row[lo.sDEff]    = `=${colLetter(lo.dEftpos)}${rn}+${colLetter(lo.dLfyOnl)}${rn}+${colLetter(lo.dUber)}${rn}`
-      row[lo.sDCash]   = `=${colLetter(lo.dCash)}${rn}`
-      row[lo.sLTot]    = `=${colLetter(lo.sLEff)}${rn}+${colLetter(lo.sLCash)}${rn}`
-      row[lo.sDTot]    = `=${colLetter(lo.sDEff)}${rn}+${colLetter(lo.sDCash)}${rn}`
-      row[lo.sEffTot]  = `=${colLetter(lo.sLEff)}${rn}+${colLetter(lo.sDEff)}${rn}`
-      row[lo.sCashTot] = `=${colLetter(lo.sLCash)}${rn}+${colLetter(lo.sDCash)}${rn}`
-      row[lo.sTotal]   = `=${colLetter(lo.sEffTot)}${rn}+${colLetter(lo.sCashTot)}${rn}`
-      row[lo.sCashBag] = `=${colLetter(lo.cCashBag)}${rn}`
-      row[lo.sRunning] = bh
+      // Simplified view — build online ref from first online supplier col per meal
+      const lFirstOnlineRef = lOnlineParts[0] ?? '0'
+      const dFirstOnlineRef = dOnlineParts[0] ?? '0'
+      row[lo.sxDay]     = DAY_ABBR[di]
+      row[lo.sxDate]    = `=${colLetter(1)}${rn}`
+      row[lo.sxLEff]    = `=${colLetter(lo.lEftpos)}${rn}+${lFirstOnlineRef}+${uberLRef}`
+      row[lo.sxLCash]   = `=${colLetter(lo.lCash)}${rn}`
+      row[lo.sxDEff]    = `=${colLetter(lo.dEftpos)}${rn}+${dFirstOnlineRef}+${uberDRef}`
+      row[lo.sxDCash]   = `=${colLetter(lo.dCash)}${rn}`
+      row[lo.sxLTot]    = `=${colLetter(lo.sxLEff)}${rn}+${colLetter(lo.sxLCash)}${rn}`
+      row[lo.sxDTot]    = `=${colLetter(lo.sxDEff)}${rn}+${colLetter(lo.sxDCash)}${rn}`
+      row[lo.sxEffTot]  = `=${colLetter(lo.sxLEff)}${rn}+${colLetter(lo.sxDEff)}${rn}`
+      row[lo.sxCashTot] = `=${colLetter(lo.sxLCash)}${rn}+${colLetter(lo.sxDCash)}${rn}`
+      row[lo.sxTotal]   = `=${colLetter(lo.sxEffTot)}${rn}+${colLetter(lo.sxCashTot)}${rn}`
+      row[lo.sxCashBag] = `=${colLetter(lo.cCashBag)}${rn}`
+      row[lo.sxRunning] = bh
 
       rows.push(row)
 

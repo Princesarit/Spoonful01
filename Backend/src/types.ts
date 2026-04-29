@@ -67,6 +67,7 @@ export interface MealRevenue {
   cashLeftInBag: number
   cashSale?: number     // user-entered cash sale (auto-populated from formula for legacy entries)
   totalSale: number     // auto-calculated: eftpos + lfyOnline + lfyCash + uberOnline + doorDash + cashSale
+  supplierExtras?: Record<string, { online?: number; cards?: number; cash?: number }>
 }
 
 export interface RevenueEntry {
@@ -119,4 +120,12 @@ export interface DailyNote {
 export interface DeliveryRate {
   maxKm: number  // 9999 = no upper limit (catch-all)
   fee: number
+}
+
+export interface DeliverySupplier {
+  id: string          // slug: "lfy", "uber", "doordash"
+  name: string        // display name
+  hasOnline: boolean
+  hasCards: boolean
+  hasCash: boolean
 }
