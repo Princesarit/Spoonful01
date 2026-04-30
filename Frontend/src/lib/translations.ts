@@ -170,6 +170,28 @@ export const translations = {
     no_note: 'ไม่มีบันทึก',
     editing: 'กำลังแก้ไข',
     save_to_sheet: 'บันทึกลง Sheet',
+    // revenue form
+    eftpos_label: 'Eftpos',
+    total_sale_label: 'ยอดขายรวม',
+    cash_sale_label: 'ยอดเงินสด',
+    cash_sale_auto: 'เงินสด (คำนวณ)',
+    cash_in_bag_label: 'เงินในกระเป๋า',
+    lfy_cards_error: 'LFY Cards + Cash ต้องไม่เกิน Eftpos',
+    total_sale_error: 'Total Sale ต้องไม่น้อยกว่า Eftpos + Online orders',
+    // summary
+    total_eftpos_label: 'ยอด Eftpos',
+    net_sales_label: 'ยอดสุทธิ',
+    online_orders_label: 'ออนไลน์',
+    cash_expense_label: 'จ่ายเงินสด',
+    daily: 'รายวัน',
+    weekly: 'รายสัปดาห์',
+    monthly: 'รายเดือน',
+    weekly_cash_report: 'รายงานเงินสดรายสัปดาห์',
+    cash_sales_label: 'Cash Sales',
+    add_cash_item: '+ เพิ่มรายการเงินสด',
+    // header toggle
+    switch_to_light_mode: 'เปลี่ยนเป็นโหมดสว่าง',
+    switch_to_dark_mode: 'เปลี่ยนเป็นโหมดมืด',
   },
   en: {
     // common
@@ -342,6 +364,28 @@ export const translations = {
     no_note: 'No note',
     editing: 'Editing',
     save_to_sheet: 'Save to Sheet',
+    // revenue form
+    eftpos_label: 'Eftpos',
+    total_sale_label: 'Total Sale',
+    cash_sale_label: 'Cash Sale',
+    cash_sale_auto: 'Cash Sale (auto)',
+    cash_in_bag_label: 'Cash in Bag',
+    lfy_cards_error: 'LFY Cards + Cash must not exceed Eftpos',
+    total_sale_error: 'Total Sale must be ≥ Eftpos + Online orders',
+    // summary
+    total_eftpos_label: 'Total Eftpos',
+    net_sales_label: 'Net Sales',
+    online_orders_label: 'Online Orders',
+    cash_expense_label: 'Cash Expense',
+    daily: 'Daily',
+    weekly: 'Weekly',
+    monthly: 'Monthly',
+    weekly_cash_report: 'Weekly Cash Report',
+    cash_sales_label: 'Cash Sales',
+    add_cash_item: '+ Add cash item',
+    // header toggle
+    switch_to_light_mode: 'Switch to Light Mode',
+    switch_to_dark_mode: 'Switch to Dark Mode',
   },
 } as const
 

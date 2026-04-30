@@ -5,6 +5,7 @@ import Link from 'next/link'
 import { useParams, usePathname } from 'next/navigation'
 import { logoutAction, demoteAction } from '@/app/actions'
 import { useShop } from '@/components/ShopProvider'
+import { translations } from '@/lib/translations'
 
 function useLoginDuration(loginAt: number) {
   const [elapsed, setElapsed] = useState(0)
@@ -22,6 +23,7 @@ function useLoginDuration(loginAt: number) {
 
 export function ShopHeader({ shopName, role, loginAt }: { shopName: string; role: string; loginAt: number }) {
   const { lang, toggleLang, isDark, toggleDark } = useShop()
+  const tr = translations[lang]
   const params = useParams()
   const shopCode = params?.shopCode as string | undefined
   const pathname = usePathname()
@@ -54,7 +56,7 @@ export function ShopHeader({ shopName, role, loginAt }: { shopName: string; role
     ? { background: isDark ? '#6A3868' : '#CC8070', color: isDark ? '#F0B0E0' : '#FFFFFF' }
     : { background: isDark ? '#3A3870' : '#A89080', color: isDark ? '#C0B8E8' : '#FFFFFF' }
 
-  const logoutLabel = lang === 'th' ? 'ออกจากระบบ' : 'Logout'
+  const logoutLabel = tr.logout
   const isElevated = role === 'owner' || role === 'manager'
 
   // Header background — purple-to-brown gradient in dark mode
@@ -102,8 +104,8 @@ export function ShopHeader({ shopName, role, loginAt }: { shopName: string; role
           {/* Dark / Light mode toggle */}
           <button
             onClick={toggleDark}
-            title={isDark ? 'Switch to Light Mode' : 'Switch to Dark Mode'}
-            aria-label={isDark ? 'Switch to light mode' : 'Switch to dark mode'}
+            title={isDark ? tr.switch_to_light_mode : tr.switch_to_dark_mode}
+            aria-label={isDark ? tr.switch_to_light_mode : tr.switch_to_dark_mode}
             style={{
               position: 'relative',
               width: 52,

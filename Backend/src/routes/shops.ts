@@ -57,11 +57,10 @@ router.post('/', async (req: Request, res: Response) => {
   }
   try {
     const all = await listShops()
-    const maxCode = all.reduce((max, s) => {
-      const n = parseInt(s.code, 10)
-      return isNaN(n) ? max : Math.max(max, n)
-    }, 0)
-    const code = String(maxCode + 1).padStart(2, '0')
+    const baseName = name.trim().toUpperCase().replace(/\s+/g, '')
+    let code = baseName
+    let suffix = 1
+    while (all.some((s) => s.code === code)) code = `${baseName}${suffix++}`
 
     const spreadsheetId = providedSheetId.trim()
     await assertSpreadsheetAccess(spreadsheetId)

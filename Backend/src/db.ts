@@ -90,6 +90,21 @@ export async function listShops(): Promise<StoredShop[]> {
 export async function saveShops(shops: StoredShop[]): Promise<void> {
   const rows = shops.map((s) => [s.code, s.name, s.restaurantPassword, s.managerPassword, s.ownerPassword ?? '', s.spreadsheetId ?? ''])
   await setSheetData('shops', SHOPS_HEADERS, rows)
+  try {
+    const sheetId = await getSheetIdByName(config.spreadsheetId, 'shops')
+    if (sheetId !== undefined) {
+      const totalRows = rows.length + 1
+      const SOLID = { style: 'SOLID', width: 1, color: { red: 0, green: 0, blue: 0, alpha: 1 } }
+      await batchUpdateSheet(config.spreadsheetId, [{
+        updateBorders: {
+          range: { sheetId, startRowIndex: 0, endRowIndex: totalRows, startColumnIndex: 0, endColumnIndex: SHOPS_HEADERS.length },
+          top: SOLID, bottom: SOLID, left: SOLID, right: SOLID, innerHorizontal: SOLID, innerVertical: SOLID,
+        },
+      }])
+    }
+  } catch (err) {
+    console.error('[saveShops] borders failed:', err)
+  }
 }
 
 // ─── Employees ────────────────────────────────────────────────────────────────
@@ -1488,7 +1503,7 @@ function getWeekDates(monday: string): string[] {
 //   (5+N+21)-(5+N+36)  : Combined daily totals + Running
 //   (5+N+37)-(5+N+38)  : gap
 //   (5+N+39)-(5+N+51)  : Simplified view
-const INCOME_SHEET = () => `Income ${new Date().getFullYear()}`
+const INCOME_SHEET = (year: number) => `Income ${year}`
 
 /** Convert 0-based column index to A1 column letter (A, B, ..., Z, AA, ...) */
 function colLetter(n: number): string {
@@ -1682,8 +1697,9 @@ async function applyIncomeFullFormat(
   totalRows: number,
   sumRowIndices: number[],
   suppliers: DeliverySupplier[],
+  sheetName: string,
 ): Promise<void> {
-  const sheetId = await getSheetIdByName(sid, INCOME_SHEET())
+  const sheetId = await getSheetIdByName(sid, sheetName)
   if (sheetId === undefined) return
 
   const BLACK    = { red: 0, green: 0, blue: 0 }
@@ -1914,14 +1930,22 @@ export async function syncIncomeSheet(shopCode: string): Promise<void> {
     weekMap.get(mon)!.push(e)
   }
   const sortedWeeks = [...weekMap.keys()].sort()
+  const incomeYearGroups = new Map<number, string[]>()
+  for (const w of sortedWeeks) {
+    const y = parseInt(w.slice(0, 4))
+    if (!incomeYearGroups.has(y)) incomeYearGroups.set(y, [])
+    incomeYearGroups.get(y)!.push(w)
+  }
 
+  for (const [year, yearWeeks] of [...incomeYearGroups.entries()].sort(([a], [b]) => a - b)) {
+  const sheetName = INCOME_SHEET(year)
   // One header block at top; all weeks flow underneath
   const rows: (string | number | null)[][] = [makeIncomeHdr0(lo, rates, suppliers), makeIncomeHdr1(lo, suppliers)]
   const fmtRules: SheetFormatRule[] = []
   const sumRowIndices: number[] = []
 
-  for (let wi = 0; wi < sortedWeeks.length; wi++) {
-    const monday = sortedWeeks[wi]
+  for (let wi = 0; wi < yearWeeks.length; wi++) {
+    const monday = yearWeeks[wi]
     const weekDates = getWeekDates(monday)
     const weekEntries = weekMap.get(monday)!
     const s1 = rows.length + 1   // 1-based first data row of this week
@@ -2130,9 +2154,10 @@ export async function syncIncomeSheet(shopCode: string): Promise<void> {
   fmtRules.push({ startRow: 2, endRow: totalRows, startCol: 1,          endCol: 2,                numberFormat: DATE_FORMAT })
   fmtRules.push({ startRow: 2, endRow: totalRows, startCol: lo.sDate,   endCol: lo.sDate    + 1,  numberFormat: DATE_FORMAT })
 
-  await setSheetDataUserEntered(INCOME_SHEET(), rows, sid)
-  await applyFormattingRules(INCOME_SHEET(), sid, fmtRules)
-  await applyIncomeFullFormat(sid, lo, rows.length, sumRowIndices, suppliers)
+  await setSheetDataUserEntered(sheetName, rows, sid)
+  await applyFormattingRules(sheetName, sid, fmtRules, totalRows)
+  await applyIncomeFullFormat(sid, lo, rows.length, sumRowIndices, suppliers, sheetName)
+  } // end year loop
 }
 
 // ── Wage 2026 ─────────────────────────────────────────────────────────────────
@@ -2152,7 +2177,7 @@ export async function syncIncomeSheet(shopCode: string): Promise<void> {
 //   G(6)=WedL  H(7)=WedD  I(8)=ThuL  J(9)=ThuD  K(10)=FriL  L(11)=FriD
 //   M(12)=SatL  N(13)=SatD  O(14)=SunL  P(15)=SunD  Q(16)=Extra
 //   R(17)=WAGE  S(18)=TAX  T(19)=CASH PAID  U(20)=Remaining
-const WAGE_SHEET = () => `Wage ${new Date().getFullYear()}`
+const WAGE_SHEET = (year: number) => `Wage ${year}`
 const WAGE_COL_COUNT = 21
 
 interface WageBlock {
@@ -2167,8 +2192,9 @@ async function applyWageFullFormat(
   sid: string,
   totalRows: number,
   wageBlocks: WageBlock[],
+  sheetName: string,
 ): Promise<void> {
-  const sheetId = await getSheetIdByName(sid, WAGE_SHEET())
+  const sheetId = await getSheetIdByName(sid, sheetName)
   if (sheetId === undefined) return
 
   const BLACK        = { red: 0, green: 0, blue: 0 }
@@ -2297,9 +2323,12 @@ export async function syncWageSheet(shopCode: string): Promise<void> {
   const sortedWeeks = [...weekMap.keys()].sort()
   if (sortedWeeks.length === 0) return
 
-  const rows: (string | number | null)[][] = []
-  const fmtRules: SheetFormatRule[] = []
-  const wageBlocks: WageBlock[] = []
+  const wageYearGroups = new Map<number, string[]>()
+  for (const w of sortedWeeks) {
+    const y = parseInt(w.slice(0, 4))
+    if (!wageYearGroups.has(y)) wageYearGroups.set(y, [])
+    wageYearGroups.get(y)!.push(w)
+  }
 
   // Colors (exact RGB from Test2 reference sheet)
   const W_WAGE         = { red: 0.714, green: 0.843, blue: 0.659 }  // #B6D7A8 green     (WAGE col — employee rows)
@@ -2317,7 +2346,13 @@ export async function syncWageSheet(shopCode: string): Promise<void> {
 
   const DAY_NAMES = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']
 
-  for (const monday of sortedWeeks) {
+  for (const [year, yearWeeks] of [...wageYearGroups.entries()].sort(([a], [b]) => a - b)) {
+  const sheetName = WAGE_SHEET(year)
+  const rows: (string | number | null)[][] = []
+  const fmtRules: SheetFormatRule[] = []
+  const wageBlocks: WageBlock[] = []
+
+  for (const monday of yearWeeks) {
     const weekDates = getWeekDates(monday)
     const hStart = rows.length  // 0-based index of first header row
 
@@ -2517,9 +2552,10 @@ export async function syncWageSheet(shopCode: string): Promise<void> {
   fmtRules.push({ startRow: 0, endRow: totalRows, startCol: 2, endCol: 18, numberFormat: AUD_FORMAT })
   fmtRules.push({ startRow: 0, endRow: totalRows, startCol: 20, endCol: 21, numberFormat: AUD_FORMAT })
 
-  await setSheetDataUserEntered(WAGE_SHEET(), rows, sid)
-  await applyFormattingRules(WAGE_SHEET(), sid, fmtRules, 500)
-  await applyWageFullFormat(sid, totalRows, wageBlocks)
+  await setSheetDataUserEntered(sheetName, rows, sid)
+  await applyFormattingRules(sheetName, sid, fmtRules, 500)
+  await applyWageFullFormat(sid, totalRows, wageBlocks, sheetName)
+  } // end year loop
 }
 
 // ── Sum 2026 ──────────────────────────────────────────────────────────────────
@@ -2534,7 +2570,7 @@ export async function syncWageSheet(shopCode: string): Promise<void> {
 //   L(11)=DayAbbr  M(12)=Date  N(13)=Description  O(14)=blank  P(15)=Amount  Q(16)=Notes
 //
 // Total: 17 columns (A-Q)
-const SUM_SHEET = () => `Sum ${new Date().getFullYear()}`
+const SUM_SHEET = (year: number) => `Sum ${year}`
 const SUM_COL_COUNT = 19
 
 export async function syncSumSheet(shopCode: string): Promise<void> {
@@ -2567,6 +2603,13 @@ export async function syncSumSheet(shopCode: string): Promise<void> {
   const sortedWeeks = [...weekSet].sort()
   if (sortedWeeks.length === 0) return
 
+  const sumYearGroups = new Map<number, string[]>()
+  for (const w of sortedWeeks) {
+    const y = parseInt(w.slice(0, 4))
+    if (!sumYearGroups.has(y)) sumYearGroups.set(y, [])
+    sumYearGroups.get(y)!.push(w)
+  }
+
   function fmtD(d: string): string {
     const [y, m, day] = d.split('-')
     return `${day}/${m}/${y}`
@@ -2593,13 +2636,15 @@ export async function syncSumSheet(shopCode: string): Promise<void> {
   const C_DATA_GRY = { red: 0.3490196, green: 0.3490196, blue: 0.3490196 }  // revenue data text D-G
   const C_SUM_BLUE = { red: 0.2,       green: 0.2470588, blue: 0.3098039 }  // SUM row text D-G
 
+  for (const [year, yearWeeks] of [...sumYearGroups.entries()].sort(([a], [b]) => a - b)) {
+  const sheetName = SUM_SHEET(year)
   const rows: (string | number | null)[][] = []
   const fmtRules: SheetFormatRule[] = []
   const cashBoxBottomRels: number[] = []
   const blockStarts: number[] = []   // 0-based absolute row start per week
   const blockSizes:  number[] = []   // actual row count per week block
 
-  for (const monday of sortedWeeks) {
+  for (const monday of yearWeeks) {
     const weekDates  = getWeekDates(monday)
     const sunday     = weekDates[6]
     const wRev       = revenue.filter((e) => weekDates.includes(e.date))
@@ -2842,6 +2887,10 @@ export async function syncSumSheet(shopCode: string): Promise<void> {
     for (const rel of unpaidRels) {
       fmtRules.push({ startRow: bs+rel, endRow: bs+rel+1, startCol: 16, endCol: 17, backgroundColor: C_UNPAID_RD, foregroundColor: C_WHITE, bold: true })
     }
+    // Special income/expense items — red text so they stand out from standard rows
+    const C_RED_TEXT = { red: 0.8, green: 0.1, blue: 0.1 }
+    if (n > 0) fmtRules.push({ startRow: bs+17, endRow: bs+17+n, startCol: 6, endCol: 10, foregroundColor: C_RED_TEXT })
+    if (m > 0) fmtRules.push({ startRow: bs+ES, endRow: bs+ES+m, startCol: 6, endCol: 10, foregroundColor: C_RED_TEXT })
   }
 
   // ── Global number formats ─────────────────────────────────────────────────
@@ -2853,19 +2902,19 @@ export async function syncSumSheet(shopCode: string): Promise<void> {
 
   // Write data first — ensureSheet (inside setSheetDataUserEntered) creates the sheet if it
   // doesn't exist yet, so getSheetIdByName will always find it afterward.
-  await setSheetDataUserEntered(SUM_SHEET(), rows, sid)
-  await applyFormattingRules(SUM_SHEET(), sid, fmtRules, totalRows + 5)
+  await setSheetDataUserEntered(sheetName, rows, sid)
+  await applyFormattingRules(sheetName, sid, fmtRules, totalRows + 5)
 
   // ── Get sheetId for merges + borders (sheet is guaranteed to exist now) ──
-  const sheetId = await getSheetIdByName(sid, SUM_SHEET())
-  if (sheetId === undefined) return
+  const sheetId = await getSheetIdByName(sid, sheetName)
+  if (sheetId === undefined) continue
 
   // Clear stale merges from a previous sync before reapplying new ones
   await clearSheetMerges(sid, sheetId)
 
   // ── Cell merges per week ──────────────────────────────────────────────────
   const mergeReqs: object[] = []
-  for (let wi = 0; wi < sortedWeeks.length; wi++) {
+  for (let wi = 0; wi < yearWeeks.length; wi++) {
     const bs = blockStarts[wi]
     const merge = (r0: number, r1: number, c0: number, c1: number) =>
       mergeReqs.push({ mergeCells: { range: { sheetId, startRowIndex: bs+r0, endRowIndex: bs+r1, startColumnIndex: c0, endColumnIndex: c1 }, mergeType: 'MERGE_ALL' } })
@@ -2881,7 +2930,7 @@ export async function syncSumSheet(shopCode: string): Promise<void> {
   const SOLID_BLK = { style: 'SOLID', width: 1, color: { red: 0, green: 0, blue: 0, alpha: 1 } }
   const borderReqs: object[] = []
 
-  for (let wi = 0; wi < sortedWeeks.length; wi++) {
+  for (let wi = 0; wi < yearWeeks.length; wi++) {
     const bs  = blockStarts[wi]
     const bsz = blockSizes[wi]
     const bdr = (r0: number, r1: number, c0: number, c1: number, edges: Record<string, object>) =>
@@ -2918,6 +2967,7 @@ export async function syncSumSheet(shopCode: string): Promise<void> {
     })
   }
   if (borderReqs.length > 0) await batchUpdateSheet(sid, borderReqs)
+  } // end year loop
 }
 
 // ── OverAll ───────────────────────────────────────────────────────────────────
@@ -2978,7 +3028,7 @@ export async function syncOverAllSheet(shopCode: string): Promise<void> {
   fmtRules.push({ startRow: 1, endRow: totalRows, startCol: 1, endCol: 6, numberFormat: AUD_FORMAT })
 
   await setSheetDataUserEntered(OVERALL_SHEET, rows, sid)
-  await applyFormattingRules(OVERALL_SHEET, sid, fmtRules)
+  await applyFormattingRules(OVERALL_SHEET, sid, fmtRules, totalRows)
 
   // Add borders to data range
   const sheetId = await getSheetIdByName(sid, OVERALL_SHEET)

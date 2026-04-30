@@ -668,11 +668,11 @@ function TotalsGrid({ totals }: { totals: Totals }) {
   const { lang } = useShop()
   const tr = translations[lang]
   const items = [
-    { label: 'Total sale', value: totals.totalSale, color: 'text-brand-gold' },
-    { label: 'Total eftpos', value: totals.totalEftpos, color: 'text-blue-600' },
-    { label: 'Net sales', value: totals.netSales, color: 'text-gray-800' },
-    { label: 'Online Orders', value: totals.onlineOrders, color: 'text-gray-800' },
-    { label: 'Cash Expense', value: totals.cashExpense, color: 'text-red-500' },
+    { label: tr.total_sale_label, value: totals.totalSale, color: 'text-brand-gold' },
+    { label: tr.total_eftpos_label, value: totals.totalEftpos, color: 'text-blue-600' },
+    { label: tr.net_sales_label, value: totals.netSales, color: 'text-gray-800' },
+    { label: tr.online_orders_label, value: totals.onlineOrders, color: 'text-gray-800' },
+    { label: tr.cash_expense_label, value: totals.cashExpense, color: 'text-red-500' },
     { label: tr.cash_leave_day, value: totals.cashLeave, color: totals.cashLeave >= 0 ? 'text-green-600' : 'text-red-600' },
   ]
   return (
@@ -1086,7 +1086,7 @@ export default function SummaryView() {
               pov === v ? 'bg-white shadow text-gray-800' : 'text-gray-500 hover:text-gray-700'
             }`}
           >
-            {v === 'daily' ? 'Daily' : v === 'weekly' ? 'Weekly' : 'Monthly'}
+            {v === 'daily' ? tr.daily : v === 'weekly' ? tr.weekly : tr.monthly}
           </button>
         ))}
       </div>
@@ -1172,11 +1172,11 @@ export default function SummaryView() {
                       </div>
                     </div>
                     <div className="grid grid-cols-2 gap-y-2 text-xs">
-                      <div><span className="text-gray-400">Net sales</span><div className="font-semibold text-gray-700">{fmt(wt.netSales)} $</div></div>
-                      <div><span className="text-gray-400">Online Orders</span><div className="font-semibold text-gray-700">{fmt(wt.onlineOrders)} $</div></div>
-                      <div><span className="text-gray-400">Total eftpos</span><div className="font-semibold text-blue-600">{fmt(wt.totalEftpos)} $</div></div>
+                      <div><span className="text-gray-400">{tr.net_sales_label}</span><div className="font-semibold text-gray-700">{fmt(wt.netSales)} $</div></div>
+                      <div><span className="text-gray-400">{tr.online_orders_label}</span><div className="font-semibold text-gray-700">{fmt(wt.onlineOrders)} $</div></div>
+                      <div><span className="text-gray-400">{tr.total_eftpos_label}</span><div className="font-semibold text-blue-600">{fmt(wt.totalEftpos)} $</div></div>
                       <div><span className="text-gray-400">{tr.labor_label}</span><div className="font-semibold text-brand-gold">{fmt(wt.labor)} $</div></div>
-                      <div><span className="text-gray-400">Cash Expense</span><div className="font-semibold text-red-500">{fmt(wt.cashExpense)} $</div></div>
+                      <div><span className="text-gray-400">{tr.cash_expense_label}</span><div className="font-semibold text-red-500">{fmt(wt.cashExpense)} $</div></div>
                       <div>
                         <span className="text-gray-400">{tr.cash_leave_day}</span>
                         <div className={`font-semibold ${wt.cashLeave >= 0 ? 'text-green-600' : 'text-red-500'}`}>{fmt(wt.cashLeave)} $</div>
@@ -1218,7 +1218,7 @@ export default function SummaryView() {
                         </div>
                         <div className="text-right">
                           <div className="text-sm font-bold text-brand-gold">{fmt(dv.totalSale)} $</div>
-                          <div className="text-xs text-gray-400">Total sale</div>
+                          <div className="text-xs text-gray-400">{tr.total_sale_label}</div>
                         </div>
                       </div>
                     </div>
@@ -1226,15 +1226,15 @@ export default function SummaryView() {
                     <div className="flex items-start gap-2">
                       <div className="flex-1 grid grid-cols-2 gap-y-2 text-xs">
                         <div>
-                          <span className="text-gray-400">Net sales</span>
+                          <span className="text-gray-400">{tr.net_sales_label}</span>
                           <div className="font-semibold text-gray-700">{fmt(dv.netSales)} $</div>
                         </div>
                         <div>
-                          <span className="text-gray-400">Online Orders</span>
+                          <span className="text-gray-400">{tr.online_orders_label}</span>
                           <div className="font-semibold text-gray-700">{fmt(dv.onlineOrders)} $</div>
                         </div>
                         <div>
-                          <span className="text-gray-400">Total eftpos</span>
+                          <span className="text-gray-400">{tr.total_eftpos_label}</span>
                           <div className="font-semibold text-blue-600">{fmt(dv.totalEftpos)} $</div>
                         </div>
                         <div>
@@ -1242,7 +1242,7 @@ export default function SummaryView() {
                           <div className="font-semibold text-brand-gold">{fmt(dv.labor)} $</div>
                         </div>
                         <div>
-                          <span className="text-gray-400">Cash Expense</span>
+                          <span className="text-gray-400">{tr.cash_expense_label}</span>
                           <div className="font-semibold text-red-500">{fmt(dv.cashExpense)} $</div>
                         </div>
                         <div>
@@ -1278,7 +1278,7 @@ export default function SummaryView() {
         <div className="fixed inset-0 bg-black/40 flex flex-col items-center justify-end z-50">
           <div className="bg-white rounded-t-2xl w-full max-w-lg max-h-[85vh] flex flex-col">
             <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100 shrink-0">
-              <h3 className="font-bold text-gray-900">Weekly Cash Report</h3>
+              <h3 className="font-bold text-gray-900">{tr.weekly_cash_report}</h3>
               <button onClick={() => setShowReport(false)} className="text-gray-400 hover:text-gray-600 cursor-pointer text-xl leading-none">✕</button>
             </div>
             {weekGroups.length > 0 && (() => {
@@ -1306,7 +1306,7 @@ export default function SummaryView() {
             })()}
             <div className="overflow-y-auto flex-1 px-4 py-3 space-y-4">
               {weekGroups.length === 0 ? (
-                <div className="text-center py-8 text-gray-400 text-sm">No data this month</div>
+                <div className="text-center py-8 text-gray-400 text-sm">{tr.no_data_month}</div>
               ) : (() => {
                 const rg = [...weekGroups].reverse()
                 const wg = rg[reportWeekIdx]
@@ -1390,12 +1390,12 @@ export default function SummaryView() {
                           onClick={() => setEdit({ incomeItems: [...edit.incomeItems, { label: '', amount: '', note: '' }] })}
                           className="text-xs text-green-600 hover:text-green-700 cursor-pointer font-medium"
                         >
-                          + Add cash item
+                          {tr.add_cash_item}
                         </button>
                       )}
 
                       <div className="flex justify-between pt-1">
-                        <span className="text-gray-500">Cash Sales</span>
+                        <span className="text-gray-500">{tr.cash_sales_label}</span>
                         <span className="font-semibold text-gray-800">${fmt(cashSales)}</span>
                       </div>
                       <div className="flex items-center justify-between">

@@ -254,7 +254,7 @@ export default function WageView() {
                         {name}
                       </th>
                     ))}
-                    <th className="border border-gray-300 px-2 py-1.5 text-center bg-gray-300">Extra</th>
+                    <th className="border border-gray-300 px-2 py-1.5 text-center bg-orange-100 dark:bg-orange-900/40 text-orange-700 dark:text-orange-300">Extra</th>
                     <th className="border border-gray-300 px-2 py-1.5 text-center bg-green-100 text-green-800 dark:text-green-300">{tr.wage_label}</th>
                     <th className="border border-gray-300 px-2 py-1.5 text-center bg-gray-200">{tr.tax_label}</th>
                     <th className="border border-gray-300 px-2 py-1.5 text-center bg-gray-200">{tr.paid_label_short}</th>
@@ -343,7 +343,7 @@ export default function WageView() {
                             </td>
                           </Fragment>
                         ))}
-                        <td className="border border-gray-200 px-2 py-1.5 text-center text-gray-600">
+                        <td className="border border-gray-200 px-2 py-1.5 text-center text-orange-700 dark:text-orange-300">
                           {extra > 0 ? extra.toFixed(0) : ''}
                         </td>
                         <td className="border border-gray-200 px-2 py-1.5 text-center font-bold text-green-700 whitespace-nowrap">
@@ -395,7 +395,7 @@ export default function WageView() {
                         </td>
                       </Fragment>
                     ))}
-                    <td className="border border-gray-300 px-2 py-1.5 text-center text-gray-600">{totalExtra > 0 ? totalExtra.toFixed(0) : ''}</td>
+                    <td className="border border-gray-300 px-2 py-1.5 text-center text-orange-700 dark:text-orange-300">{totalExtra > 0 ? totalExtra.toFixed(0) : ''}</td>
                     <td className="border border-gray-300 px-2 py-1.5 text-center text-green-700">{totalWage.toFixed(0)}</td>
                     <td className="border border-gray-300 px-2 py-1.5 text-center text-gray-600">{totalTax.toFixed(0)}</td>
                     <td className="border border-gray-300 px-2 py-1.5 text-center text-gray-600">{totalPaid.toFixed(0)}</td>
@@ -416,9 +416,9 @@ export default function WageView() {
                   </tr>
 
                   {/* Extra row */}
-                  <tr className="bg-gray-100 text-gray-500">
-                    <td className="border border-gray-200 px-2 py-1.5 font-medium text-gray-600">Extra</td>
-                    <td className="border border-gray-200 px-2 py-1.5 text-center text-gray-400" />
+                  <tr className="bg-orange-50 dark:bg-orange-900/20">
+                    <td className="border border-gray-200 px-2 py-1.5 font-medium text-orange-700 dark:text-orange-300">Extra</td>
+                    <td className="border border-gray-200 px-2 py-1.5 text-center" />
                     {dates.map((d) => {
                       const dayExtra = empRows.reduce((s, r) => {
                         const a = attend[d]?.[r.emp.id] ?? { morning: 0, evening: 0 }
@@ -432,12 +432,12 @@ export default function WageView() {
                         return s + e
                       }, 0)
                       return (
-                        <td key={d} colSpan={2} className={`border border-gray-200 px-1 py-1.5 text-center ${dayExtra > 0 ? 'text-gray-700 font-semibold' : ''}`}>
+                        <td key={d} colSpan={2} className={`border border-gray-200 px-1 py-1.5 text-center ${dayExtra > 0 ? 'text-orange-700 dark:text-orange-300 font-semibold' : ''}`}>
                           {dayExtra > 0 ? dayExtra.toFixed(0) : ''}
                         </td>
                       )
                     })}
-                    <td className="border border-gray-200 px-2 py-1.5 text-center font-semibold text-gray-700">{totalExtra > 0 ? totalExtra.toFixed(0) : ''}</td>
+                    <td className="border border-gray-200 px-2 py-1.5 text-center font-semibold text-orange-700 dark:text-orange-300">{totalExtra > 0 ? totalExtra.toFixed(0) : ''}</td>
                     <td className="border border-gray-200 px-2 py-1.5" colSpan={4} />
                   </tr>
 

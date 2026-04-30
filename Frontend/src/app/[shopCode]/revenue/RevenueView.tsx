@@ -109,6 +109,8 @@ function NumInput({
 
 // ── Meal detail rows (card display) ───────────────────────────────────────────
 function MealDetailRows({ meal }: { meal: MealRevenue }) {
+  const { lang } = useShop()
+  const tr = translations[lang]
   // If totalSale was saved as 0 but breakdown fields have values, compute from breakdowns
   // totalSale = eftpos + lfyOnline + uberOnline + doorDash + cashSale  (lfyCash is already inside eftpos)
   const displayTotal = meal.totalSale > 0
@@ -116,14 +118,14 @@ function MealDetailRows({ meal }: { meal: MealRevenue }) {
     : meal.eftpos + meal.lfyOnline + meal.uberOnline + meal.doorDash + Math.max(0, meal.cashSale ?? 0)
   const displayCashSale = meal.cashSale ?? calcCashSale(meal)
   const rows: Array<{ label: string; value: number; dim?: boolean }> = [
-    { label: 'Eftpos', value: meal.eftpos, dim: true },
+    { label: tr.eftpos_label, value: meal.eftpos, dim: true },
     { label: 'LFY Online', value: meal.lfyOnline, dim: true },
     { label: 'LFY Cards', value: meal.lfyCards, dim: true },
     { label: 'LFY Cash', value: meal.lfyCash, dim: true },
     { label: 'Uber Online', value: meal.uberOnline, dim: true },
     { label: 'DoorDash', value: meal.doorDash, dim: true },
-    { label: 'Cash Sale', value: displayCashSale, dim: true },
-    { label: 'Cash in Bag', value: meal.cashLeftInBag, dim: true },
+    { label: tr.cash_sale_label, value: displayCashSale, dim: true },
+    { label: tr.cash_in_bag_label, value: meal.cashLeftInBag, dim: true },
   ]
   return (
     <div className="space-y-0.5">
@@ -139,7 +141,7 @@ function MealDetailRows({ meal }: { meal: MealRevenue }) {
       )}
       {/* Total Sale — prominent */}
       <div className="flex justify-between items-center pt-1.5 mt-1.5 border-t border-black/10">
-        <span className="text-xs font-semibold text-gray-700">Total Sale</span>
+        <span className="text-xs font-semibold text-gray-700">{tr.total_sale_label}</span>
         <span className="text-base font-bold text-gray-900">${fmt(displayTotal)}</span>
       </div>
     </div>
@@ -175,6 +177,8 @@ function MealSection({
   const lfySup = suppliers.find((s) => s.id === 'lfy')
   const lfyCardsError = lfySup ? (meal.lfyCards + meal.lfyCash) > meal.eftpos : false
 
+  const { lang } = useShop()
+  const tr = translations[lang]
   const CHANNEL_LABELS: Record<string, string> = { online: 'Online', cards: 'Cards', cash: 'Cash' }
 
   return (
@@ -183,7 +187,7 @@ function MealSection({
       <div className="p-4 space-y-2.5">
         {/* Eftpos — always first */}
         <div className="flex items-center gap-3">
-          <label className="text-xs w-36 shrink-0 text-gray-500">Eftpos</label>
+          <label className="text-xs w-36 shrink-0 text-gray-500">{tr.eftpos_label}</label>
           <NumInput value={meal.eftpos} onChange={(v) => onFieldChange('eftpos', v)} />
         </div>
 
@@ -211,7 +215,7 @@ function MealSection({
                   />
                 </div>
                 {isError && (
-                  <p className="text-[10px] text-red-500 mt-0.5 ml-39">LFY Cards + Cash ต้องไม่เกิน Eftpos</p>
+                  <p className="text-[10px] text-red-500 mt-0.5 ml-39">{tr.lfy_cards_error}</p>
                 )}
               </div>
             )
@@ -220,21 +224,21 @@ function MealSection({
 
         {/* Total Sale */}
         <div className="flex items-center gap-3">
-          <label className="text-xs w-36 shrink-0 text-gray-500">Total Sale</label>
+          <label className="text-xs w-36 shrink-0 text-gray-500">{tr.total_sale_label}</label>
           <NumInput value={meal.totalSale} onChange={(v) => onFieldChange('totalSale', v)} />
         </div>
         {/* Cash Left in Bag */}
         <div className="flex items-center gap-3">
-          <label className="text-xs w-36 shrink-0 text-gray-500">Cash Left in Bag</label>
+          <label className="text-xs w-36 shrink-0 text-gray-500">{tr.cash_in_bag_label}</label>
           <NumInput value={meal.cashLeftInBag} onChange={(v) => onFieldChange('cashLeftInBag', v)} yellow />
         </div>
 
         <div className={`flex items-center justify-between rounded-lg px-3 py-2 ${cashSaleError ? 'bg-red-50' : 'bg-gray-50'}`}>
-          <span className={`text-xs font-medium ${cashSaleError ? 'text-red-600' : 'text-gray-600'}`}>Cash Sale (auto)</span>
+          <span className={`text-xs font-medium ${cashSaleError ? 'text-red-600' : 'text-gray-600'}`}>{tr.cash_sale_auto}</span>
           <span className={`text-sm font-bold ${cashSaleError ? 'text-red-600' : 'text-gray-700'}`}>${fmt(cashSale)}</span>
         </div>
         {cashSaleError && (
-          <p className="text-[10px] text-red-500 -mt-1">Total Sale ต้องไม่น้อยกว่า Eftpos + Online orders</p>
+          <p className="text-[10px] text-red-500 -mt-1">{tr.total_sale_error}</p>
         )}
       </div>
     </div>
