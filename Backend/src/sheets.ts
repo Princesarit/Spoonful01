@@ -147,6 +147,26 @@ export async function setSheetDataUserEntered(
   }
 }
 
+/**
+ * Append rows to a sheet at a specific 1-based row WITHOUT clearing first.
+ * Used for appending new sections (e.g., when delivery tier layout changes).
+ */
+export async function appendSheetRows(
+  sheetName: string,
+  startRow: number,  // 1-based
+  rows: (string | number | null)[][],
+  spreadsheetId = config.spreadsheetId,
+): Promise<void> {
+  await ensureSheet(sheetName, spreadsheetId)
+  if (rows.length === 0) return
+  await sheetsApi.spreadsheets.values.update({
+    spreadsheetId,
+    range: `${sheetName}!A${startRow}`,
+    valueInputOption: 'USER_ENTERED',
+    requestBody: { values: rows },
+  })
+}
+
 export type ColorRGB = { red: number; green: number; blue: number }
 export type ColorRuleBlock = {
   startRow: number; endRow: number; startCol: number; endCol: number; color: ColorRGB

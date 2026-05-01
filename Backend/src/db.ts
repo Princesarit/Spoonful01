@@ -2,7 +2,7 @@
  * Database layer — wraps Google Sheets
  */
 
-import { getSheetData, getSheetDataRaw, setSheetData, setSheetDataRaw, applyRowColors, applyTimeRecordFormatting, setSheetDataUserEntered, applyFormattingRules, getSheetIdByName, batchUpdateSheet, clearSheetMerges, hideInternalSheets, applyEmployeeSheetFormatting, applyMasterEmployeeFormatting, type EmpCategory } from './sheets'
+import { getSheetData, getSheetDataRaw, setSheetData, setSheetDataRaw, applyRowColors, applyTimeRecordFormatting, setSheetDataUserEntered, appendSheetRows, applyFormattingRules, getSheetIdByName, batchUpdateSheet, clearSheetMerges, hideInternalSheets, applyEmployeeSheetFormatting, applyMasterEmployeeFormatting, type EmpCategory } from './sheets'
 import type { SheetFormatRule } from './sheets'
 import type {
   Employee,
@@ -1691,6 +1691,21 @@ const DATE_FORMAT = { type: 'DATE',   pattern: 'dd/mm/yyyy' }
 const INT_FORMAT  = { type: 'NUMBER', pattern: '0' }
 
 
+// Parse hdr0 delivery-tier labels to get a rate signature string (maxKm values joined by comma).
+// Used to detect when the tier structure changed between syncs.
+function extractRateSig(row: unknown[]): string | null {
+  const maxKms: number[] = []
+  for (const cell of row) {
+    if (typeof cell !== 'string') continue
+    const le = cell.match(/^≤(\d+(?:\.\d+)?)km$/)
+    if (le) { maxKms.push(Number(le[1])); continue }
+    const mid = cell.match(/^>\d+(?:\.\d+)?[–\-](\d+(?:\.\d+)?)km$/)
+    if (mid) { maxKms.push(Number(mid[1])); continue }
+    if (/^>\d+(?:\.\d+)?km$/.test(cell)) { maxKms.push(9999); continue }
+  }
+  return maxKms.length > 0 ? maxKms.join(',') : null
+}
+
 async function applyIncomeFullFormat(
   sid: string,
   lo: IncomeLayout,
@@ -1698,6 +1713,7 @@ async function applyIncomeFullFormat(
   sumRowIndices: number[],
   suppliers: DeliverySupplier[],
   sheetName: string,
+  rowOffset = 0,
 ): Promise<void> {
   const sheetId = await getSheetIdByName(sid, sheetName)
   if (sheetId === undefined) return
@@ -1724,22 +1740,22 @@ async function applyIncomeFullFormat(
 
   const requests: object[] = []
   const bg  = (sr: number, er: number, sc: number, ec: number, color: object) =>
-    requests.push({ repeatCell: { range: { sheetId, startRowIndex: sr, endRowIndex: er, startColumnIndex: sc, endColumnIndex: ec }, cell: { userEnteredFormat: { backgroundColor: color } }, fields: 'userEnteredFormat.backgroundColor' } })
+    requests.push({ repeatCell: { range: { sheetId, startRowIndex: sr + rowOffset, endRowIndex: er + rowOffset, startColumnIndex: sc, endColumnIndex: ec }, cell: { userEnteredFormat: { backgroundColor: color } }, fields: 'userEnteredFormat.backgroundColor' } })
   const bold= (sr: number, er: number, sc: number, ec: number) =>
-    requests.push({ repeatCell: { range: { sheetId, startRowIndex: sr, endRowIndex: er, startColumnIndex: sc, endColumnIndex: ec }, cell: { userEnteredFormat: { textFormat: { bold: true } } }, fields: 'userEnteredFormat.textFormat.bold' } })
+    requests.push({ repeatCell: { range: { sheetId, startRowIndex: sr + rowOffset, endRowIndex: er + rowOffset, startColumnIndex: sc, endColumnIndex: ec }, cell: { userEnteredFormat: { textFormat: { bold: true } } }, fields: 'userEnteredFormat.textFormat.bold' } })
   const bdr = (sr: number, er: number, sc: number, ec: number, sides: Record<string, object>) =>
-    requests.push({ updateBorders: { range: { sheetId, startRowIndex: sr, endRowIndex: er, startColumnIndex: sc, endColumnIndex: ec }, ...sides } })
+    requests.push({ updateBorders: { range: { sheetId, startRowIndex: sr + rowOffset, endRowIndex: er + rowOffset, startColumnIndex: sc, endColumnIndex: ec }, ...sides } })
   const mrg = (sr: number, er: number, sc: number, ec: number) =>
-    requests.push({ mergeCells: { range: { sheetId, startRowIndex: sr, endRowIndex: er, startColumnIndex: sc, endColumnIndex: ec }, mergeType: 'MERGE_ALL' } })
+    requests.push({ mergeCells: { range: { sheetId, startRowIndex: sr + rowOffset, endRowIndex: er + rowOffset, startColumnIndex: sc, endColumnIndex: ec }, mergeType: 'MERGE_ALL' } })
   const cw  = (col: number, width: number) =>
     requests.push({ updateDimensionProperties: { range: { sheetId, dimension: 'COLUMNS', startIndex: col, endIndex: col + 1 }, properties: { pixelSize: width }, fields: 'pixelSize' } })
   const fgw = (sr: number, er: number, sc: number, ec: number) =>
-    requests.push({ repeatCell: { range: { sheetId, startRowIndex: sr, endRowIndex: er, startColumnIndex: sc, endColumnIndex: ec }, cell: { userEnteredFormat: { textFormat: { foregroundColor: { red: 1, green: 1, blue: 1 } } } }, fields: 'userEnteredFormat.textFormat.foregroundColor' } })
+    requests.push({ repeatCell: { range: { sheetId, startRowIndex: sr + rowOffset, endRowIndex: er + rowOffset, startColumnIndex: sc, endColumnIndex: ec }, cell: { userEnteredFormat: { textFormat: { foregroundColor: { red: 1, green: 1, blue: 1 } } } }, fields: 'userEnteredFormat.textFormat.foregroundColor' } })
 
   const SUP_HDR_COLORS: object[] = [C_LBLUE, C_LGREEN, C_HDR_WARM, C_LORANGE, C_PORANGE, C_LGRAY]
 
-  // 1. Global white reset
-  bg(0, totalRows, 0, lo.totalCols, C_WHITE)
+  // 1. Global white reset (extra columns cover any stale formatting beyond current layout)
+  bg(0, totalRows, 0, lo.totalCols + 15, C_WHITE)
 
   // 2. hdr0 (row 0) — section labels
   bg(0, 1, 0, 2, C_MGRAY)
@@ -1891,7 +1907,7 @@ async function applyIncomeFullFormat(
   bdr(2, totalRows, lo.cCashBag,lo.cCashBag+1,{ right: SOLID })
   bdr(2, totalRows, lo.sDay, lo.sDate+1, { top: SOLID, bottom: SOLID, left: SOLID, right: SOLID, innerHorizontal: SOLID, innerVertical: SOLID })
 
-  await clearSheetMerges(sid, sheetId)
+  if (rowOffset === 0) await clearSheetMerges(sid, sheetId)
   await batchUpdateSheet(sid, requests)
 }
 
@@ -1922,6 +1938,7 @@ export async function syncIncomeSheet(shopCode: string): Promise<void> {
     { maxKm: 4, fee: 0 }, { maxKm: 6, fee: 0 }, { maxKm: 9999, fee: 0 },
   ]
   const lo = incomeLayout(rates.length, suppliers)
+  const currentSig = rates.map(r => r.maxKm).join(',')
 
   const weekMap = new Map<string, RevenueEntry[]>()
   for (const e of revenue) {
@@ -1939,6 +1956,21 @@ export async function syncIncomeSheet(shopCode: string): Promise<void> {
 
   for (const [year, yearWeeks] of [...incomeYearGroups.entries()].sort(([a], [b]) => a - b)) {
   const sheetName = INCOME_SHEET(year)
+
+  // Detect whether the delivery tier structure changed since last sync
+  let rowOffset = 0
+  let existingRowCount = 0
+  try {
+    const existingRaw = await getSheetDataRaw(sheetName, sid)
+    if (existingRaw.length > 1) {
+      const existingSig = extractRateSig(existingRaw[0])
+      if (existingSig !== null && existingSig !== currentSig) {
+        existingRowCount = existingRaw.length
+        rowOffset = existingRowCount + 1  // new hdr0 is 1 row below the blank separator
+      }
+    }
+  } catch { /* sheet doesn't exist yet */ }
+
   // One header block at top; all weeks flow underneath
   const rows: (string | number | null)[][] = [makeIncomeHdr0(lo, rates, suppliers), makeIncomeHdr1(lo, suppliers)]
   const fmtRules: SheetFormatRule[] = []
@@ -2154,9 +2186,19 @@ export async function syncIncomeSheet(shopCode: string): Promise<void> {
   fmtRules.push({ startRow: 2, endRow: totalRows, startCol: 1,          endCol: 2,                numberFormat: DATE_FORMAT })
   fmtRules.push({ startRow: 2, endRow: totalRows, startCol: lo.sDate,   endCol: lo.sDate    + 1,  numberFormat: DATE_FORMAT })
 
-  await setSheetDataUserEntered(sheetName, rows, sid)
-  await applyFormattingRules(sheetName, sid, fmtRules, totalRows)
-  await applyIncomeFullFormat(sid, lo, rows.length, sumRowIndices, suppliers, sheetName)
+  const offsetRules = rowOffset === 0
+    ? fmtRules
+    : fmtRules.map(r => ({ ...r, startRow: r.startRow + rowOffset, endRow: r.endRow + rowOffset }))
+
+  if (rowOffset === 0) {
+    await setSheetDataUserEntered(sheetName, rows, sid)
+    await applyFormattingRules(sheetName, sid, fmtRules, totalRows)
+  } else {
+    const blankRow = new Array(lo.totalCols).fill('')
+    await appendSheetRows(sheetName, existingRowCount + 1, [blankRow, ...rows], sid)
+    await applyFormattingRules(sheetName, sid, offsetRules)
+  }
+  await applyIncomeFullFormat(sid, lo, rows.length, sumRowIndices, suppliers, sheetName, rowOffset)
   } // end year loop
 }
 
