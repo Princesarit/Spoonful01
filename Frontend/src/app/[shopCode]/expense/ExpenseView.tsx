@@ -49,7 +49,8 @@ const METHOD_ICON: Record<PaymentMethod, string> = {
 
 export default function ExpenseView() {
   const { shopCode } = useParams() as { shopCode: string }
-  const { lang } = useShop()
+  const { lang, session } = useShop()
+  const canEdit = session.role !== 'staff'
   const tr = translations[lang]
 
   const { showToast, toastEl } = useToast()
@@ -132,12 +133,15 @@ export default function ExpenseView() {
       <div className="flex items-center gap-2">
         <Link href={`/${shopCode}`} className="text-gray-400 hover:text-gray-600 text-sm">{tr.back}</Link>
         <h2 className="text-lg font-bold text-gray-800 flex-1">{tr.expense_title}</h2>
-        <button
-          onClick={openNew}
-          className="text-sm bg-brand-gold text-white px-3 py-1.5 rounded-lg hover:bg-brand-gold-dark cursor-pointer"
-        >
-          {tr.add}
-        </button>
+        {canEdit && (
+          <button
+            type="button"
+            onClick={openNew}
+            className="text-sm bg-brand-gold text-white px-3 py-1.5 rounded-lg hover:bg-brand-gold-dark cursor-pointer"
+          >
+            {tr.add}
+          </button>
+        )}
       </div>
 
       {/* Date filter */}
@@ -202,16 +206,24 @@ export default function ExpenseView() {
               </div>
 
               <div className="flex items-center gap-2 pt-2 border-t border-gray-50">
-                <button
-                  onClick={() => handleTogglePaid(entry.id)}
-                  className={`text-xs px-3 py-1 rounded-full font-medium cursor-pointer transition-colors ${
-                    entry.paid ? 'bg-green-100 text-green-700' : 'bg-amber-50 text-amber-600'
-                  }`}
-                >
-                  {entry.paid ? tr.paid_status : tr.unpaid_status}
-                </button>
-                <button onClick={() => openEdit(entry)} className="text-xs text-blue-500 cursor-pointer border border-blue-300 rounded px-2 py-0.5 hover:bg-blue-50">{tr.edit}</button>
-                <button onClick={() => setDeleteAudit({ entry, editorName: '', note: '' })} className="text-xs text-red-400 cursor-pointer border border-red-300 rounded px-2 py-0.5 hover:bg-red-50">{tr.delete}</button>
+                {canEdit && (
+                  <button
+                    type="button"
+                    onClick={() => handleTogglePaid(entry.id)}
+                    className={`text-xs px-3 py-1 rounded-full font-medium cursor-pointer transition-colors ${
+                      entry.paid ? 'bg-green-100 text-green-700' : 'bg-amber-50 text-amber-600'
+                    }`}
+                  >
+                    {entry.paid ? tr.paid_status : tr.unpaid_status}
+                  </button>
+                )}
+                {!canEdit && (
+                  <span className={`text-xs px-3 py-1 rounded-full font-medium ${entry.paid ? 'bg-green-100 text-green-700' : 'bg-amber-50 text-amber-600'}`}>
+                    {entry.paid ? tr.paid_status : tr.unpaid_status}
+                  </span>
+                )}
+                {canEdit && <button type="button" onClick={() => openEdit(entry)} className="text-xs text-blue-500 cursor-pointer border border-blue-300 rounded px-2 py-0.5 hover:bg-blue-50">{tr.edit}</button>}
+                {canEdit && <button type="button" onClick={() => setDeleteAudit({ entry, editorName: '', note: '' })} className="text-xs text-red-400 cursor-pointer border border-red-300 rounded px-2 py-0.5 hover:bg-red-50">{tr.delete}</button>}
               </div>
             </div>
           ))}
@@ -361,8 +373,10 @@ export default function ExpenseView() {
                 <label className="text-xs text-gray-500 block mb-1">{tr.bank_account_label}</label>
                 <input
                   type="text"
+                  inputMode="numeric"
+                  maxLength={12}
                   value={form.bankAccount ?? ''}
-                  onChange={(e) => setField('bankAccount', e.target.value)}
+                  onChange={(e) => setField('bankAccount', e.target.value.replace(/\D/g, '').slice(0, 12))}
                   placeholder={tr.bank_placeholder}
                   className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-gold"
                 />

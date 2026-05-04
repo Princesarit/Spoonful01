@@ -248,8 +248,9 @@ function MealSection({
 // ── Main component ─────────────────────────────────────────────────────────────
 export default function RevenueView() {
   const { shopCode } = useParams() as { shopCode: string }
-  const { lang } = useShop()
+  const { lang, session } = useShop()
   const tr = translations[lang]
+  const canEdit = session.role !== 'staff'
 
   const { showToast, toastEl } = useToast()
 
@@ -480,30 +481,34 @@ export default function RevenueView() {
             className="border border-gray-300 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-gold"
           />
         </div>
-        <div className="grid grid-cols-2 gap-2">
-          <button
-            onClick={() => openForm('lunch')}
-            disabled={lunchDone}
-            className={`py-2.5 rounded-xl text-sm font-semibold transition-all cursor-pointer ${
-              lunchDone
-                ? 'bg-gray-100 text-gray-400 cursor-not-allowed'
-                : 'bg-yellow-400 dark:bg-yellow-700 text-white hover:bg-yellow-500 dark:hover:bg-yellow-600 active:scale-95'
-            }`}
-          >
-            {lunchDone ? '🌞 Lunch ✓' : '🌞 Lunch'}
-          </button>
-          <button
-            onClick={() => openForm('dinner')}
-            disabled={dinnerDone}
-            className={`py-2.5 rounded-xl text-sm font-semibold transition-all cursor-pointer ${
-              dinnerDone
-                ? 'bg-gray-100 text-gray-400 cursor-not-allowed'
-                : 'bg-blue-500 dark:bg-blue-800 text-white hover:bg-blue-600 dark:hover:bg-blue-700 active:scale-95'
-            }`}
-          >
-            {dinnerDone ? '🌙 Dinner ✓' : '🌙 Dinner'}
-          </button>
-        </div>
+        {canEdit && (
+          <div className="grid grid-cols-2 gap-2">
+            <button
+              type="button"
+              onClick={() => openForm('lunch')}
+              disabled={lunchDone}
+              className={`py-2.5 rounded-xl text-sm font-semibold transition-all cursor-pointer ${
+                lunchDone
+                  ? 'bg-gray-100 text-gray-400 cursor-not-allowed'
+                  : 'bg-yellow-400 dark:bg-yellow-700 text-white hover:bg-yellow-500 dark:hover:bg-yellow-600 active:scale-95'
+              }`}
+            >
+              {lunchDone ? '🌞 Lunch ✓' : '🌞 Lunch'}
+            </button>
+            <button
+              type="button"
+              onClick={() => openForm('dinner')}
+              disabled={dinnerDone}
+              className={`py-2.5 rounded-xl text-sm font-semibold transition-all cursor-pointer ${
+                dinnerDone
+                  ? 'bg-gray-100 text-gray-400 cursor-not-allowed'
+                  : 'bg-blue-500 dark:bg-blue-800 text-white hover:bg-blue-600 dark:hover:bg-blue-700 active:scale-95'
+              }`}
+            >
+              {dinnerDone ? '🌙 Dinner ✓' : '🌙 Dinner'}
+            </button>
+          </div>
+        )}
       </div>
 
       {/* Entry card for the selected date */}
@@ -535,7 +540,7 @@ export default function RevenueView() {
                   {dayEntry.lunchRecorderName && (
                     <span className="text-[10px] text-yellow-600">👤 {dayEntry.lunchRecorderName}</span>
                   )}
-                  {lunchDone && (
+                  {lunchDone && canEdit && (
                     <>
                       <button onClick={() => openEdit(dayEntry, 'lunch')} className="text-[10px] text-blue-600 bg-blue-50 hover:bg-blue-100 px-2 py-0.5 rounded-md cursor-pointer transition-colors">{tr.edit}</button>
                       <button onClick={() => { setDeleteMealEditor(''); setDeleteMealNote(''); setDeleteMealAudit({ id: dayEntry.id, date: dayEntry.date, mode: 'lunch' }) }} className="text-[10px] text-red-500 bg-red-50 hover:bg-red-100 px-2 py-0.5 rounded-md cursor-pointer transition-colors">{tr.delete}</button>
@@ -550,16 +555,16 @@ export default function RevenueView() {
                 (dayEntry.lunchFrontExtra || dayEntry.lunchKitchenExtra) ? (
                   <div className="flex justify-between items-center text-[10px] text-purple-600 dark:text-purple-300 bg-purple-50 rounded-md px-2 py-1 mt-2">
                     <span>Extra: Front ${fmt(dayEntry.lunchFrontExtra ?? 0)} / Kitchen ${fmt(dayEntry.lunchKitchenExtra ?? 0)}</span>
-                    <button onClick={() => openExtraModal(dayEntry, 'lunch')} className="text-blue-500 cursor-pointer">Edit</button>
+                    {canEdit && <button type="button" onClick={() => openExtraModal(dayEntry, 'lunch')} className="text-blue-500 cursor-pointer">Edit</button>}
                   </div>
-                ) : (
+                ) : canEdit ? (
                   <button
                     onClick={() => openExtraModal(dayEntry, 'lunch')}
                     className="w-full mt-2 py-1 rounded-lg text-[10px] font-semibold border border-dashed border-purple-300 dark:border-purple-700 text-purple-400 dark:text-purple-300 hover:bg-purple-50 dark:hover:bg-purple-900/20 transition-colors cursor-pointer"
                   >
                     + Extra (ค่าแรงพิเศษ)
                   </button>
-                )
+                ) : null
               )}
             </div>
 
@@ -581,7 +586,7 @@ export default function RevenueView() {
                   {dayEntry.dinnerRecorderName && (
                     <span className="text-[10px] text-blue-600">👤 {dayEntry.dinnerRecorderName}</span>
                   )}
-                  {dinnerDone && (
+                  {dinnerDone && canEdit && (
                     <>
                       <button onClick={() => openEdit(dayEntry, 'dinner')} className="text-[10px] text-blue-600 bg-blue-50 hover:bg-blue-100 px-2 py-0.5 rounded-md cursor-pointer transition-colors">{tr.edit}</button>
                       <button onClick={() => { setDeleteMealEditor(''); setDeleteMealNote(''); setDeleteMealAudit({ id: dayEntry.id, date: dayEntry.date, mode: 'dinner' }) }} className="text-[10px] text-red-500 bg-red-50 hover:bg-red-100 px-2 py-0.5 rounded-md cursor-pointer transition-colors">{tr.delete}</button>
@@ -596,16 +601,17 @@ export default function RevenueView() {
                 (dayEntry.dinnerFrontExtra || dayEntry.dinnerKitchenExtra) ? (
                   <div className="flex justify-between items-center text-[10px] text-purple-600 dark:text-purple-300 bg-purple-50 rounded-md px-2 py-1 mt-2">
                     <span>Extra: Front ${fmt(dayEntry.dinnerFrontExtra ?? 0)} / Kitchen ${fmt(dayEntry.dinnerKitchenExtra ?? 0)}</span>
-                    <button onClick={() => openExtraModal(dayEntry, 'dinner')} className="text-blue-500 cursor-pointer">Edit</button>
+                    {canEdit && <button type="button" onClick={() => openExtraModal(dayEntry, 'dinner')} className="text-blue-500 cursor-pointer">Edit</button>}
                   </div>
-                ) : (
+                ) : canEdit ? (
                   <button
+                    type="button"
                     onClick={() => openExtraModal(dayEntry, 'dinner')}
                     className="w-full mt-2 py-1 rounded-lg text-[10px] font-semibold border border-dashed border-purple-300 dark:border-purple-700 text-purple-400 dark:text-purple-300 hover:bg-purple-50 dark:hover:bg-purple-900/20 transition-colors cursor-pointer"
                   >
                     + Extra (ค่าแรงพิเศษ)
                   </button>
-                )
+                ) : null
               )}
             </div>
           </div>

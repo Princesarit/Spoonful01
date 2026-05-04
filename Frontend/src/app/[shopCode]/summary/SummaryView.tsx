@@ -703,9 +703,10 @@ function NoteField({
   date: string
   initialNote: string
 }) {
-  const { lang } = useShop()
+  const { lang, session } = useShop()
   const tr = translations[lang]
   const { showToast } = useToast()
+  const canEdit = session.role !== 'staff'
   const [note, setNote] = useState(initialNote)
   const [editing, setEditing] = useState(false)
   const [saving, setSaving] = useState(false)
@@ -755,8 +756,13 @@ function NoteField({
     )
   }
 
+  if (!canEdit) {
+    return note ? <p className="mt-2 text-xs text-gray-600 italic">📝 {note}</p> : null
+  }
+
   return (
     <button
+      type="button"
       onClick={() => setEditing(true)}
       className="mt-2 text-left w-full cursor-pointer"
     >
@@ -1624,13 +1630,19 @@ export default function SummaryView() {
                               </td>
                               <td className="px-2 py-2 text-right font-semibold text-gray-800 whitespace-nowrap">{e.total.toFixed(2)}</td>
                               <td className="px-2 py-2 text-center">
-                                <button
-                                  type="button"
-                                  onClick={() => updatePanelExp(e.id, 'paid', !e.paid)}
-                                  className={`px-1.5 py-0.5 rounded text-white text-[10px] font-bold cursor-pointer ${e.paid ? 'bg-green-500' : 'bg-red-500'}`}
-                                >
-                                  {e.paid ? 'Paid' : 'Unpaid'}
-                                </button>
+                                {session.role !== 'staff' ? (
+                                  <button
+                                    type="button"
+                                    onClick={() => updatePanelExp(e.id, 'paid', !e.paid)}
+                                    className={`px-1.5 py-0.5 rounded text-white text-[10px] font-bold cursor-pointer ${e.paid ? 'bg-green-500' : 'bg-red-500'}`}
+                                  >
+                                    {e.paid ? 'Paid' : 'Unpaid'}
+                                  </button>
+                                ) : (
+                                  <span className={`px-1.5 py-0.5 rounded text-white text-[10px] font-bold ${e.paid ? 'bg-green-500' : 'bg-red-500'}`}>
+                                    {e.paid ? 'Paid' : 'Unpaid'}
+                                  </span>
+                                )}
                               </td>
                             </tr>
                           )

@@ -1,5 +1,5 @@
 import { Router, Request, Response } from 'express'
-import { listShops, saveShops, invalidateShopCache, migrateShopToOwnSpreadsheet, syncAllEmployeesToMaster } from '../db'
+import { listShops, saveShops, invalidateShopCache, migrateShopToOwnSpreadsheet, syncAllEmployeesToMaster, appendAuditLog } from '../db'
 import { assertSpreadsheetAccess } from '../sheets'
 import { config } from '../config'
 import type { StoredShop } from '../types'
@@ -145,6 +145,16 @@ router.post('/change-owner-password', async (req: Request, res: Response) => {
     }
     const updated = all.map((s) => ({ ...s, ownerPassword: newPassword }))
     await saveShops(updated)
+    // Log to every shop's edit_log
+    await Promise.allSettled(
+      all.map((s) => appendAuditLog(s.code, {
+        editorName: 'Owner',
+        employeeName: '',
+        shift: '',
+        changes: 'ownerPassword: changed',
+        note: 'Change Owner Password',
+      }))
+    )
     res.json({ ok: true })
   } catch {
     res.status(500).json({ error: 'Server error' })

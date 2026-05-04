@@ -90,7 +90,7 @@ export default function EmployeeView({
   const [nameError, setNameError] = useState('')
   const [deleteAudit, setDeleteAudit] = useState<{ emp: Employee; editorName: string; note: string } | null>(null)
 
-  const isOwner = true
+  const isOwner = role !== 'staff'
   const isOwnerOnly = role === 'owner'
   const filtered = employees.filter((e) => {
     if (filter !== 'all' && !e.positions.includes(filter)) return false

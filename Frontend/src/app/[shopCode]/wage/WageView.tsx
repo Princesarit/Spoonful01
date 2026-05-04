@@ -57,7 +57,8 @@ const inputCls = 'w-14 border border-gray-300 rounded px-1 py-0.5 text-center fo
 
 export default function WageView() {
   const { shopCode } = useParams() as { shopCode: string }
-  const { lang } = useShop()
+  const { lang, session } = useShop()
+  const canEdit = session.role !== 'staff'
   const tr = translations[lang]
   const DAY_SHORT = lang === 'en' ? DAY_SHORT_EN : DAY_SHORT_TH
   const { showToast, toastEl } = useToast()
@@ -219,12 +220,14 @@ export default function WageView() {
           </div>
           {!loading && employees.length > 0 && (
             <>
-              <button
-                onClick={() => { setEditMode((v) => !v); setSaved(false) }}
-                className={`px-4 py-2.5 rounded-xl text-sm font-semibold cursor-pointer whitespace-nowrap transition-colors border ${editMode ? 'bg-yellow-100 border-yellow-400 text-yellow-800 hover:bg-yellow-200' : 'bg-white border-gray-300 text-gray-700 hover:bg-gray-50'}`}
-              >
-                {editMode ? `✏️ ${tr.editing}` : `✏️ ${tr.edit}`}
-              </button>
+              {canEdit && (
+                <button
+                  onClick={() => { setEditMode((v) => !v); setSaved(false) }}
+                  className={`px-4 py-2.5 rounded-xl text-sm font-semibold cursor-pointer whitespace-nowrap transition-colors border ${editMode ? 'bg-yellow-100 border-yellow-400 text-yellow-800 hover:bg-yellow-200' : 'bg-white border-gray-300 text-gray-700 hover:bg-gray-50'}`}
+                >
+                  {editMode ? `✏️ ${tr.editing}` : `✏️ ${tr.edit}`}
+                </button>
+              )}
               <button
                 onClick={handleSave}
                 disabled={saving}
