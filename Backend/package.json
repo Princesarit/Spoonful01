@@ -13,6 +13,7 @@
     "cors": "^2.8.6",
     "dotenv": "^16.6.1",
     "express": "^4.22.1",
+    "express-rate-limit": "^8.4.1",
     "googleapis": "^144.0.0",
     "jsonwebtoken": "^9.0.3",
     "uuid": "^10.0.0"

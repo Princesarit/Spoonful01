@@ -1762,7 +1762,7 @@ async function applyIncomeFullFormat(
   bg(0, 1, 2, lo.lEftpos, C_VDGRAY)
   bg(0, 1, lo.lEftpos, lo.gap1, C_XDGRAY)
   bg(0, 1, lo.dEftpos, lo.gap2, C_VDGRAY)
-  bg(0, 1, lo.cEftpos, lo.surcharge, C_LBLUE)
+  bg(0, 1, lo.cEftpos, lo.surcharge, C_MGRAY)
   bg(0, 1, lo.surcharge, lo.surcharge+1, C_DGRAY)
   bg(0, 1, lo.running, lo.totalCols, C_MGRAY)
   bg(0, 1, lo.gap3, lo.gap4+1, C_WHITE)
@@ -1973,13 +1973,18 @@ export async function syncIncomeSheet(shopCode: string): Promise<void> {
     }
   } catch { /* sheet doesn't exist yet */ }
 
+  // In append mode, only write weeks from the current week onwards
+  // (historical weeks stay in the old section with the old layout)
+  const currentWeekStr = getMondayStr(new Date().toISOString().split('T')[0])
+  const weeksToWrite = rowOffset === 0 ? yearWeeks : yearWeeks.filter(w => w >= currentWeekStr)
+
   // One header block at top; all weeks flow underneath
   const rows: (string | number | null)[][] = [makeIncomeHdr0(lo, rates, suppliers), makeIncomeHdr1(lo, suppliers)]
   const fmtRules: SheetFormatRule[] = []
   const sumRowIndices: number[] = []
 
-  for (let wi = 0; wi < yearWeeks.length; wi++) {
-    const monday = yearWeeks[wi]
+  for (let wi = 0; wi < weeksToWrite.length; wi++) {
+    const monday = weeksToWrite[wi]
     const weekDates = getWeekDates(monday)
     const weekEntries = weekMap.get(monday)!
     const s1 = rows.length + 1   // 1-based first data row of this week

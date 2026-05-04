@@ -14,7 +14,7 @@ export function requireAuth(req: AuthRequest, res: Response, next: NextFunction)
     return
   }
   try {
-    req.session = jwt.verify(token, config.jwtSecret) as Session
+    req.session = jwt.verify(token, config.jwtSecret , { algorithms: ['HS256'] }) as Session
     next()
   } catch {
     res.status(401).json({ error: 'Invalid token' })

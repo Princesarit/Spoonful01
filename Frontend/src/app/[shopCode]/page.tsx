@@ -98,6 +98,8 @@ export default function HomePage() {
   const [showManagerModal, setShowManagerModal] = useState(false)
   const [showOwnerModal, setShowOwnerModal] = useState(false)
   const [stats, setStats] = useState<Stats | null>(null)
+  const [statsLoading, setStatsLoading] = useState(true)
+  const [staffLoading, setStaffLoading] = useState(true)
   const [shift, setShift] = useState<Shift>('total')
   const [staffCounts, setStaffCounts] = useState<{
     morning: number; evening: number; total: number
@@ -130,48 +132,58 @@ export default function HomePage() {
 
   useEffect(() => {
     const todayDate = today()
-    getRevenueData(shopCode).then(({ entries }) => {
-      const todayEntries = entries.filter((e) => e.date === todayDate)
-      const lunchBills  = todayEntries.reduce((s, e) => s + (e.lunchLfyBills ?? 0) + (e.lunchUberBills ?? 0) + (e.lunchDoorDashBills ?? 0), 0)
-      const dinnerBills = todayEntries.reduce((s, e) => s + (e.dinnerLfyBills ?? 0) + (e.dinnerUberBills ?? 0) + (e.dinnerDoorDashBills ?? 0), 0)
-      setStats({
-        lunchSales:  todayEntries.reduce((s, e) => s + mealTotal(e.lunch), 0),
-        dinnerSales: todayEntries.reduce((s, e) => s + mealTotal(e.dinner), 0),
-        lunchBills, dinnerBills, totalBills: lunchBills + dinnerBills,
-      })
-    }).catch(() => {})
+    setStatsLoading(true)
+    setStaffLoading(true)
 
-    getScheduleData(shopCode).then(({ employees, schedules }) => {
-      const now = new Date()
-      const dayOfWeek = now.getDay()
-      const dayIdx = dayOfWeek === 0 ? 6 : dayOfWeek - 1
-      const d = new Date(now)
-      d.setDate(d.getDate() - (dayOfWeek === 0 ? 6 : dayOfWeek - 1))
-      d.setHours(0, 0, 0, 0)
-      const weekStr = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
-      const currentSchedule = schedules.find((s) => s.weekStart === weekStr)
-      if (!currentSchedule) return
-
-      const empMap = new Map(employees.map((e) => [e.id, e]))
-      const countPos = (entries: typeof currentSchedule.entries) => {
-        const ids = new Set(entries.map((e) => e.employeeId))
-        let front = 0, kitchen = 0, home = 0
-        ids.forEach((id) => {
-          const pos = empMap.get(id)?.positions ?? []
-          if (pos.includes('Front'))   front++
-          if (pos.includes('Kitchen')) kitchen++
-          if (pos.includes('Home'))    home++
+    // Both fetches start simultaneously — neither waits for the other
+    getRevenueData(shopCode)
+      .then(({ entries }) => {
+        const todayEntries = entries.filter((e) => e.date === todayDate)
+        const lunchBills  = todayEntries.reduce((s, e) => s + (e.lunchLfyBills ?? 0) + (e.lunchUberBills ?? 0) + (e.lunchDoorDashBills ?? 0), 0)
+        const dinnerBills = todayEntries.reduce((s, e) => s + (e.dinnerLfyBills ?? 0) + (e.dinnerUberBills ?? 0) + (e.dinnerDoorDashBills ?? 0), 0)
+        setStats({
+          lunchSales:  todayEntries.reduce((s, e) => s + mealTotal(e.lunch), 0),
+          dinnerSales: todayEntries.reduce((s, e) => s + mealTotal(e.dinner), 0),
+          lunchBills, dinnerBills, totalBills: lunchBills + dinnerBills,
         })
-        return { front, kitchen, home }
-      }
-      const amEntries  = currentSchedule.entries.filter((e) => e.days[dayIdx * 2] != null)
-      const pmEntries  = currentSchedule.entries.filter((e) => e.days[dayIdx * 2 + 1] != null)
-      const allEntries = currentSchedule.entries.filter((e) => e.days[dayIdx * 2] != null || e.days[dayIdx * 2 + 1] != null)
-      setStaffCounts({
-        morning: amEntries.length, evening: pmEntries.length, total: allEntries.length,
-        amPos: countPos(amEntries), pmPos: countPos(pmEntries), totalPos: countPos(allEntries),
       })
-    }).catch(() => {})
+      .catch(() => setStats(null))
+      .finally(() => setStatsLoading(false))
+
+    getScheduleData(shopCode)
+      .then(({ employees, schedules }) => {
+        const now = new Date()
+        const dayOfWeek = now.getDay()
+        const dayIdx = dayOfWeek === 0 ? 6 : dayOfWeek - 1
+        const d = new Date(now)
+        d.setDate(d.getDate() - (dayOfWeek === 0 ? 6 : dayOfWeek - 1))
+        d.setHours(0, 0, 0, 0)
+        const weekStr = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+        const currentSchedule = schedules.find((s) => s.weekStart === weekStr)
+        if (!currentSchedule) { setStaffCounts(null); return }
+
+        const empMap = new Map(employees.map((e) => [e.id, e]))
+        const countPos = (entries: typeof currentSchedule.entries) => {
+          const ids = new Set(entries.map((e) => e.employeeId))
+          let front = 0, kitchen = 0, home = 0
+          ids.forEach((id) => {
+            const pos = empMap.get(id)?.positions ?? []
+            if (pos.includes('Front'))   front++
+            if (pos.includes('Kitchen')) kitchen++
+            if (pos.includes('Home'))    home++
+          })
+          return { front, kitchen, home }
+        }
+        const amEntries  = currentSchedule.entries.filter((e) => e.days[dayIdx * 2] != null)
+        const pmEntries  = currentSchedule.entries.filter((e) => e.days[dayIdx * 2 + 1] != null)
+        const allEntries = currentSchedule.entries.filter((e) => e.days[dayIdx * 2] != null || e.days[dayIdx * 2 + 1] != null)
+        setStaffCounts({
+          morning: amEntries.length, evening: pmEntries.length, total: allEntries.length,
+          amPos: countPos(amEntries), pmPos: countPos(pmEntries), totalPos: countPos(allEntries),
+        })
+      })
+      .catch(() => setStaffCounts(null))
+      .finally(() => setStaffLoading(false))
   }, [shopCode])
 
   const NAV_ITEMS = [
@@ -246,9 +258,13 @@ export default function HomePage() {
               <span className="text-[10px] px-1.5 py-0.5 rounded-full font-semibold"
                 style={{ background: sc.badge, color: sc.text }}>{shiftLabel}</span>
             </div>
-            <span className="text-lg font-bold text-gray-900">
-              {sales != null ? `$${sales.toLocaleString()}` : '—'}
-            </span>
+            {statsLoading ? (
+              <span className="text-lg font-bold text-gray-300 animate-pulse">···</span>
+            ) : (
+              <span className="text-lg font-bold text-gray-900">
+                {sales != null ? `$${sales.toLocaleString()}` : '—'}
+              </span>
+            )}
             <span className="text-xs text-gray-400">
               {shift === 'am' ? 'Lunch' : shift === 'pm' ? 'Dinner' : lang === 'th' ? 'ทั้งวัน' : 'All day'}
             </span>
@@ -260,16 +276,20 @@ export default function HomePage() {
               <span className="text-[10px] px-1.5 py-0.5 rounded-full font-semibold"
                 style={{ background: sc.badge, color: sc.text }}>{shiftLabel}</span>
             </div>
-            <span className="text-lg font-bold text-gray-900">{staff ?? '—'}</span>
-            {pos ? (
+            {staffLoading ? (
+              <span className="text-lg font-bold text-gray-300 animate-pulse">···</span>
+            ) : (
+              <span className="text-lg font-bold text-gray-900">{staff ?? '—'}</span>
+            )}
+            {!staffLoading && pos ? (
               <div className="flex gap-1 flex-wrap mt-1">
                 {pos.front   > 0 && <span className="text-[10px] bg-blue-50 text-blue-600 px-1.5 py-0.5 rounded-full font-medium">F·{pos.front}</span>}
                 {pos.kitchen > 0 && <span className="text-[10px] bg-amber-50 text-amber-600 px-1.5 py-0.5 rounded-full font-medium">K·{pos.kitchen}</span>}
                 {pos.home    > 0 && <span className="text-[10px] bg-green-50 text-green-600 px-1.5 py-0.5 rounded-full font-medium">H·{pos.home}</span>}
               </div>
-            ) : (
+            ) : !staffLoading ? (
               <span className="text-xs text-gray-400">{lang === 'th' ? 'ตามตาราง' : 'from schedule'}</span>
-            )}
+            ) : null}
           </div>
 
           <div className={statCls}>
@@ -278,7 +298,11 @@ export default function HomePage() {
               <span className="text-[10px] px-1.5 py-0.5 rounded-full font-semibold"
                 style={{ background: sc.badge, color: sc.text }}>{shiftLabel}</span>
             </div>
-            <span className="text-lg font-bold text-gray-900">{bills ?? '—'}</span>
+            {statsLoading ? (
+              <span className="text-lg font-bold text-gray-300 animate-pulse">···</span>
+            ) : (
+              <span className="text-lg font-bold text-gray-900">{bills ?? '—'}</span>
+            )}
             <span className="text-xs text-gray-400">{lang === 'th' ? 'จำนวน Bill' : 'total bills'}</span>
           </div>
 

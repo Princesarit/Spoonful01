@@ -1,6 +1,7 @@
 import 'dotenv/config'
 import express from 'express'
 import cors from 'cors'
+import rateLimit from 'express-rate-limit'
 import { config } from './config'
 import authRoutes from './routes/auth'
 import shopRoutes from './routes/shops'
@@ -18,8 +19,37 @@ import cashReportRoutes from './routes/cashReport'
 
 const app = express()
 
+// ── Rate limiters ─────────────────────────────────────────────────────────────
+// Strict limit on login/elevate to prevent brute-force password guessing
+const loginLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,  // 15 minutes
+  max: 10,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'พยายามเข้าสู่ระบบมากเกินไป กรุณารอ 15 นาทีแล้วลองใหม่' },
+})
+
+const elevateLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 5,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'พยายาม elevate มากเกินไป กรุณารอ 15 นาทีแล้วลองใหม่' },
+})
+
+// General limiter — protects all other endpoints from bulk automated requests
+const generalLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 300,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Too many requests, please try again later.' },
+  skip: (req) => req.method === 'GET',  // GET requests are read-only, no strict limit needed
+})
+
 app.use(cors())
 app.use(express.json())
+app.use(generalLimiter)
 
 // Request logger
 app.use((req, _res, next) => {
@@ -31,6 +61,8 @@ app.use((req, _res, next) => {
 app.get('/health', (_req, res) => res.json({ ok: true }))
 
 // Routes
+app.post('/auth/login', loginLimiter)
+app.post('/auth/elevate', elevateLimiter)
 app.use('/auth', authRoutes)
 app.use('/shops', shopRoutes)
 app.use('/:shopCode/employees', employeeRoutes)
