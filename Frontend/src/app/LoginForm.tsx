@@ -131,7 +131,7 @@ function BranchManagerModal({
                   {editing?.code === shop.code ? (
                     <div className="border border-amber-700/40 rounded-xl p-3 space-y-2 bg-amber-900/20">
                       <input value={editing.name} onChange={(e) => setEditing({ ...editing, name: e.target.value })} placeholder="ชื่อสาขา" className={inputCls} />
-                      <input type="password" value={editing.restaurantPassword} onChange={(e) => setEditing({ ...editing, restaurantPassword: e.target.value })} placeholder="Staff Password" className={inputCls} />
+                      <input type="password" value={editing.restaurantPassword} onChange={(e) => setEditing({ ...editing, restaurantPassword: e.target.value })} placeholder="Restaurant Password" className={inputCls} />
                       <input type="password" value={editing.managerPassword} onChange={(e) => setEditing({ ...editing, managerPassword: e.target.value })} placeholder="Manager Password" className={inputCls} />
                       <input required value={editing.spreadsheetId ?? ''} onChange={(e) => setEditing({ ...editing, spreadsheetId: e.target.value })} placeholder="Spreadsheet ID" className={inputCls} />
                       <div className="flex gap-2">
@@ -179,7 +179,7 @@ function BranchManagerModal({
                   </button>
                 </div>
                 <input value={newForm.name} onChange={(e) => setNewForm({ ...newForm, name: e.target.value })} placeholder="ชื่อสาขา" className={inputCls} />
-                <input type="password" value={newForm.restaurantPassword} onChange={(e) => setNewForm({ ...newForm, restaurantPassword: e.target.value })} placeholder="Staff Password" className={inputCls} />
+                <input type="password" value={newForm.restaurantPassword} onChange={(e) => setNewForm({ ...newForm, restaurantPassword: e.target.value })} placeholder="Restaurant Password" className={inputCls} />
                 <input type="password" value={newForm.managerPassword} onChange={(e) => setNewForm({ ...newForm, managerPassword: e.target.value })} placeholder="Manager Password" className={inputCls} />
                 <input required value={newForm.spreadsheetId ?? ''} onChange={(e) => setNewForm({ ...newForm, spreadsheetId: e.target.value })} placeholder="Spreadsheet ID" className={inputCls} />
                 <div className="flex gap-2">
@@ -310,24 +310,11 @@ export default function LoginForm({ shops: initialShops }: { shops: ShopConfig[]
       {/* Content */}
       <div className="relative z-10 flex flex-col items-center text-center px-6 w-full max-w-2xl">
 
-        {/* Welcome to */}
-        <p className="text-white/75 text-base tracking-[0.35em] mb-1 italic font-light">
-          Welcome to
-        </p>
-
-        {/* SPOONFUL */}
-        <h1 className="font-brand text-[clamp(2.8rem,7.5vw,5rem)] text-white tracking-[0.15em] leading-none mb-3">
-          SPOONFUL
+        {/* Restaurant management system */}
+        <h1 className="font-brand text-[clamp(1.2rem,2.8vw,1.8rem)] text-white tracking-[0.15em] leading-snug mb-8">
+          <span className="block whitespace-nowrap">Restaurant</span>
+          <span className="block whitespace-nowrap">management system</span>
         </h1>
-
-        {/* ── Thai Cuisine ── */}
-        <div className="flex items-center justify-center gap-4 mb-8 w-full max-w-xs">
-          <div className="flex-1 h-px bg-amber-400/70" />
-          <span className="text-amber-300 tracking-[0.4em] text-sm font-light whitespace-nowrap">
-            Thai Cuisine
-          </span>
-          <div className="flex-1 h-px bg-amber-400/70" />
-        </div>
 
         {/* Logo */}
         <div className="mb-8">
@@ -339,15 +326,6 @@ export default function LoginForm({ shops: initialShops }: { shops: ShopConfig[]
             className="rounded-full object-cover"
             priority
           />
-        </div>
-
-        {/* ── Restaurant management system ── */}
-        <div className="flex items-center justify-center gap-3 mb-10 w-full max-w-sm">
-          <div className="flex-1 h-px bg-white/30" />
-          <span className="text-white/60 tracking-[0.25em] text-sm whitespace-nowrap">
-            Restaurant management system
-          </span>
-          <div className="flex-1 h-px bg-white/30" />
         </div>
 
         {/* Please Select */}

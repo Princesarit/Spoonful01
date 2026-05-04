@@ -1893,7 +1893,9 @@ async function applyIncomeFullFormat(
   cw(lo.gap3, 81);      cw(lo.gap4, 84)
   cw(lo.sEffTot, 118);  cw(lo.sCashBag, 128)
 
-  // 8. Borders
+  // 8. Borders — apply light gray default grid first, then overlay actual borders
+  const LGRAY_EDGE = { style: 'SOLID', color: { red: 0.8, green: 0.8, blue: 0.8 } }
+  requests.push({ repeatCell: { range: { sheetId, startRowIndex: rowOffset, endRowIndex: 2000, startColumnIndex: 0, endColumnIndex: lo.totalCols + 15 }, cell: { userEnteredFormat: { borders: { top: LGRAY_EDGE, bottom: LGRAY_EDGE, left: LGRAY_EDGE, right: LGRAY_EDGE } } }, fields: 'userEnteredFormat.borders' } })
   bdr(0, totalRows, 0, lo.delTotal+1, { top: SOLID, bottom: SOLID, left: SOLID, right: SOLID, innerHorizontal: SOLID, innerVertical: SOLID })
   bdr(2, totalRows, lo.lTotal,  lo.lTotal+1,  { right: SOLID })
   bdr(2, totalRows, lo.lCash,   lo.lCash+1,   { right: SOLID })
@@ -2245,6 +2247,10 @@ async function applyWageFullFormat(
   const SOLID_THICK  = { style: 'SOLID_THICK',  color: BLACK }
 
   const requests: object[] = []
+
+  // Apply light gray default grid first, then overlay actual borders
+  const LGRAY_WAGE = { style: 'SOLID', color: { red: 0.8, green: 0.8, blue: 0.8 } }
+  requests.push({ repeatCell: { range: { sheetId, startRowIndex: 0, endRowIndex: 2000, startColumnIndex: 0, endColumnIndex: WAGE_COL_COUNT }, cell: { userEnteredFormat: { borders: { top: LGRAY_WAGE, bottom: LGRAY_WAGE, left: LGRAY_WAGE, right: LGRAY_WAGE } } }, fields: 'userEnteredFormat.borders' } })
 
   const mrg = (sr: number, er: number, sc: number, ec: number) =>
     requests.push({ mergeCells: { range: { sheetId, startRowIndex: sr, endRowIndex: er, startColumnIndex: sc, endColumnIndex: ec }, mergeType: 'MERGE_ALL' } })
@@ -2972,6 +2978,10 @@ export async function syncSumSheet(shopCode: string): Promise<void> {
   const SOLID_BLK = { style: 'SOLID', width: 1, color: { red: 0, green: 0, blue: 0, alpha: 1 } }
   const borderReqs: object[] = []
 
+  // Apply light gray default grid first, then overlay actual borders
+  const LGRAY_SUM = { style: 'SOLID', color: { red: 0.8, green: 0.8, blue: 0.8 } }
+  borderReqs.push({ repeatCell: { range: { sheetId, startRowIndex: 0, endRowIndex: 2000, startColumnIndex: 0, endColumnIndex: SUM_COL_COUNT }, cell: { userEnteredFormat: { borders: { top: LGRAY_SUM, bottom: LGRAY_SUM, left: LGRAY_SUM, right: LGRAY_SUM } } }, fields: 'userEnteredFormat.borders' } })
+
   for (let wi = 0; wi < yearWeeks.length; wi++) {
     const bs  = blockStarts[wi]
     const bsz = blockSizes[wi]
@@ -3077,11 +3087,11 @@ export async function syncOverAllSheet(shopCode: string): Promise<void> {
   if (sheetId !== undefined) {
     const solidThin = { style: 'SOLID', color: { red: 0, green: 0, blue: 0 } }
     await batchUpdateSheet(sid, [
-      // Clear stale borders from all rows
+      // Apply light gray default grid first, then overlay actual borders
       {
         repeatCell: {
           range: { sheetId, startRowIndex: 0, endRowIndex: 1000 },
-          cell: { userEnteredFormat: { borders: { top: { style: 'NONE' }, bottom: { style: 'NONE' }, left: { style: 'NONE' }, right: { style: 'NONE' } } } },
+          cell: { userEnteredFormat: { borders: { top: { style: 'SOLID', color: { red: 0.8, green: 0.8, blue: 0.8 } }, bottom: { style: 'SOLID', color: { red: 0.8, green: 0.8, blue: 0.8 } }, left: { style: 'SOLID', color: { red: 0.8, green: 0.8, blue: 0.8 } }, right: { style: 'SOLID', color: { red: 0.8, green: 0.8, blue: 0.8 } } } } },
           fields: 'userEnteredFormat.borders',
         },
       },

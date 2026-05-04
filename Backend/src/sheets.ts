@@ -544,16 +544,14 @@ export async function applyEmployeeSheetFormatting(
     },
   })
 
-  // 2. Clear ALL borders (entire sheet) — removes stale borders from previous saves
+  // 2. Apply light gray default grid (removes stale borders, mimics Google Sheets default)
+  const LGRAY_EMP = { style: 'SOLID' as const, color: { red: 0.8, green: 0.8, blue: 0.8 } }
   requests.push({
     repeatCell: {
       range: { sheetId, startRowIndex: 0, endRowIndex: gridRowCount },
       cell: {
         userEnteredFormat: {
-          borders: {
-            top: { style: 'NONE' }, bottom: { style: 'NONE' },
-            left: { style: 'NONE' }, right: { style: 'NONE' },
-          },
+          borders: { top: LGRAY_EMP, bottom: LGRAY_EMP, left: LGRAY_EMP, right: LGRAY_EMP },
         },
       },
       fields: 'userEnteredFormat.borders',
@@ -704,15 +702,14 @@ export async function applyMasterEmployeeFormatting(
       fields: 'userEnteredFormat.backgroundColor',
     },
   })
+  // Apply light gray default grid (removes stale borders, mimics Google Sheets default)
+  const LGRAY_MEMP = { style: 'SOLID' as const, color: { red: 0.8, green: 0.8, blue: 0.8 } }
   requests.push({
     repeatCell: {
       range: { sheetId, startRowIndex: 0, endRowIndex: gridRowCount },
       cell: {
         userEnteredFormat: {
-          borders: {
-            top: { style: 'NONE' }, bottom: { style: 'NONE' },
-            left: { style: 'NONE' }, right: { style: 'NONE' },
-          },
+          borders: { top: LGRAY_MEMP, bottom: LGRAY_MEMP, left: LGRAY_MEMP, right: LGRAY_MEMP },
         },
       },
       fields: 'userEnteredFormat.borders',
