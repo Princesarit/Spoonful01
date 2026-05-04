@@ -842,9 +842,9 @@ export default function RevenueView() {
             {/* Note — required if cashLeftInBag ≠ cashSale */}
             {(() => {
               const currentMeal = mode === 'lunch' ? form.lunch : form.dinner
-              const cashSaleVal = currentMeal.totalSale - currentMeal.eftpos - currentMeal.lfyOnline - currentMeal.uberOnline - currentMeal.doorDash
+              const cashSaleVal = calcCashSale(currentMeal)
               const cashSaleInvalid = cashSaleVal < 0
-              const discrepancy = Math.abs(currentMeal.cashLeftInBag - cashSaleVal) > 0.01
+              const discrepancy = Math.round(Math.abs(currentMeal.cashLeftInBag - cashSaleVal) * 100) > 1
               const currentNote = mode === 'lunch' ? form.lunchNote : form.dinnerNote
               const noteRequired = discrepancy && !currentNote?.trim()
               const recorderName = (mode === 'lunch' ? form.lunchRecorderName : form.dinnerRecorderName) ?? ''

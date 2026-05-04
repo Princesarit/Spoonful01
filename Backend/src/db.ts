@@ -2,7 +2,7 @@
  * Database layer — wraps Google Sheets
  */
 
-import { getSheetData, getSheetDataRaw, setSheetData, setSheetDataRaw, applyRowColors, applyTimeRecordFormatting, setSheetDataUserEntered, appendSheetRows, applyFormattingRules, getSheetIdByName, batchUpdateSheet, clearSheetMerges, hideInternalSheets, applyEmployeeSheetFormatting, applyMasterEmployeeFormatting, type EmpCategory } from './sheets'
+import { getSheetData, getSheetDataRaw, setSheetData, setSheetDataRaw, applyRowColors, applyTimeRecordFormatting, setSheetDataUserEntered, applyFormattingRules, getSheetIdByName, batchUpdateSheet, clearSheetMerges, hideInternalSheets, applyEmployeeSheetFormatting, applyMasterEmployeeFormatting, type EmpCategory } from './sheets'
 import type { SheetFormatRule } from './sheets'
 import type {
   Employee,
@@ -1691,20 +1691,6 @@ const DATE_FORMAT = { type: 'DATE',   pattern: 'dd/mm/yyyy' }
 const INT_FORMAT  = { type: 'NUMBER', pattern: '0' }
 
 
-// Parse hdr0 delivery-tier labels to get a rate signature string (maxKm values joined by comma).
-// Used to detect when the tier structure changed between syncs.
-function extractRateSig(row: unknown[]): string | null {
-  const maxKms: number[] = []
-  for (const cell of row) {
-    if (typeof cell !== 'string') continue
-    const le = cell.match(/^≤(\d+(?:\.\d+)?)km$/)
-    if (le) { maxKms.push(Number(le[1])); continue }
-    const mid = cell.match(/^>\d+(?:\.\d+)?[–\-](\d+(?:\.\d+)?)km$/)
-    if (mid) { maxKms.push(Number(mid[1])); continue }
-    if (/^>\d+(?:\.\d+)?km$/.test(cell)) { maxKms.push(9999); continue }
-  }
-  return maxKms.length > 0 ? maxKms.join(',') : null
-}
 
 async function applyIncomeFullFormat(
   sid: string,
@@ -1751,11 +1737,14 @@ async function applyIncomeFullFormat(
     requests.push({ updateDimensionProperties: { range: { sheetId, dimension: 'COLUMNS', startIndex: col, endIndex: col + 1 }, properties: { pixelSize: width }, fields: 'pixelSize' } })
   const fgw = (sr: number, er: number, sc: number, ec: number) =>
     requests.push({ repeatCell: { range: { sheetId, startRowIndex: sr + rowOffset, endRowIndex: er + rowOffset, startColumnIndex: sc, endColumnIndex: ec }, cell: { userEnteredFormat: { textFormat: { foregroundColor: { red: 1, green: 1, blue: 1 } } } }, fields: 'userEnteredFormat.textFormat.foregroundColor' } })
+  const fgb = (sr: number, er: number, sc: number, ec: number) =>
+    requests.push({ repeatCell: { range: { sheetId, startRowIndex: sr + rowOffset, endRowIndex: er + rowOffset, startColumnIndex: sc, endColumnIndex: ec }, cell: { userEnteredFormat: { textFormat: { foregroundColor: { red: 0, green: 0, blue: 0 } } } }, fields: 'userEnteredFormat.textFormat.foregroundColor' } })
 
   const SUP_HDR_COLORS: object[] = [C_LBLUE, C_LGREEN, C_HDR_WARM, C_LORANGE, C_PORANGE, C_LGRAY]
 
-  // 1. Global white reset (extra columns cover any stale formatting beyond current layout)
+  // 1. Global reset — background to white, text to black (clears stale formatting from old layouts)
   bg(0, totalRows, 0, lo.totalCols + 15, C_WHITE)
+  fgb(0, totalRows, 0, lo.totalCols + 15)
 
   // 2. hdr0 (row 0) — section labels
   bg(0, 1, 0, 2, C_MGRAY)
@@ -1769,6 +1758,7 @@ async function applyIncomeFullFormat(
   bold(0, 1, lo.lEftpos, lo.gap1)
   fgw(0, 1, lo.lEftpos, lo.gap1)
   fgw(0, 1, lo.dEftpos, lo.gap2)
+  fgw(0, 1, lo.delTotal, lo.delTotal + 1)
 
   // 3. hdr1 (row 1) — column labels with dynamic supplier colors
   bg(1, 2, 0, 2, C_MGRAY)
@@ -1820,9 +1810,11 @@ async function applyIncomeFullFormat(
   bg(d, totalRows, lo.delTotal, lo.delTotal+1, C_DGRAY)
   bg(d, totalRows, lo.lEftpos, lo.lTotal+1, C_LGRAY)
   bg(d, totalRows, lo.lCash, lo.lCash+1, C_LCASH)
+  fgw(d, totalRows, lo.lCash, lo.lCash+1)
   bg(d, totalRows, lo.gap1, lo.gap1+1, C_WHITE)
   bg(d, totalRows, lo.dEftpos, lo.dTotal+1, C_LGRAY)
   bg(d, totalRows, lo.dCash, lo.dCash+1, C_VDGRAY)
+  fgw(d, totalRows, lo.dCash, lo.dCash+1)
   bg(d, totalRows, lo.cEftpos, lo.cCash+1, C_MGRAY)
   bg(d, totalRows, lo.cLunch, lo.cDinner+1, C_MGREEN)
   bg(d, totalRows, lo.cEftpos2, lo.cEftpos2+1, C_XDGRAY)
@@ -1940,7 +1932,6 @@ export async function syncIncomeSheet(shopCode: string): Promise<void> {
     { maxKm: 4, fee: 0 }, { maxKm: 6, fee: 0 }, { maxKm: 9999, fee: 0 },
   ]
   const lo = incomeLayout(rates.length, suppliers)
-  const currentSig = rates.map(r => r.maxKm).join(',')
 
   const weekMap = new Map<string, RevenueEntry[]>()
   for (const e of revenue) {
@@ -1959,32 +1950,13 @@ export async function syncIncomeSheet(shopCode: string): Promise<void> {
   for (const [year, yearWeeks] of [...incomeYearGroups.entries()].sort(([a], [b]) => a - b)) {
   const sheetName = INCOME_SHEET(year)
 
-  // Detect whether the delivery tier structure changed since last sync
-  let rowOffset = 0
-  let existingRowCount = 0
-  try {
-    const existingRaw = await getSheetDataRaw(sheetName, sid)
-    if (existingRaw.length > 1) {
-      const existingSig = extractRateSig(existingRaw[0])
-      if (existingSig !== null && existingSig !== currentSig) {
-        existingRowCount = existingRaw.length
-        rowOffset = existingRowCount + 1  // new hdr0 is 1 row below the blank separator
-      }
-    }
-  } catch { /* sheet doesn't exist yet */ }
-
-  // In append mode, only write weeks from the current week onwards
-  // (historical weeks stay in the old section with the old layout)
-  const currentWeekStr = getMondayStr(new Date().toISOString().split('T')[0])
-  const weeksToWrite = rowOffset === 0 ? yearWeeks : yearWeeks.filter(w => w >= currentWeekStr)
-
   // One header block at top; all weeks flow underneath
   const rows: (string | number | null)[][] = [makeIncomeHdr0(lo, rates, suppliers), makeIncomeHdr1(lo, suppliers)]
   const fmtRules: SheetFormatRule[] = []
   const sumRowIndices: number[] = []
 
-  for (let wi = 0; wi < weeksToWrite.length; wi++) {
-    const monday = weeksToWrite[wi]
+  for (let wi = 0; wi < yearWeeks.length; wi++) {
+    const monday = yearWeeks[wi]
     const weekDates = getWeekDates(monday)
     const weekEntries = weekMap.get(monday)!
     const s1 = rows.length + 1   // 1-based first data row of this week
@@ -2193,19 +2165,9 @@ export async function syncIncomeSheet(shopCode: string): Promise<void> {
   fmtRules.push({ startRow: 2, endRow: totalRows, startCol: 1,          endCol: 2,                numberFormat: DATE_FORMAT })
   fmtRules.push({ startRow: 2, endRow: totalRows, startCol: lo.sDate,   endCol: lo.sDate    + 1,  numberFormat: DATE_FORMAT })
 
-  const offsetRules = rowOffset === 0
-    ? fmtRules
-    : fmtRules.map(r => ({ ...r, startRow: r.startRow + rowOffset, endRow: r.endRow + rowOffset }))
-
-  if (rowOffset === 0) {
-    await setSheetDataUserEntered(sheetName, rows, sid)
-    await applyFormattingRules(sheetName, sid, fmtRules, totalRows)
-  } else {
-    const blankRow = new Array(lo.totalCols).fill('')
-    await appendSheetRows(sheetName, existingRowCount + 1, [blankRow, ...rows], sid)
-    await applyFormattingRules(sheetName, sid, offsetRules)
-  }
-  await applyIncomeFullFormat(sid, lo, rows.length, sumRowIndices, suppliers, sheetName, rowOffset)
+  await setSheetDataUserEntered(sheetName, rows, sid)
+  await applyFormattingRules(sheetName, sid, fmtRules, totalRows)
+  await applyIncomeFullFormat(sid, lo, rows.length, sumRowIndices, suppliers, sheetName, 0)
   } // end year loop
 }
 
