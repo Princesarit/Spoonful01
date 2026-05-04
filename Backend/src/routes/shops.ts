@@ -1,5 +1,5 @@
 import { Router, Request, Response } from 'express'
-import { listShops, saveShops, invalidateShopCache, migrateShopToOwnSpreadsheet, syncAllEmployeesToMaster, appendAuditLog } from '../db'
+import { listShops, saveShops, invalidateShopCache, migrateShopToOwnSpreadsheet, syncAllEmployeesToMaster, appendAuditLog, listExpenses } from '../db'
 import { assertSpreadsheetAccess } from '../sheets'
 import { config } from '../config'
 import type { StoredShop } from '../types'
@@ -132,6 +132,27 @@ router.delete('/:code', async (req: Request, res: Response) => {
   } catch {
     res.status(500).json({ error: 'Server error' })
   }
+})
+
+// GET /shops/due-expenses – due expenses across all shops (public)
+router.get('/due-expenses', async (_req: Request, res: Response) => {
+  const today = new Date().toISOString().split('T')[0]
+  const all = await listShops()
+  const results: { shopCode: string; shopName: string; expenses: { id: string; supplier: string; total: number; dueDate: string; description?: string }[] }[] = []
+  await Promise.allSettled(
+    all.map(async (shop) => {
+      const expenses = await listExpenses(shop.code)
+      const due = expenses.filter((e) => e.dueDate && e.dueDate === today && !e.paid)
+      if (due.length > 0) {
+        results.push({
+          shopCode: shop.code,
+          shopName: shop.name,
+          expenses: due.map(({ id, supplier, total, dueDate, description, paymentMethod }) => ({ id, supplier, total, dueDate, description, paymentMethod })),
+        })
+      }
+    })
+  )
+  res.json(results)
 })
 
 // POST /shops/change-owner-password – เปลี่ยน Owner Password แบบ global (ทุกสาขาใช้รหัสเดียวกัน)

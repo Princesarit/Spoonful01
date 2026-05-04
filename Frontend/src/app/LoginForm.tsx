@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useActionState, useTransition } from 'react'
+import { useState, useActionState, useTransition, useEffect, useRef } from 'react'
 import Image from 'next/image'
 import { loginAction } from './actions'
 import {
@@ -9,7 +9,9 @@ import {
   updateShopAction,
   deleteShopAction,
   changeOwnerPasswordAction,
+  getDueExpensesAction,
 } from './shop-actions'
+import type { DueExpenseShop } from './shop-actions'
 import type { ShopConfig } from '@/lib/config'
 import type { StoredShop } from '@/lib/types'
 
@@ -21,6 +23,89 @@ function GearIcon({ className = 'w-4 h-4' }: { className?: string }) {
       <circle cx="12" cy="12" r="3" />
       <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" />
     </svg>
+  )
+}
+
+// ─── Bell Icon ─────────────────────────────────────────────────────────────
+
+function BellIcon({ className = 'w-4 h-4' }: { className?: string }) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="currentColor">
+      <path d="M12 2a1 1 0 0 1 1 1v.27A7 7 0 0 1 19 10v4l1.71 2.56A1 1 0 0 1 19.86 18H4.14a1 1 0 0 1-.85-1.44L5 14v-4a7 7 0 0 1 6-6.73V3a1 1 0 0 1 1-1zm0 20a2 2 0 0 1-2-2h4a2 2 0 0 1-2 2z" />
+    </svg>
+  )
+}
+
+// ─── Notification Dropdown ─────────────────────────────────────────────────
+
+const METHOD_ICON: Record<string, string> = {
+  Cash: '💵',
+  'Credit Card': '💳',
+  'Online Banking': '🏦',
+}
+
+function NotificationDropdown({ data, onClose }: { data: DueExpenseShop[]; onClose: () => void }) {
+  const ref = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    function handleClick(e: MouseEvent) {
+      if (ref.current && !ref.current.contains(e.target as Node)) onClose()
+    }
+    document.addEventListener('mousedown', handleClick)
+    return () => document.removeEventListener('mousedown', handleClick)
+  }, [onClose])
+
+  const totalCount = data.reduce((s, d) => s + d.expenses.length, 0)
+
+  return (
+    <div
+      ref={ref}
+      className="absolute top-full right-0 mt-2 w-80 bg-stone-900/95 border border-white/15 rounded-2xl shadow-2xl overflow-hidden z-50"
+    >
+      {/* Header */}
+      <div className="flex items-center justify-between px-4 py-3 border-b border-white/10">
+        <div className="flex items-center gap-2">
+          <BellIcon className="w-4 h-4 text-amber-400" />
+          <span className="text-sm font-bold text-white tracking-wide">Notifications</span>
+          {totalCount > 0 && (
+            <span className="bg-red-500 text-white text-[10px] font-bold px-1.5 py-0.5 rounded-full leading-none">{totalCount}</span>
+          )}
+        </div>
+        <button type="button" onClick={onClose} className="text-white/40 hover:text-white text-lg leading-none cursor-pointer">×</button>
+      </div>
+
+      {/* Content */}
+      <div className="max-h-96 overflow-y-auto">
+        {totalCount === 0 ? (
+          <div className="px-4 py-8 text-center">
+            <p className="text-xl mb-2">✅</p>
+            <p className="text-xs text-white/50">There are no items due for payment today.</p>
+          </div>
+        ) : (
+          <div className="divide-y divide-white/5">
+            {data.map((shop) => (
+              <div key={shop.shopCode} className="px-4 py-3 space-y-2">
+                <p className="text-[11px] font-bold text-amber-400 tracking-widest uppercase">{shop.shopName}</p>
+                {shop.expenses.map((exp) => (
+                  <div key={exp.id} className="bg-red-950/50 border border-red-500/20 rounded-xl px-3 py-2.5">
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="leading-tight">
+                        <span className="text-sm text-white font-semibold">{exp.supplier}</span>
+                        {exp.paymentMethod && (
+                          <span className="text-xs text-white/50 ml-1.5">({exp.paymentMethod})</span>
+                        )}
+                      </div>
+                      <span className="text-sm font-bold text-red-300 shrink-0">${exp.total.toFixed(2)}</span>
+                    </div>
+                    {exp.description && <p className="text-[11px] text-white/40 mt-1">{exp.description}</p>}
+                  </div>
+                ))}
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
   )
 }
 
@@ -301,7 +386,7 @@ function BranchManagerModal({
           <>
             <div className="flex items-center justify-between">
               <h3 className="font-bold text-white tracking-widest text-sm">จัดการสาขา</h3>
-              <button onClick={onClose} className="text-white/40 hover:text-white text-lg leading-none cursor-pointer">×</button>
+              <button type="button" onClick={onClose} className="text-white/40 hover:text-white text-lg leading-none cursor-pointer">×</button>
             </div>
 
             {error && <p className="text-xs text-red-400 bg-red-900/30 px-3 py-2 rounded-lg">{error}</p>}
@@ -316,8 +401,8 @@ function BranchManagerModal({
                       <PasswordInput value={editing.managerPassword} onChange={(e) => setEditing({ ...editing, managerPassword: e.target.value })} placeholder="Manager Password" className={inputCls} />
                       <input required value={editing.spreadsheetId ?? ''} onChange={(e) => setEditing({ ...editing, spreadsheetId: e.target.value })} placeholder="Spreadsheet ID" className={inputCls} />
                       <div className="flex gap-2">
-                        <button onClick={() => setEditing(null)} className="flex-1 py-1.5 border border-white/20 rounded-lg text-xs text-white/70 cursor-pointer hover:bg-white/10">ยกเลิก</button>
-                        <button onClick={handleUpdate} disabled={isPending} className="flex-1 py-1.5 bg-amber-700/80 text-white rounded-lg text-xs font-semibold disabled:opacity-50 cursor-pointer">บันทึก</button>
+                        <button type="button" onClick={() => setEditing(null)} className="flex-1 py-1.5 border border-white/20 rounded-lg text-xs text-white/70 cursor-pointer hover:bg-white/10">ยกเลิก</button>
+                        <button type="button" onClick={handleUpdate} disabled={isPending} className="flex-1 py-1.5 bg-amber-700/80 text-white rounded-lg text-xs font-semibold disabled:opacity-50 cursor-pointer">บันทึก</button>
                       </div>
                     </div>
                   ) : (
@@ -327,12 +412,14 @@ function BranchManagerModal({
                       </div>
                       <div className="flex gap-2 text-xs">
                         <button
+                          type="button"
                           onClick={() => { setEditing({ ...shop }); setAdding(false) }}
                           className="rounded-md border border-blue-300/25 bg-blue-500/15 px-2 py-1 font-semibold text-blue-200 hover:bg-blue-500/25 hover:text-blue-100 cursor-pointer"
                         >
                           แก้ไข
                         </button>
                         <button
+                          type="button"
                           onClick={() => handleDelete(shop.code, shop.name)}
                           disabled={isPending}
                           className="rounded-md border border-red-300/25 bg-red-500/15 px-2 py-1 font-semibold text-red-200 hover:bg-red-500/25 hover:text-red-100 disabled:opacity-50 cursor-pointer"
@@ -364,12 +451,13 @@ function BranchManagerModal({
                 <PasswordInput value={newForm.managerPassword} onChange={(e) => setNewForm({ ...newForm, managerPassword: e.target.value })} placeholder="Manager Password" className={inputCls} />
                 <input required value={newForm.spreadsheetId ?? ''} onChange={(e) => setNewForm({ ...newForm, spreadsheetId: e.target.value })} placeholder="Spreadsheet ID" className={inputCls} />
                 <div className="flex gap-2">
-                  <button onClick={() => { setAdding(false); setNewForm(emptyForm()) }} className="flex-1 py-1.5 border border-white/20 rounded-lg text-xs text-white/70 cursor-pointer">ยกเลิก</button>
-                  <button onClick={handleAdd} disabled={isPending} className="flex-1 py-1.5 bg-amber-700/80 text-white rounded-lg text-xs font-semibold disabled:opacity-50 cursor-pointer">เพิ่มสาขา</button>
+                  <button type="button" onClick={() => { setAdding(false); setNewForm(emptyForm()) }} className="flex-1 py-1.5 border border-white/20 rounded-lg text-xs text-white/70 cursor-pointer">ยกเลิก</button>
+                  <button type="button" onClick={handleAdd} disabled={isPending} className="flex-1 py-1.5 bg-amber-700/80 text-white rounded-lg text-xs font-semibold disabled:opacity-50 cursor-pointer">เพิ่มสาขา</button>
                 </div>
               </div>
             ) : (
               <button
+                type="button"
                 onClick={() => { setAdding(true); setEditing(null) }}
                 className="w-full py-2 border-2 border-dashed border-white/20 text-white/50 text-sm rounded-xl hover:border-amber-500/50 hover:text-amber-400/70 transition-colors cursor-pointer"
               >
@@ -395,7 +483,7 @@ function BranchManagerModal({
                   </div>
 
                   <div className="space-y-3">
-                    <div className="rounded-xl border border-white/10 bg-white/[0.04] p-3">
+                    <div className="rounded-xl border border-white/10 bg-white/4 p-3">
                       <div className="mb-2 flex items-center gap-2">
                         <span className="grid h-5 w-5 place-items-center rounded-full bg-amber-500 text-[11px] font-bold text-stone-950">1</span>
                         <p className="text-xs font-semibold text-white">สร้าง Google Sheet ใหม่</p>
@@ -411,7 +499,7 @@ function BranchManagerModal({
                       <p className="mt-2 text-xs leading-5 text-white/60">ไปที่ Google Drive แล้วกด New → Google Sheets ตั้งชื่อเช่น Spoonful - ชื่อสาขา</p>
                     </div>
 
-                    <div className="rounded-xl border border-white/10 bg-white/[0.04] p-3">
+                    <div className="rounded-xl border border-white/10 bg-white/4 p-3">
                       <div className="mb-2 flex items-center gap-2">
                         <span className="grid h-5 w-5 place-items-center rounded-full bg-amber-500 text-[11px] font-bold text-stone-950">2</span>
                         <p className="text-xs font-semibold text-white">แชร์ให้ระบบเป็น Editor</p>
@@ -424,7 +512,7 @@ function BranchManagerModal({
                       <p className="mt-2 text-xs leading-5 text-white/60">กด Share ในไฟล์ Sheet แล้วใส่อีเมลนี้ จากนั้นตั้งสิทธิ์เป็น Editor</p>
                     </div>
 
-                    <div className="rounded-xl border border-white/10 bg-white/[0.04] p-3">
+                    <div className="rounded-xl border border-white/10 bg-white/4 p-3">
                       <div className="mb-2 flex items-center gap-2">
                         <span className="grid h-5 w-5 place-items-center rounded-full bg-amber-500 text-[11px] font-bold text-stone-950">3</span>
                         <p className="text-xs font-semibold text-white">คัดลอก Spreadsheet ID มาใส่ช่องด้านล่าง</p>
@@ -487,7 +575,15 @@ export default function LoginForm({ shops: initialShops }: { shops: ShopConfig[]
   const [state, action, pending] = useActionState(loginAction, null)
   const [showManager, setShowManager] = useState(false)
   const [showSettings, setShowSettings] = useState(false)
+  const [showNotification, setShowNotification] = useState(false)
+  const [dueData, setDueData] = useState<DueExpenseShop[]>([])
   const [, startTransition] = useTransition()
+
+  const dueCount = dueData.reduce((s, d) => s + d.expenses.length, 0)
+
+  useEffect(() => {
+    getDueExpensesAction().then((res) => setDueData(res ?? []))
+  }, [])
 
   function refreshShops() {
     startTransition(async () => {
@@ -503,15 +599,39 @@ export default function LoginForm({ shops: initialShops }: { shops: ShopConfig[]
   return (
     <div className="min-h-screen relative flex flex-col items-center justify-center overflow-hidden">
 
-      {/* Settings button — top right */}
-      <button
-        type="button"
-        onClick={() => setShowSettings(true)}
-        className="absolute top-4 right-4 z-20 flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-white/20 bg-white/10 text-white/70 text-xs font-semibold hover:bg-white/20 hover:text-white transition-colors cursor-pointer backdrop-blur-sm"
-      >
-        <GearIcon className="w-3.5 h-3.5" />
-        Setting
-      </button>
+      {/* Top-right buttons */}
+      <div className="absolute top-4 right-4 z-20 flex items-center gap-2">
+        {/* Notification */}
+        <div className="relative">
+          <button
+            type="button"
+            onClick={() => setShowNotification((v) => !v)}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-white/20 bg-white/10 text-white/70 text-xs font-semibold hover:bg-white/20 hover:text-white transition-colors cursor-pointer backdrop-blur-sm"
+          >
+            <span className="relative">
+              <BellIcon className="w-3.5 h-3.5" />
+              {dueCount > 0 && (
+                <span className="absolute -top-1.5 -right-1.5 bg-red-500 text-white text-[9px] font-bold w-3.5 h-3.5 rounded-full flex items-center justify-center leading-none">
+                  {dueCount}
+                </span>
+              )}
+            </span>
+            Notification
+          </button>
+          {showNotification && (
+            <NotificationDropdown data={dueData} onClose={() => setShowNotification(false)} />
+          )}
+        </div>
+        {/* Setting */}
+        <button
+          type="button"
+          onClick={() => setShowSettings(true)}
+          className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-white/20 bg-white/10 text-white/70 text-xs font-semibold hover:bg-white/20 hover:text-white transition-colors cursor-pointer backdrop-blur-sm"
+        >
+          <GearIcon className="w-3.5 h-3.5" />
+          Setting
+        </button>
+      </div>
 
       {/* Background image */}
       <Image
@@ -558,7 +678,7 @@ export default function LoginForm({ shops: initialShops }: { shops: ShopConfig[]
               key={shop.code}
               type="button"
               onClick={() => setSelectedShop(selectedShop === shop.code ? null : shop.code)}
-              className={`min-h-[76px] rounded-2xl p-5 text-center transition-all cursor-pointer border backdrop-blur-sm flex items-center justify-center ${
+              className={`min-h-19 rounded-2xl p-5 text-center transition-all cursor-pointer border backdrop-blur-sm flex items-center justify-center ${
                 selectedShop === shop.code
                   ? 'bg-amber-700/60 border-amber-400/60 shadow-lg shadow-amber-900/40'
                   : 'bg-white/10 border-white/15 hover:bg-white/20 hover:border-white/30'
@@ -599,6 +719,7 @@ export default function LoginForm({ shops: initialShops }: { shops: ShopConfig[]
 
         {/* Manage branches */}
         <button
+          type="button"
           onClick={() => setShowManager(true)}
           className="mt-6 text-xs text-white/60 hover:text-white/90 transition-colors cursor-pointer tracking-widest"
         >
@@ -616,6 +737,7 @@ export default function LoginForm({ shops: initialShops }: { shops: ShopConfig[]
       {showSettings && (
         <SettingsModal onClose={() => setShowSettings(false)} />
       )}
+
     </div>
   )
 }

@@ -107,6 +107,31 @@ export async function changeOwnerPasswordAction(
   }
 }
 
+export interface DueExpenseItem {
+  id: string
+  supplier: string
+  total: number
+  dueDate: string
+  description?: string
+  paymentMethod?: string
+}
+
+export interface DueExpenseShop {
+  shopCode: string
+  shopName: string
+  expenses: DueExpenseItem[]
+}
+
+export async function getDueExpensesAction(): Promise<DueExpenseShop[] | null> {
+  try {
+    const res = await fetch(`${BACKEND_URL}/shops/due-expenses`, { cache: 'no-store' })
+    if (!res.ok) return null
+    return await res.json() as DueExpenseShop[]
+  } catch {
+    return null
+  }
+}
+
 export async function verifyMasterPasswordAction(
   _prev: { error: string } | null,
   formData: FormData,
