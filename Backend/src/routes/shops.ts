@@ -6,11 +6,19 @@ import type { StoredShop } from '../types'
 
 const router = Router()
 
-function verifyMaster(password: string): boolean {
-  return config.masterPassword !== '' && password === config.masterPassword
+async function verifyMaster(password: string): Promise<boolean> {
+  if (config.masterPassword !== '' && password === config.masterPassword) return true
+  // Also accept global owner password (same password for Owner Mode & Branch Manager)
+  try {
+    const all = await listShops()
+    const ownerPw = all.find((s) => s.ownerPassword)?.ownerPassword
+    return !!ownerPw && password === ownerPw
+  } catch {
+    return false
+  }
 }
 
-// GET /shops — รายชื่อร้าน (public)
+// GET /shops – รายชื่อร้าน (public)
 router.get('/', async (_req: Request, res: Response) => {
   try {
     const shops = await listShops()
@@ -20,10 +28,10 @@ router.get('/', async (_req: Request, res: Response) => {
   }
 })
 
-// GET /shops/admin?password=... — รายชื่อร้านพร้อม password (master only)
+// GET /shops/admin?password=... – รายชื่อร้านพร้อม password (master only)
 router.get('/admin', async (req: Request, res: Response) => {
   const { password } = req.query as { password: string }
-  if (!verifyMaster(password)) {
+  if (!await verifyMaster(password)) {
     res.status(401).json({ error: 'Unauthorized' })
     return
   }
@@ -34,7 +42,7 @@ router.get('/admin', async (req: Request, res: Response) => {
   }
 })
 
-// POST /shops — เพิ่มสาขาใหม่
+// POST /shops – เพิ่มสาขาใหม่
 router.post('/', async (req: Request, res: Response) => {
   const { password, name, restaurantPassword, managerPassword, spreadsheetId: providedSheetId } = req.body as {
     password: string
@@ -43,7 +51,7 @@ router.post('/', async (req: Request, res: Response) => {
     managerPassword: string
     spreadsheetId?: string
   }
-  if (!verifyMaster(password)) {
+  if (!await verifyMaster(password)) {
     res.status(401).json({ error: 'Unauthorized' })
     return
   }
@@ -74,7 +82,7 @@ router.post('/', async (req: Request, res: Response) => {
   }
 })
 
-// PUT /shops/:code — แก้ไขสาขา
+// PUT /shops/:code – แก้ไขสาขา
 router.put('/:code', async (req: Request, res: Response) => {
   const { password, name, restaurantPassword, managerPassword, spreadsheetId } = req.body as {
     password: string
@@ -83,7 +91,7 @@ router.put('/:code', async (req: Request, res: Response) => {
     managerPassword: string
     spreadsheetId?: string
   }
-  if (!verifyMaster(password)) {
+  if (!await verifyMaster(password)) {
     res.status(401).json({ error: 'Unauthorized' })
     return
   }
@@ -110,10 +118,10 @@ router.put('/:code', async (req: Request, res: Response) => {
   }
 })
 
-// DELETE /shops/:code — ลบสาขา
+// DELETE /shops/:code – ลบสาขา
 router.delete('/:code', async (req: Request, res: Response) => {
   const { password } = req.body as { password: string }
-  if (!verifyMaster(password)) {
+  if (!await verifyMaster(password)) {
     res.status(401).json({ error: 'Unauthorized' })
     return
   }
@@ -126,10 +134,27 @@ router.delete('/:code', async (req: Request, res: Response) => {
   }
 })
 
-// POST /shops/sync-employees?password=... — sync all employees to master Employees tab
+// POST /shops/change-owner-password – เปลี่ยน Owner Password แบบ global (ทุกสาขาใช้รหัสเดียวกัน)
+router.post('/change-owner-password', async (req: Request, res: Response) => {
+  const { currentPassword, newPassword } = req.body as { currentPassword: string; newPassword: string }
+  try {
+    const all = await listShops()
+    const globalPw = all.find((s) => s.ownerPassword)?.ownerPassword ?? ''
+    if (!globalPw || globalPw !== currentPassword) {
+      res.status(401).json({ error: 'รหัสผ่านเดิมไม่ถูกต้อง' }); return
+    }
+    const updated = all.map((s) => ({ ...s, ownerPassword: newPassword }))
+    await saveShops(updated)
+    res.json({ ok: true })
+  } catch {
+    res.status(500).json({ error: 'Server error' })
+  }
+})
+
+// POST /shops/sync-employees?password=... – sync all employees to master Employees tab
 router.post('/sync-employees', async (req: Request, res: Response) => {
   const { password } = req.body as { password: string }
-  if (!verifyMaster(password)) { res.status(401).json({ error: 'Unauthorized' }); return }
+  if (!await verifyMaster(password)) { res.status(401).json({ error: 'Unauthorized' }); return }
   try {
     await syncAllEmployeesToMaster()
     res.json({ ok: true })
@@ -139,10 +164,10 @@ router.post('/sync-employees', async (req: Request, res: Response) => {
   }
 })
 
-// POST /shops/migrate-headers?password=... — re-save shops with new column names
+// POST /shops/migrate-headers?password=... – re-save shops with new column names
 router.post('/migrate-headers', async (req: Request, res: Response) => {
   const { password } = req.body as { password: string }
-  if (!verifyMaster(password)) { res.status(401).json({ error: 'Unauthorized' }); return }
+  if (!await verifyMaster(password)) { res.status(401).json({ error: 'Unauthorized' }); return }
   try {
     const all = await listShops()
     await saveShops(all)
@@ -152,11 +177,11 @@ router.post('/migrate-headers', async (req: Request, res: Response) => {
   }
 })
 
-// POST /shops/:code/migrate — ย้ายร้านเก่าไปยัง Spreadsheet ของตัวเอง
-// body: { password, spreadsheetId } — spreadsheetId ของ Sheet ใหม่ที่สร้างเองและ share กับ service account แล้ว
+// POST /shops/:code/migrate – ย้ายร้านเก่าไปยัง Spreadsheet ของตัวเอง
+// body: { password, spreadsheetId } – spreadsheetId ของ Sheet ใหม่ที่สร้างเองและ share กับ service account แล้ว
 router.post('/:code/migrate', async (req: Request, res: Response) => {
   const { password, spreadsheetId } = req.body as { password: string; spreadsheetId: string }
-  if (!verifyMaster(password)) {
+  if (!await verifyMaster(password)) {
     res.status(401).json({ error: 'Unauthorized' })
     return
   }

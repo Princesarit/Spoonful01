@@ -210,8 +210,8 @@ export default function ExpenseView() {
                 >
                   {entry.paid ? tr.paid_status : tr.unpaid_status}
                 </button>
-                <button onClick={() => openEdit(entry)} className="text-xs text-blue-500 cursor-pointer">{tr.edit}</button>
-                <button onClick={() => setDeleteAudit({ entry, editorName: '', note: '' })} className="text-xs text-red-400 cursor-pointer">{tr.delete}</button>
+                <button onClick={() => openEdit(entry)} className="text-xs text-blue-500 cursor-pointer border border-blue-300 rounded px-2 py-0.5 hover:bg-blue-50">{tr.edit}</button>
+                <button onClick={() => setDeleteAudit({ entry, editorName: '', note: '' })} className="text-xs text-red-400 cursor-pointer border border-red-300 rounded px-2 py-0.5 hover:bg-red-50">{tr.delete}</button>
               </div>
             </div>
           ))}

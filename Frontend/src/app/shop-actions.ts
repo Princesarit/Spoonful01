@@ -89,6 +89,24 @@ export async function deleteShopAction(
   }
 }
 
+export async function changeOwnerPasswordAction(
+  currentPassword: string,
+  newPassword: string,
+): Promise<{ error: string } | { ok: true }> {
+  try {
+    const res = await fetch(`${BACKEND_URL}/shops/change-owner-password`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ currentPassword, newPassword }),
+    })
+    const data = await res.json() as { error?: string }
+    if (!res.ok) return { error: data.error ?? 'เกิดข้อผิดพลาด' }
+    return { ok: true }
+  } catch {
+    return { error: 'ไม่สามารถเชื่อมต่อ Backend ได้' }
+  }
+}
+
 export async function verifyMasterPasswordAction(
   _prev: { error: string } | null,
   formData: FormData,

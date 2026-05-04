@@ -51,7 +51,7 @@ router.post('/elevate', requireAuth, async (req: AuthRequest, res: Response) => 
     }
 
     let elevatedRole: Role
-    if (config.masterPassword && password === config.masterPassword) {
+    if ((config.masterPassword && password === config.masterPassword) || (shop.ownerPassword && password === shop.ownerPassword)) {
       elevatedRole = 'owner'
     } else if (password === shop.managerPassword) {
       elevatedRole = 'manager'

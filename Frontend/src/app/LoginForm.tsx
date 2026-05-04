@@ -8,9 +8,179 @@ import {
   addShopAction,
   updateShopAction,
   deleteShopAction,
+  changeOwnerPasswordAction,
 } from './shop-actions'
 import type { ShopConfig } from '@/lib/config'
 import type { StoredShop } from '@/lib/types'
+
+// ─── Gear Icon ─────────────────────────────────────────────────────────────
+
+function GearIcon({ className = 'w-4 h-4' }: { className?: string }) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <circle cx="12" cy="12" r="3" />
+      <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" />
+    </svg>
+  )
+}
+
+// ─── Eye Icons ─────────────────────────────────────────────────────────────
+
+function EyeOpen({ className = 'w-4 h-4' }: { className?: string }) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+      <ellipse cx="12" cy="12" rx="10" ry="6.5" />
+      <circle cx="12" cy="12" r="3" fill="currentColor" stroke="none" />
+    </svg>
+  )
+}
+
+function EyeOff({ className = 'w-4 h-4' }: { className?: string }) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+      <ellipse cx="12" cy="12" rx="10" ry="6.5" />
+      <line x1="3" y1="3" x2="21" y2="21" />
+    </svg>
+  )
+}
+
+// ─── Password Input with show/hide toggle ──────────────────────────────────
+
+function PasswordInput({
+  value, onChange, placeholder, className, autoFocus, name, required, keyVal,
+}: {
+  value?: string
+  onChange?: (e: React.ChangeEvent<HTMLInputElement>) => void
+  placeholder?: string
+  className?: string
+  autoFocus?: boolean
+  name?: string
+  required?: boolean
+  keyVal?: string
+}) {
+  const [show, setShow] = useState(false)
+  return (
+    <div className="relative">
+      <input
+        key={keyVal}
+        type={show ? 'text' : 'password'}
+        value={value}
+        onChange={onChange}
+        placeholder={placeholder}
+        autoFocus={autoFocus}
+        name={name}
+        required={required}
+        className={(className ?? '') + ' pr-10'}
+      />
+      <button
+        type="button"
+        onClick={() => setShow((s) => !s)}
+        className="absolute right-3 top-1/2 -translate-y-1/2 text-black/60 hover:text-black cursor-pointer"
+        tabIndex={-1}
+      >
+        {show ? <EyeOpen /> : <EyeOff />}
+      </button>
+    </div>
+  )
+}
+
+// ─── Settings Modal ────────────────────────────────────────────────────────
+
+type SettingsView = 'menu' | 'change-password'
+
+function SettingsModal({ onClose }: { onClose: () => void }) {
+  const [view, setView] = useState<SettingsView>('menu')
+  const [currentPw, setCurrentPw] = useState('')
+  const [newPw, setNewPw]         = useState('')
+  const [confirmPw, setConfirmPw] = useState('')
+  const [error, setError]         = useState('')
+  const [success, setSuccess]     = useState(false)
+  const [isPending, startTransition] = useTransition()
+
+  const inputCls = 'w-full border border-white/30 bg-white/10 rounded-lg px-3 py-2 text-sm text-white placeholder-white/40 focus:outline-none focus:ring-2 focus:ring-amber-400/60'
+
+  function handleSubmit(e: React.FormEvent) {
+    e.preventDefault()
+    setError('')
+    if (!currentPw.trim()) { setError('กรุณากรอกรหัสผ่านเดิม'); return }
+    if (newPw.length < 4)  { setError('รหัสผ่านใหม่ต้องมีอย่างน้อย 4 ตัว'); return }
+    if (newPw !== confirmPw) { setError('รหัสผ่านใหม่ไม่ตรงกัน'); return }
+    startTransition(async () => {
+      const res = await changeOwnerPasswordAction(currentPw, newPw)
+      if ('error' in res) { setError(res.error); return }
+      setSuccess(true)
+      setCurrentPw(''); setNewPw(''); setConfirmPw('')
+    })
+  }
+
+  return (
+    <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+      <div className="bg-stone-900/90 border border-white/10 rounded-2xl w-full max-w-sm p-6 space-y-4">
+
+        {/* Header */}
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            {view !== 'menu' && (
+              <button type="button" onClick={() => { setView('menu'); setError(''); setSuccess(false) }} className="text-white/40 hover:text-white text-sm cursor-pointer mr-1">←</button>
+            )}
+            <GearIcon className="w-4 h-4 text-amber-400" />
+            <h3 className="font-bold text-white tracking-widest text-sm">Settings</h3>
+          </div>
+          <button type="button" onClick={onClose} className="text-white/40 hover:text-white text-lg leading-none cursor-pointer">×</button>
+        </div>
+
+        {/* Menu */}
+        {view === 'menu' && (
+          <div className="space-y-2 pt-1">
+            <button
+              type="button"
+              onClick={() => setView('change-password')}
+              className="w-full flex items-center justify-between px-4 py-3 rounded-xl border border-white/10 bg-white/5 hover:bg-white/10 transition-colors cursor-pointer text-left"
+            >
+              <span className="text-sm text-white">🔑 Change Owner Password</span>
+              <span className="text-white/30 text-sm">›</span>
+            </button>
+          </div>
+        )}
+
+        {/* Change Password */}
+        {view === 'change-password' && (
+          <>
+            <p className="text-xs text-white/50 font-semibold tracking-wider -mt-1">Change Owner Password</p>
+            {success ? (
+              <div className="text-center space-y-3 py-2">
+                <p className="text-green-400 text-sm font-semibold">เปลี่ยนรหัสผ่านสำเร็จ ✓</p>
+                <button type="button" onClick={onClose} className="w-full py-2 bg-amber-700/80 text-white rounded-xl text-sm font-semibold cursor-pointer hover:bg-amber-600/80">ปิด</button>
+              </div>
+            ) : (
+              <form onSubmit={handleSubmit} className="space-y-3">
+                <div>
+                  <label className="text-xs text-white/40 mb-1 block">รหัสผ่านเดิม</label>
+                  <PasswordInput autoFocus value={currentPw} onChange={(e) => setCurrentPw(e.target.value)} placeholder="Current password" className={inputCls} />
+                </div>
+                <div>
+                  <label className="text-xs text-white/40 mb-1 block">รหัสผ่านใหม่</label>
+                  <PasswordInput value={newPw} onChange={(e) => setNewPw(e.target.value)} placeholder="New password" className={inputCls} />
+                </div>
+                <div>
+                  <label className="text-xs text-white/40 mb-1 block">ยืนยันรหัสผ่านใหม่</label>
+                  <PasswordInput value={confirmPw} onChange={(e) => setConfirmPw(e.target.value)} placeholder="Confirm new password" className={inputCls} />
+                </div>
+                {error && <p className="text-xs text-red-400 bg-red-900/30 px-3 py-2 rounded-lg">{error}</p>}
+                <div className="flex gap-2 pt-1">
+                  <button type="button" onClick={() => setView('menu')} className="flex-1 py-2.5 border border-white/20 rounded-xl text-sm text-white/70 cursor-pointer hover:bg-white/10">ยกเลิก</button>
+                  <button type="submit" disabled={isPending} className="flex-1 py-2.5 bg-amber-700/80 text-white rounded-xl text-sm font-semibold cursor-pointer hover:bg-amber-600/80 disabled:opacity-50">
+                    {isPending ? 'กำลังบันทึก...' : 'เปลี่ยนรหัสผ่าน'}
+                  </button>
+                </div>
+              </form>
+            )}
+          </>
+        )}
+      </div>
+    </div>
+  )
+}
 
 // ─── Branch Manager Modal ──────────────────────────────────────────────────
 
@@ -37,6 +207,8 @@ function BranchManagerModal({
   const [newForm, setNewForm] = useState<StoredShop>(emptyForm())
   const [error, setError] = useState('')
   const [isPending, startTransition] = useTransition()
+  const [confirmDelete, setConfirmDelete] = useState<{ code: string; name: string } | null>(null)
+  const [confirmEdit, setConfirmEdit] = useState(false)
 
   async function handleAuth(e: React.SyntheticEvent) {
     e.preventDefault()
@@ -66,6 +238,12 @@ function BranchManagerModal({
 
   async function handleUpdate() {
     if (!editing) return
+    setConfirmEdit(true)
+  }
+
+  async function doUpdate() {
+    if (!editing) return
+    setConfirmEdit(false)
     setError('')
     startTransition(async () => {
       const res = await updateShopAction(masterPassword, editing.code, editing.name, editing.restaurantPassword, editing.managerPassword, editing.spreadsheetId)
@@ -78,7 +256,11 @@ function BranchManagerModal({
   }
 
   async function handleDelete(code: string, name: string) {
-    if (!confirm(`ลบสาขา "${name}" ?`)) return
+    setConfirmDelete({ code, name })
+  }
+
+  async function doDelete(code: string) {
+    setConfirmDelete(null)
     setError('')
     startTransition(async () => {
       const res = await deleteShopAction(masterPassword, code)
@@ -99,8 +281,7 @@ function BranchManagerModal({
             <h3 className="font-bold text-white tracking-widest text-sm">จัดการสาขา</h3>
             <p className="text-xs text-white/40">กรอก Master Manager Password เพื่อเข้าถึง</p>
             <form onSubmit={handleAuth} className="space-y-3">
-              <input
-                type="password"
+              <PasswordInput
                 autoFocus
                 value={masterPassword}
                 onChange={(e) => setMasterPassword(e.target.value)}
@@ -131,8 +312,8 @@ function BranchManagerModal({
                   {editing?.code === shop.code ? (
                     <div className="border border-amber-700/40 rounded-xl p-3 space-y-2 bg-amber-900/20">
                       <input value={editing.name} onChange={(e) => setEditing({ ...editing, name: e.target.value })} placeholder="ชื่อสาขา" className={inputCls} />
-                      <input type="password" value={editing.restaurantPassword} onChange={(e) => setEditing({ ...editing, restaurantPassword: e.target.value })} placeholder="Restaurant Password" className={inputCls} />
-                      <input type="password" value={editing.managerPassword} onChange={(e) => setEditing({ ...editing, managerPassword: e.target.value })} placeholder="Manager Password" className={inputCls} />
+                      <PasswordInput value={editing.restaurantPassword} onChange={(e) => setEditing({ ...editing, restaurantPassword: e.target.value })} placeholder="Restaurant Password" className={inputCls} />
+                      <PasswordInput value={editing.managerPassword} onChange={(e) => setEditing({ ...editing, managerPassword: e.target.value })} placeholder="Manager Password" className={inputCls} />
                       <input required value={editing.spreadsheetId ?? ''} onChange={(e) => setEditing({ ...editing, spreadsheetId: e.target.value })} placeholder="Spreadsheet ID" className={inputCls} />
                       <div className="flex gap-2">
                         <button onClick={() => setEditing(null)} className="flex-1 py-1.5 border border-white/20 rounded-lg text-xs text-white/70 cursor-pointer hover:bg-white/10">ยกเลิก</button>
@@ -179,8 +360,8 @@ function BranchManagerModal({
                   </button>
                 </div>
                 <input value={newForm.name} onChange={(e) => setNewForm({ ...newForm, name: e.target.value })} placeholder="ชื่อสาขา" className={inputCls} />
-                <input type="password" value={newForm.restaurantPassword} onChange={(e) => setNewForm({ ...newForm, restaurantPassword: e.target.value })} placeholder="Restaurant Password" className={inputCls} />
-                <input type="password" value={newForm.managerPassword} onChange={(e) => setNewForm({ ...newForm, managerPassword: e.target.value })} placeholder="Manager Password" className={inputCls} />
+                <PasswordInput value={newForm.restaurantPassword} onChange={(e) => setNewForm({ ...newForm, restaurantPassword: e.target.value })} placeholder="Restaurant Password" className={inputCls} />
+                <PasswordInput value={newForm.managerPassword} onChange={(e) => setNewForm({ ...newForm, managerPassword: e.target.value })} placeholder="Manager Password" className={inputCls} />
                 <input required value={newForm.spreadsheetId ?? ''} onChange={(e) => setNewForm({ ...newForm, spreadsheetId: e.target.value })} placeholder="Spreadsheet ID" className={inputCls} />
                 <div className="flex gap-2">
                   <button onClick={() => { setAdding(false); setNewForm(emptyForm()) }} className="flex-1 py-1.5 border border-white/20 rounded-lg text-xs text-white/70 cursor-pointer">ยกเลิก</button>
@@ -197,7 +378,7 @@ function BranchManagerModal({
             )}
 
             {showSheetHelp && (
-              <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/70 p-4">
+              <div className="fixed inset-0 z-60 flex items-center justify-center bg-black/70 p-4">
                 <div className="w-full max-w-md rounded-2xl border border-white/15 bg-stone-950 p-5 text-left shadow-2xl">
                   <div className="mb-4 flex items-start justify-between gap-4">
                     <div>
@@ -268,6 +449,32 @@ function BranchManagerModal({
           </>
         )}
       </div>
+
+      {/* Confirm Delete Dialog */}
+      {confirmDelete && (
+        <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-60 p-4">
+          <div className="bg-stone-900 border border-white/15 rounded-2xl p-5 w-full max-w-xs space-y-4">
+            <p className="text-sm text-white text-center">ยืนยันการลบสาขา <span className="font-bold text-red-300">&ldquo;{confirmDelete.name}&rdquo;</span> ?</p>
+            <div className="flex gap-2">
+              <button type="button" onClick={() => setConfirmDelete(null)} className="flex-1 py-2 border border-white/20 rounded-xl text-sm text-white/70 cursor-pointer hover:bg-white/10">ยกเลิก</button>
+              <button type="button" onClick={() => doDelete(confirmDelete.code)} disabled={isPending} className="flex-1 py-2 bg-red-700/80 text-white rounded-xl text-sm font-semibold cursor-pointer hover:bg-red-600/80 disabled:opacity-50">ยืนยันลบ</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Confirm Edit Dialog */}
+      {confirmEdit && editing && (
+        <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-60 p-4">
+          <div className="bg-stone-900 border border-white/15 rounded-2xl p-5 w-full max-w-xs space-y-4">
+            <p className="text-sm text-white text-center">ยืนยันการแก้ไขสาขา <span className="font-bold text-amber-300">&ldquo;{editing.name}&rdquo;</span> ?</p>
+            <div className="flex gap-2">
+              <button type="button" onClick={() => setConfirmEdit(false)} className="flex-1 py-2 border border-white/20 rounded-xl text-sm text-white/70 cursor-pointer hover:bg-white/10">ยกเลิก</button>
+              <button type="button" onClick={doUpdate} disabled={isPending} className="flex-1 py-2 bg-amber-700/80 text-white rounded-xl text-sm font-semibold cursor-pointer hover:bg-amber-600/80 disabled:opacity-50">ยืนยัน</button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
@@ -279,6 +486,7 @@ export default function LoginForm({ shops: initialShops }: { shops: ShopConfig[]
   const [selectedShop, setSelectedShop] = useState<string | null>(null)
   const [state, action, pending] = useActionState(loginAction, null)
   const [showManager, setShowManager] = useState(false)
+  const [showSettings, setShowSettings] = useState(false)
   const [, startTransition] = useTransition()
 
   function refreshShops() {
@@ -294,6 +502,16 @@ export default function LoginForm({ shops: initialShops }: { shops: ShopConfig[]
 
   return (
     <div className="min-h-screen relative flex flex-col items-center justify-center overflow-hidden">
+
+      {/* Settings button — top right */}
+      <button
+        type="button"
+        onClick={() => setShowSettings(true)}
+        className="absolute top-4 right-4 z-20 flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-white/20 bg-white/10 text-white/70 text-xs font-semibold hover:bg-white/20 hover:text-white transition-colors cursor-pointer backdrop-blur-sm"
+      >
+        <GearIcon className="w-3.5 h-3.5" />
+        Setting
+      </button>
 
       {/* Background image */}
       <Image
@@ -358,9 +576,8 @@ export default function LoginForm({ shops: initialShops }: { shops: ShopConfig[]
             className="w-full max-w-xs bg-white/10 backdrop-blur-sm border border-white/15 rounded-2xl p-5 space-y-3"
           >
             <input type="hidden" name="shopCode" value={selectedShop} />
-            <input
-              key={selectedShop}
-              type="password"
+            <PasswordInput
+              keyVal={selectedShop}
               name="password"
               required
               autoFocus
@@ -383,7 +600,7 @@ export default function LoginForm({ shops: initialShops }: { shops: ShopConfig[]
         {/* Manage branches */}
         <button
           onClick={() => setShowManager(true)}
-          className="mt-6 text-xs text-white/30 hover:text-white/60 transition-colors cursor-pointer tracking-widest"
+          className="mt-6 text-xs text-white/60 hover:text-white/90 transition-colors cursor-pointer tracking-widest"
         >
           ⚙ จัดการสาขา
         </button>
@@ -394,6 +611,10 @@ export default function LoginForm({ shops: initialShops }: { shops: ShopConfig[]
           onClose={() => setShowManager(false)}
           onShopsChanged={refreshShops}
         />
+      )}
+
+      {showSettings && (
+        <SettingsModal onClose={() => setShowSettings(false)} />
       )}
     </div>
   )
