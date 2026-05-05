@@ -664,33 +664,94 @@ function DonutChart({ netSales, onlineOrders }: { netSales: number; onlineOrders
   )
 }
 
+const TOTALS_INFO: Record<string, { th: string; en: string }> = {
+  total_sale: {
+    th: 'ยอดขายรวมทั้งหมดของวัน/สัปดาห์ รวมทั้ง Lunch + Dinner และทุกช่องทาง (Eftpos, Online, Cash)',
+    en: 'Total revenue for the period — Lunch + Dinner combined across all payment channels (Eftpos, Online, Cash).',
+  },
+  total_eftpos: {
+    th: 'ยอดรวมที่ชำระผ่านบัตร Eftpos/Credit Card รวมทั้ง Lunch และ Dinner',
+    en: 'Total card payments (Eftpos / Credit) for both Lunch and Dinner combined.',
+  },
+  net_sales: {
+    th: 'ยอดขายรวม หักออนไลน์ออก (Total Sale − Online Orders) = ยอดที่ชำระในร้านจริง ๆ',
+    en: 'Total Sale minus Online Orders — represents revenue collected in-store (Eftpos + Cash).',
+  },
+  online_orders: {
+    th: 'ยอดรวมจาก LFY Online, Uber Eats, DoorDash (ออนไลน์ทุกแพลตฟอร์ม)',
+    en: 'Total online platform revenue — LFY Online, Uber Eats, and DoorDash combined.',
+  },
+  cash_expense: {
+    th: 'รายจ่ายที่ชำระด้วยเงินสดในวัน/สัปดาห์นี้ (จาก Expense page เฉพาะรายการ Cash)',
+    en: 'Cash expenses paid out this period (from the Expense page, Cash payment method only).',
+  },
+  cash_leave: {
+    th: 'เงินสดคงเหลือในวัน = Cash Revenue − Cash Expense − Labor\nถ้าบวก = มีเงินสดเหลือ, ถ้าลบ = เงินสดขาด',
+    en: 'Cash left after paying expenses and wages.\nCash Revenue − Cash Expense − Labor. Positive = surplus, Negative = shortfall.',
+  },
+}
+
 function TotalsGrid({ totals }: { totals: Totals }) {
   const { lang } = useShop()
   const tr = translations[lang]
+  const [showInfo, setShowInfo] = useState(false)
   const items = [
-    { label: tr.total_sale_label, value: totals.totalSale, color: 'text-brand-gold' },
-    { label: tr.total_eftpos_label, value: totals.totalEftpos, color: 'text-blue-600' },
-    { label: tr.net_sales_label, value: totals.netSales, color: 'text-gray-800' },
-    { label: tr.online_orders_label, value: totals.onlineOrders, color: 'text-gray-800' },
-    { label: tr.cash_expense_label, value: totals.cashExpense, color: 'text-red-500' },
-    { label: tr.cash_leave_day, value: totals.cashLeave, color: totals.cashLeave >= 0 ? 'text-green-600' : 'text-red-600' },
+    { key: 'total_sale', label: tr.total_sale_label, value: totals.totalSale, color: 'text-brand-gold' },
+    { key: 'total_eftpos', label: tr.total_eftpos_label, value: totals.totalEftpos, color: 'text-blue-600' },
+    { key: 'net_sales', label: tr.net_sales_label, value: totals.netSales, color: 'text-gray-800' },
+    { key: 'online_orders', label: tr.online_orders_label, value: totals.onlineOrders, color: 'text-gray-800' },
+    { key: 'cash_expense', label: tr.cash_expense_label, value: totals.cashExpense, color: 'text-red-500' },
+    { key: 'cash_leave', label: tr.cash_leave_day, value: totals.cashLeave, color: totals.cashLeave >= 0 ? 'text-green-600' : 'text-red-600' },
   ]
   return (
-    <div className="grid grid-cols-2 gap-0">
-      {items.map(({ label, value, color }, i) => {
-        const isLeft = i % 2 === 0
-        const isLastRow = i >= items.length - 2
-        return (
-          <div
-            key={label}
-            className={`p-3${isLeft ? ' border-r border-gray-100' : ''}${!isLastRow ? ' border-b border-gray-100' : ''}`}
-          >
-            <div className="text-xs text-gray-400 mb-0.5">{label}</div>
-            <div className={`text-sm font-bold ${color}`}>{fmt(value)} $</div>
+    <>
+      {showInfo && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4" onClick={() => setShowInfo(false)}>
+          <div className="bg-white rounded-2xl shadow-xl w-full max-w-sm overflow-hidden" onClick={(e) => e.stopPropagation()}>
+            <div className="px-4 py-3 border-b border-gray-100 flex items-center justify-between">
+              <span className="font-semibold text-gray-700 text-sm">{lang === 'th' ? 'คำอธิบายค่าในการ์ด' : 'Card Value Guide'}</span>
+              <button type="button" onClick={() => setShowInfo(false)} className="text-gray-400 hover:text-gray-600 text-lg leading-none cursor-pointer">&times;</button>
+            </div>
+            <div className="divide-y divide-gray-100 max-h-[70vh] overflow-y-auto">
+              {items.map(({ key, label, color }) => {
+                const info = TOTALS_INFO[key]
+                return (
+                  <div key={key} className="px-4 py-3">
+                    <div className={`text-xs font-semibold mb-1 ${color}`}>{label}</div>
+                    <div className="text-xs text-gray-500 whitespace-pre-line">{lang === 'th' ? info.th : info.en}</div>
+                  </div>
+                )
+              })}
+            </div>
           </div>
-        )
-      })}
-    </div>
+        </div>
+      )}
+      <div className="flex justify-end px-3 pt-2">
+        <button
+          type="button"
+          onClick={() => setShowInfo(true)}
+          className="w-5 h-5 rounded-full border border-gray-300 text-gray-400 hover:border-brand-gold hover:text-brand-gold text-[11px] font-bold leading-none flex items-center justify-center cursor-pointer transition-colors"
+          title={lang === 'th' ? 'คำอธิบาย' : 'Explain'}
+        >
+          i
+        </button>
+      </div>
+      <div className="grid grid-cols-2 gap-0">
+        {items.map(({ label, value, color }, i) => {
+          const isLeft = i % 2 === 0
+          const isLastRow = i >= items.length - 2
+          return (
+            <div
+              key={label}
+              className={`p-3${isLeft ? ' border-r border-gray-100' : ''}${!isLastRow ? ' border-b border-gray-100' : ''}`}
+            >
+              <div className="text-xs text-gray-400 mb-0.5">{label}</div>
+              <div className={`text-sm font-bold ${color}`}>{fmt(value)} $</div>
+            </div>
+          )
+        })}
+      </div>
+    </>
   )
 }
 

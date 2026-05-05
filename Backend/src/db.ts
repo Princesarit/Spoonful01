@@ -17,6 +17,8 @@ import type {
   StoredShop,
   DeliveryRate,
   DeliverySupplier,
+  ClosedDate,
+  ClosedMeal,
 } from './types'
 import { config } from './config'
 
@@ -243,7 +245,9 @@ export async function saveEmployees(shopCode: string, employees: Employee[]): Pr
       if (e.positions.includes('Home')) return 'home'
       return 'other'
     })
-    await applyMasterEmployeeFormatting([...otherCats, ...newCats])
+    const otherShopCodes = others.map((r) => r.shopCode as string)
+    const newShopCodes = sorted.map(() => shopCode)
+    await applyMasterEmployeeFormatting([...otherCats, ...newCats], [...otherShopCodes, ...newShopCodes])
   } catch (err) {
     console.error('[saveEmployees] master sync failed:', err)
   }
@@ -3091,4 +3095,66 @@ export async function syncAllReportSheets(shopCode: string): Promise<void> {
 export async function hideShopInternalSheets(shopCode: string): Promise<void> {
   const { sid } = await getShopDb(shopCode)
   await hideInternalSheets(sid)
+}
+
+// ─── Closed Dates ──────────────────────────────────────────────────────────────
+
+const CLOSED_HEADERS = ['date', 'meal', 'note', 'closedBy', 'closedAt']
+
+export async function listClosedDates(shopCode: string): Promise<ClosedDate[]> {
+  const { tab, sid } = await getShopDb(shopCode)
+  try {
+    const rows = await getSheetData(tab('closed_dates'), sid)
+    return rows.map((r) => ({
+      date: r.date as string,
+      meal: (r.meal as ClosedMeal) || 'both',
+      note: (r.note as string) || '',
+      closedBy: (r.closedBy as string) || '',
+      closedAt: (r.closedAt as string) || '',
+    }))
+  } catch {
+    return []
+  }
+}
+
+export async function addClosedDate(shopCode: string, entry: ClosedDate): Promise<void> {
+  const { tab, sid } = await getShopDb(shopCode)
+  let rows: Record<string, string>[] = []
+  try { rows = await getSheetData(tab('closed_dates'), sid) } catch { /* sheet may not exist yet */ }
+  // Remove any existing entry for same date+meal to avoid dupes
+  const filtered = rows.filter((r) => !(r.date === entry.date && r.meal === entry.meal))
+  filtered.push({ date: entry.date, meal: entry.meal, note: entry.note, closedBy: entry.closedBy, closedAt: entry.closedAt })
+  await setSheetData(tab('closed_dates'), CLOSED_HEADERS, filtered.map((r) => CLOSED_HEADERS.map((h) => r[h] ?? '')), sid)
+  // Apply red background to data rows (row 0 = header, data starts at row 1)
+  const sheetId = await getSheetIdByName(sid, tab('closed_dates'))
+  if (sheetId !== null) {
+    const RED = { red: 1, green: 0.8, blue: 0.8 }
+    await batchUpdateSheet(sid, [{
+      repeatCell: {
+        range: { sheetId, startRowIndex: 1, endRowIndex: filtered.length + 1, startColumnIndex: 0, endColumnIndex: CLOSED_HEADERS.length },
+        cell: { userEnteredFormat: { backgroundColor: RED } },
+        fields: 'userEnteredFormat.backgroundColor',
+      },
+    }])
+  }
+}
+
+export async function removeClosedDate(shopCode: string, date: string, meal?: ClosedMeal): Promise<void> {
+  const { tab, sid } = await getShopDb(shopCode)
+  let rows: Record<string, string>[] = []
+  try { rows = await getSheetData(tab('closed_dates'), sid) } catch { return }
+  const filtered = rows.filter((r) => !(r.date === date && (!meal || r.meal === meal || meal === 'both')))
+  await setSheetData(tab('closed_dates'), CLOSED_HEADERS, filtered.map((r) => CLOSED_HEADERS.map((h) => r[h] ?? '')), sid)
+  if (filtered.length === 0) return
+  const sheetId = await getSheetIdByName(sid, tab('closed_dates'))
+  if (sheetId !== null) {
+    const RED = { red: 1, green: 0.8, blue: 0.8 }
+    await batchUpdateSheet(sid, [{
+      repeatCell: {
+        range: { sheetId, startRowIndex: 1, endRowIndex: filtered.length + 1, startColumnIndex: 0, endColumnIndex: CLOSED_HEADERS.length },
+        cell: { userEnteredFormat: { backgroundColor: RED } },
+        fields: 'userEnteredFormat.backgroundColor',
+      },
+    }])
+  }
 }

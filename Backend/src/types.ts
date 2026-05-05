@@ -122,6 +122,16 @@ export interface DeliveryRate {
   fee: number
 }
 
+export type ClosedMeal = 'lunch' | 'dinner' | 'both'
+
+export interface ClosedDate {
+  date: string        // YYYY-MM-DD
+  meal: ClosedMeal
+  note: string
+  closedBy: string
+  closedAt: string    // ISO timestamp
+}
+
 export interface DeliverySupplier {
   id: string          // slug: "lfy", "uber", "doordash"
   name: string        // display name

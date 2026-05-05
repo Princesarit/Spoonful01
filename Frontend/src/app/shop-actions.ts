@@ -1,6 +1,6 @@
 'use server'
 
-import type { StoredShop } from '@/lib/types'
+import type { StoredShop, ClosedDate, ClosedMeal } from '@/lib/types'
 import type { ShopConfig } from '@/lib/config'
 
 const BACKEND_URL = (process.env.BACKEND_URL ?? 'http://localhost:4000').replace(/\/$/, '')
@@ -139,4 +139,73 @@ export async function verifyMasterPasswordAction(
   const password = formData.get('password') as string
   if (!MASTER_PASSWORD || password !== MASTER_PASSWORD) return { error: 'รหัสผ่านไม่ถูกต้อง' }
   return { ok: true }
+}
+
+// ── Master Closed Dates (password-only, no session) ───────────────────────────
+
+export async function verifyOwnerPasswordMaster(password: string): Promise<boolean> {
+  try {
+    const res = await fetch(`${BACKEND_URL}/shops/verify-owner`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ password }),
+    })
+    return res.ok
+  } catch { return false }
+}
+
+export async function getMasterClosedDates(ownerPassword: string, shopCode: string): Promise<ClosedDate[]> {
+  try {
+    const res = await fetch(
+      `${BACKEND_URL}/shops/master-closed-dates?password=${encodeURIComponent(ownerPassword)}&shopCode=${encodeURIComponent(shopCode)}`,
+      { cache: 'no-store' },
+    )
+    if (!res.ok) return []
+    return res.json() as Promise<ClosedDate[]>
+  } catch { return [] }
+}
+
+export async function addMasterClosedDate(
+  ownerPassword: string,
+  shopCode: string,
+  entry: { date: string; meal: ClosedMeal; note: string },
+): Promise<{ ok: boolean; error?: string }> {
+  try {
+    const res = await fetch(`${BACKEND_URL}/shops/master-closed-dates`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ password: ownerPassword, shopCode, ...entry, closedBy: 'owner' }),
+    })
+    if (!res.ok) {
+      const d = await res.json() as { error?: string }
+      return { ok: false, error: d.error ?? 'Failed' }
+    }
+    return { ok: true }
+  } catch { return { ok: false, error: 'Network error' } }
+}
+
+export async function removeMasterClosedDate(
+  ownerPassword: string,
+  shopCode: string,
+  date: string,
+  meal?: ClosedMeal,
+): Promise<{ ok: boolean; error?: string }> {
+  try {
+    const qs = meal ? `?meal=${meal}` : ''
+    const res = await fetch(`${BACKEND_URL}/shops/master-closed-dates/${shopCode}/${date}${qs}`, {
+      method: 'DELETE',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ password: ownerPassword }),
+    })
+    if (!res.ok) return { ok: false, error: 'Failed' }
+    return { ok: true }
+  } catch { return { ok: false, error: 'Network error' } }
+}
+
+export async function getPublicShopsAction(): Promise<{ code: string; name: string }[]> {
+  try {
+    const res = await fetch(`${BACKEND_URL}/shops`, { cache: 'no-store' })
+    if (!res.ok) return []
+    return res.json() as Promise<{ code: string; name: string }[]>
+  } catch { return [] }
 }

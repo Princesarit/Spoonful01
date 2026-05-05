@@ -480,6 +480,7 @@ export default function ScheduleView({
                   value={auditModal.editorName}
                   onChange={(e) => setAuditModal((p) => p && ({ ...p, editorName: e.target.value }))}
                   placeholder={tr.enter_name_placeholder}
+                  maxLength={30}
                   className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-gold"
                 />
               </div>
@@ -490,6 +491,7 @@ export default function ScheduleView({
                   value={auditModal.note}
                   onChange={(e) => setAuditModal((p) => p && ({ ...p, note: e.target.value }))}
                   placeholder={tr.reason_optional_placeholder}
+                  maxLength={30}
                   className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-gold"
                 />
               </div>

@@ -666,6 +666,7 @@ const MASTER_EMP_COL_COUNT = 8  // shopCode, id, employeeId, positions, name, ph
  */
 export async function applyMasterEmployeeFormatting(
   categories: EmpCategory[],
+  shopCodes: string[] = [],
 ): Promise<void> {
   const spreadsheetId = config.spreadsheetId
   const sheetName = 'Employees'
@@ -741,7 +742,8 @@ export async function applyMasterEmployeeFormatting(
   })
 
   // Black borders on data range
-  const solidThin = { style: 'SOLID', color: BLACK }
+  const solidThin  = { style: 'SOLID',       color: BLACK }
+  const solidThick = { style: 'SOLID_THICK', color: BLACK }
   requests.push({
     updateBorders: {
       range: {
@@ -753,6 +755,24 @@ export async function applyMasterEmployeeFormatting(
       innerHorizontal: solidThin, innerVertical: solidThin,
     },
   })
+
+  // Thick top border at each shop boundary
+  if (shopCodes.length === categories.length) {
+    for (let i = 1; i < shopCodes.length; i++) {
+      if (shopCodes[i] !== shopCodes[i - 1]) {
+        requests.push({
+          updateBorders: {
+            range: {
+              sheetId,
+              startRowIndex: i + 1, endRowIndex: i + 2,
+              startColumnIndex: 0, endColumnIndex: MASTER_EMP_COL_COUNT,
+            },
+            top: solidThick,
+          },
+        })
+      }
+    }
+  }
 
   // Hide B(1), C(2) [id, employeeId], H(7) [fired]
   requests.push({

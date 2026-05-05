@@ -135,3 +135,13 @@ export interface DeliveryRate {
   maxKm: number  // 9999 = no upper limit (catch-all)
   fee: number
 }
+
+export type ClosedMeal = 'lunch' | 'dinner' | 'both'
+
+export interface ClosedDate {
+  date: string
+  meal: ClosedMeal
+  note: string
+  closedBy: string
+  closedAt: string
+}

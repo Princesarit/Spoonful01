@@ -10,10 +10,15 @@ import {
   deleteShopAction,
   changeOwnerPasswordAction,
   getDueExpensesAction,
+  getMasterClosedDates,
+  addMasterClosedDate,
+  removeMasterClosedDate,
+  getPublicShopsAction,
+  verifyOwnerPasswordMaster,
 } from './shop-actions'
 import type { DueExpenseShop } from './shop-actions'
 import type { ShopConfig } from '@/lib/config'
-import type { StoredShop } from '@/lib/types'
+import type { StoredShop, ClosedDate, ClosedMeal } from '@/lib/types'
 
 // ─── Gear Icon ─────────────────────────────────────────────────────────────
 
@@ -171,18 +176,89 @@ function PasswordInput({
 
 // ─── Settings Modal ────────────────────────────────────────────────────────
 
-type SettingsView = 'menu' | 'change-password'
+type SettingsView = 'menu' | 'change-password' | 'close-shop' | 'manual'
+
+function ManualSection({ title, children }: { title: string; children: React.ReactNode }) {
+  return (
+    <div>
+      <p className="font-semibold text-white mb-1">{title}</p>
+      <p className="text-xs text-white/50 leading-relaxed">{children}</p>
+    </div>
+  )
+}
 
 function SettingsModal({ onClose }: { onClose: () => void }) {
   const [view, setView] = useState<SettingsView>('menu')
+  // Change Password
   const [currentPw, setCurrentPw] = useState('')
   const [newPw, setNewPw]         = useState('')
   const [confirmPw, setConfirmPw] = useState('')
   const [error, setError]         = useState('')
   const [success, setSuccess]     = useState(false)
   const [isPending, startTransition] = useTransition()
+  // Close Shop
+  const [closeStep, setCloseStep] = useState<'password' | 'form'>('password')
+  const [closePwd, setClosePwd]   = useState('')
+  const [closePwdErr, setClosePwdErr] = useState('')
+  const [closePwdLoading, setClosePwdLoading] = useState(false)
+  const [shops, setShops]         = useState<{ code: string; name: string }[]>([])
+  const [selectedShop, setSelectedShop] = useState('')
+  const [closeDate, setCloseDate] = useState(new Date().toISOString().split('T')[0])
+  const [closeMeal, setCloseMeal] = useState<ClosedMeal>('both')
+  const [closeNote, setCloseNote] = useState('')
+  const [closeSaving, setCloseSaving] = useState(false)
+  const [closedList, setClosedList] = useState<ClosedDate[]>([])
+  const [closedLoading, setClosedLoading] = useState(false)
 
   const inputCls = 'w-full border border-white/30 bg-white/10 rounded-lg px-3 py-2 text-sm text-white placeholder-white/40 focus:outline-none focus:ring-2 focus:ring-amber-400/60'
+
+  useEffect(() => {
+    if (view === 'close-shop' && shops.length === 0) {
+      getPublicShopsAction().then((s) => { setShops(s); if (s.length > 0) setSelectedShop(s[0].code) })
+    }
+  }, [view, shops.length])
+
+  async function loadClosedDates(shop: string, pwd: string) {
+    setClosedLoading(true)
+    const list = await getMasterClosedDates(pwd, shop)
+    setClosedList(list)
+    setClosedLoading(false)
+  }
+
+  async function handleVerifyClosePwd() {
+    setClosePwdLoading(true)
+    setClosePwdErr('')
+    const ok = await verifyOwnerPasswordMaster(closePwd)
+    if (ok) {
+      const list = await getMasterClosedDates(closePwd, selectedShop)
+      setClosedList(list)
+      setCloseStep('form')
+    } else {
+      setClosePwdErr('รหัสผ่านไม่ถูกต้อง')
+    }
+    setClosePwdLoading(false)
+  }
+
+  async function handleCloseShop() {
+    setCloseSaving(true)
+    const res = await addMasterClosedDate(closePwd, selectedShop, { date: closeDate, meal: closeMeal, note: closeNote })
+    setCloseSaving(false)
+    if (res.ok) {
+      setCloseNote('')
+      await loadClosedDates(selectedShop, closePwd)
+    }
+  }
+
+  async function handleReopen(date: string, meal: ClosedMeal) {
+    await removeMasterClosedDate(closePwd, selectedShop, date, meal)
+    await loadClosedDates(selectedShop, closePwd)
+  }
+
+  function goBack() {
+    setView('menu')
+    setError(''); setSuccess(false)
+    setCloseStep('password'); setClosePwd(''); setClosePwdErr('')
+  }
 
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
@@ -206,7 +282,7 @@ function SettingsModal({ onClose }: { onClose: () => void }) {
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
             {view !== 'menu' && (
-              <button type="button" onClick={() => { setView('menu'); setError(''); setSuccess(false) }} className="text-white/40 hover:text-white text-sm cursor-pointer mr-1">←</button>
+              <button type="button" onClick={goBack} className="text-white/40 hover:text-white text-sm cursor-pointer mr-1">←</button>
             )}
             <GearIcon className="w-4 h-4 text-amber-400" />
             <h3 className="font-bold text-white tracking-widest text-sm">Settings</h3>
@@ -217,12 +293,19 @@ function SettingsModal({ onClose }: { onClose: () => void }) {
         {/* Menu */}
         {view === 'menu' && (
           <div className="space-y-2 pt-1">
-            <button
-              type="button"
-              onClick={() => setView('change-password')}
-              className="w-full flex items-center justify-between px-4 py-3 rounded-xl border border-white/10 bg-white/5 hover:bg-white/10 transition-colors cursor-pointer text-left"
-            >
+            <button type="button" onClick={() => setView('change-password')}
+              className="w-full flex items-center justify-between px-4 py-3 rounded-xl border border-white/10 bg-white/5 hover:bg-white/10 transition-colors cursor-pointer text-left">
               <span className="text-sm text-white">🔑 Change Owner Password</span>
+              <span className="text-white/30 text-sm">›</span>
+            </button>
+            <button type="button" onClick={() => { setView('close-shop'); setCloseStep('password'); setClosePwd(''); setClosePwdErr('') }}
+              className="w-full flex items-center justify-between px-4 py-3 rounded-xl border border-white/10 bg-white/5 hover:bg-white/10 transition-colors cursor-pointer text-left">
+              <span className="text-sm text-white">🔒 Close Shop</span>
+              <span className="text-white/30 text-sm">›</span>
+            </button>
+            <button type="button" onClick={() => setView('manual')}
+              className="w-full flex items-center justify-between px-4 py-3 rounded-xl border border-white/10 bg-white/5 hover:bg-white/10 transition-colors cursor-pointer text-left">
+              <span className="text-sm text-white">📖 User Manual</span>
               <span className="text-white/30 text-sm">›</span>
             </button>
           </div>
@@ -253,7 +336,7 @@ function SettingsModal({ onClose }: { onClose: () => void }) {
                 </div>
                 {error && <p className="text-xs text-red-400 bg-red-900/30 px-3 py-2 rounded-lg">{error}</p>}
                 <div className="flex gap-2 pt-1">
-                  <button type="button" onClick={() => setView('menu')} className="flex-1 py-2.5 border border-white/20 rounded-xl text-sm text-white/70 cursor-pointer hover:bg-white/10">ยกเลิก</button>
+                  <button type="button" onClick={goBack} className="flex-1 py-2.5 border border-white/20 rounded-xl text-sm text-white/70 cursor-pointer hover:bg-white/10">ยกเลิก</button>
                   <button type="submit" disabled={isPending} className="flex-1 py-2.5 bg-amber-700/80 text-white rounded-xl text-sm font-semibold cursor-pointer hover:bg-amber-600/80 disabled:opacity-50">
                     {isPending ? 'กำลังบันทึก...' : 'เปลี่ยนรหัสผ่าน'}
                   </button>
@@ -262,6 +345,110 @@ function SettingsModal({ onClose }: { onClose: () => void }) {
             )}
           </>
         )}
+
+        {/* Close Shop */}
+        {view === 'close-shop' && (
+          <div className="max-h-[60vh] overflow-y-auto space-y-4">
+            <p className="text-xs text-white/50 font-semibold tracking-wider -mt-1">Close Shop</p>
+            {closeStep === 'password' ? (
+              <div className="space-y-3">
+                <p className="text-sm text-white/60">Enter Owner password to manage closed dates.</p>
+                <div>
+                  <label className="text-xs text-white/40 mb-1 block">Select Branch</label>
+                  <select value={selectedShop} onChange={(e) => setSelectedShop(e.target.value)}
+                    title="Select branch"
+                    className="w-full border border-white/20 bg-stone-800 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:ring-2 focus:ring-amber-400/60">
+                    {shops.map((s) => <option key={s.code} value={s.code}>{s.name}</option>)}
+                  </select>
+                </div>
+                <PasswordInput autoFocus value={closePwd} onChange={(e) => setClosePwd(e.target.value)} placeholder="Owner password" className={inputCls} />
+                {closePwdErr && <p className="text-xs text-red-400 bg-red-900/30 px-3 py-2 rounded-lg">{closePwdErr}</p>}
+                <button type="button" onClick={handleVerifyClosePwd} disabled={closePwdLoading || !closePwd || !selectedShop}
+                  className="w-full py-2.5 bg-amber-700/80 text-white rounded-xl text-sm font-semibold cursor-pointer hover:bg-amber-600/80 disabled:opacity-50">
+                  {closePwdLoading ? '...' : 'Confirm'}
+                </button>
+              </div>
+            ) : (
+              <div className="space-y-4">
+                {/* Shop label */}
+                <p className="text-xs text-white/40">Branch: <span className="text-amber-400 font-semibold">{shops.find((s) => s.code === selectedShop)?.name ?? selectedShop}</span></p>
+                {/* Add form */}
+                <div className="border border-white/10 bg-white/5 rounded-xl p-3 space-y-3">
+                  <p className="text-xs font-semibold text-white/70">Add Closed Date</p>
+                  <div>
+                    <label className="text-xs text-white/40">Date</label>
+                    <input type="date" value={closeDate} onChange={(e) => setCloseDate(e.target.value)}
+                      title="Close date"
+                      className="w-full border border-white/20 bg-white/10 rounded-lg px-2 py-1.5 text-sm mt-0.5 text-white focus:outline-none focus:ring-2 focus:ring-amber-400/60" />
+                  </div>
+                  <div>
+                    <label className="text-xs text-white/40">Meal</label>
+                    <div className="flex gap-2 mt-0.5">
+                      {(['lunch', 'dinner', 'both'] as ClosedMeal[]).map((m) => (
+                        <button key={m} type="button" onClick={() => setCloseMeal(m)}
+                          className={`flex-1 py-1.5 rounded-lg text-xs font-semibold cursor-pointer border transition-colors ${closeMeal === m ? 'bg-amber-700/80 text-white border-amber-600' : 'bg-white/5 text-white/60 border-white/20 hover:border-amber-500'}`}>
+                          {m === 'lunch' ? 'Lunch' : m === 'dinner' ? 'Dinner' : 'Both'}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                  <div>
+                    <label className="text-xs text-white/40">Note (optional)</label>
+                    <input type="text" value={closeNote} onChange={(e) => setCloseNote(e.target.value)} maxLength={50}
+                      placeholder="e.g. Public holiday"
+                      className="w-full border border-white/20 bg-white/10 rounded-lg px-2 py-1.5 text-sm mt-0.5 text-white placeholder-white/30 focus:outline-none focus:ring-2 focus:ring-amber-400/60" />
+                  </div>
+                  <button type="button" onClick={handleCloseShop} disabled={closeSaving || !closeDate}
+                    className="w-full py-2 bg-red-700/80 text-white rounded-xl text-sm font-semibold cursor-pointer hover:bg-red-600/80 disabled:opacity-50">
+                    {closeSaving ? '...' : '🔒 Close Shop'}
+                  </button>
+                </div>
+                {/* Closed dates list */}
+                <div>
+                  <p className="text-xs text-white/40 font-semibold mb-2">Closed Dates</p>
+                  {closedLoading ? (
+                    <p className="text-xs text-white/30 text-center py-3">...</p>
+                  ) : closedList.length === 0 ? (
+                    <p className="text-xs text-white/30 text-center py-3">No closed dates</p>
+                  ) : (
+                    <div className="space-y-1.5">
+                      {[...closedList].sort((a, b) => a.date.localeCompare(b.date)).map((d) => (
+                        <div key={`${d.date}-${d.meal}`} className="flex items-center justify-between border border-white/10 bg-white/5 rounded-lg px-3 py-2">
+                          <div>
+                            <span className="text-sm font-semibold text-red-300">{d.date}</span>
+                            <span className="ml-2 text-xs bg-red-900/60 text-red-300 px-1.5 py-0.5 rounded-full">{d.meal}</span>
+                            {d.note && <span className="ml-1 text-xs text-white/30">— {d.note}</span>}
+                          </div>
+                          <button type="button" onClick={() => handleReopen(d.date, d.meal)}
+                            className="text-xs text-amber-400 hover:text-amber-300 cursor-pointer ml-2 font-semibold">
+                            Reopen
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Manual */}
+        {view === 'manual' && (
+          <div className="max-h-[60vh] overflow-y-auto space-y-4">
+            <p className="text-xs text-white/50 font-semibold tracking-wider -mt-1">User Manual</p>
+            <ManualSection title="📅 Schedule">Add/edit weekly schedules. Tap ✕ to remove from this week only. Saving requires editor name and note.</ManualSection>
+            <ManualSection title="👥 Employees">View/add/edit employees. Delete is soft — history preserved. No duplicate names. Edits and deletes require name + note.</ManualSection>
+            <ManualSection title="⏱ Time Record">Record AM/PM shifts per employee. Auto-locks after save. Includes Wage Summary and Delivery Count.</ManualSection>
+            <ManualSection title="💰 Revenue">Enter Lunch/Dinner revenue: Eftpos, LFY, Uber, DoorDash, Cash in Bag. Cash Sale auto-calculated.</ManualSection>
+            <ManualSection title="🧾 Expenses">Log expenses with date, supplier, amount, and payment method. Toggle Paid/Unpaid per item.</ManualSection>
+            <ManualSection title="📊 Summary">View daily/weekly/monthly totals. Tap (i) for explanations. Use Sync Sheets to update Google Sheets.</ManualSection>
+            <ManualSection title="⚙ Config">Set delivery rates by distance. Used to auto-calculate delivery fees in Time Record.</ManualSection>
+            <ManualSection title="🔒 Close Shop">Mark dates/meals as closed. Revenue and TimeRecord show a warning banner. Use Reopen to remove.</ManualSection>
+            <ManualSection title="⚙️ Settings (Main Page)">Change Owner Password, manage closed shop dates across all branches, and access this manual.</ManualSection>
+          </div>
+        )}
+
       </div>
     </div>
   )
@@ -396,7 +583,7 @@ function BranchManagerModal({
                 <div key={shop.code}>
                   {editing?.code === shop.code ? (
                     <div className="border border-amber-700/40 rounded-xl p-3 space-y-2 bg-amber-900/20">
-                      <input value={editing.name} onChange={(e) => setEditing({ ...editing, name: e.target.value })} placeholder="ชื่อสาขา" className={inputCls} />
+                      <input value={editing.name} onChange={(e) => setEditing({ ...editing, name: e.target.value })} placeholder="ชื่อสาขา" maxLength={30} className={inputCls} />
                       <PasswordInput value={editing.restaurantPassword} onChange={(e) => setEditing({ ...editing, restaurantPassword: e.target.value })} placeholder="Restaurant Password" className={inputCls} />
                       <PasswordInput value={editing.managerPassword} onChange={(e) => setEditing({ ...editing, managerPassword: e.target.value })} placeholder="Manager Password" className={inputCls} />
                       <input required value={editing.spreadsheetId ?? ''} onChange={(e) => setEditing({ ...editing, spreadsheetId: e.target.value })} placeholder="Spreadsheet ID" className={inputCls} />
@@ -446,7 +633,7 @@ function BranchManagerModal({
                     i
                   </button>
                 </div>
-                <input value={newForm.name} onChange={(e) => setNewForm({ ...newForm, name: e.target.value })} placeholder="ชื่อสาขา" className={inputCls} />
+                <input value={newForm.name} onChange={(e) => setNewForm({ ...newForm, name: e.target.value })} placeholder="ชื่อสาขา" maxLength={30} className={inputCls} />
                 <PasswordInput value={newForm.restaurantPassword} onChange={(e) => setNewForm({ ...newForm, restaurantPassword: e.target.value })} placeholder="Restaurant Password" className={inputCls} />
                 <PasswordInput value={newForm.managerPassword} onChange={(e) => setNewForm({ ...newForm, managerPassword: e.target.value })} placeholder="Manager Password" className={inputCls} />
                 <input required value={newForm.spreadsheetId ?? ''} onChange={(e) => setNewForm({ ...newForm, spreadsheetId: e.target.value })} placeholder="Spreadsheet ID" className={inputCls} />

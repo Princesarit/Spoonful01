@@ -306,6 +306,7 @@ export default function ExpenseView() {
                 value={form.filledBy ?? ''}
                 onChange={(e) => setField('filledBy', e.target.value)}
                 placeholder={tr.your_name_placeholder}
+                maxLength={30}
                 className={`w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-gold ${
                   !form.filledBy?.trim() ? 'border-red-300' : 'border-gray-300'
                 }`}
@@ -321,6 +322,7 @@ export default function ExpenseView() {
                 value={form.supplier}
                 onChange={(e) => setField('supplier', e.target.value)}
                 placeholder={tr.desc_name_placeholder}
+                maxLength={30}
                 className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-gold"
               />
             </div>
@@ -434,6 +436,7 @@ export default function ExpenseView() {
                 value={form.description}
                 onChange={(e) => setField('description', e.target.value)}
                 placeholder={tr.additional_notes_placeholder}
+                maxLength={50}
                 className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-gold"
               />
             </div>
@@ -447,6 +450,7 @@ export default function ExpenseView() {
                     value={form._editAuditName ?? ''}
                     onChange={(e) => setForm((p) => p && ({ ...p, _editAuditName: e.target.value }))}
                     placeholder={tr.enter_name_placeholder}
+                    maxLength={30}
                     className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-gold"
                   />
                 </div>
@@ -457,6 +461,7 @@ export default function ExpenseView() {
                     value={form._editAuditNote ?? ''}
                     onChange={(e) => setForm((p) => p && ({ ...p, _editAuditNote: e.target.value }))}
                     placeholder={tr.reason_optional_placeholder}
+                    maxLength={30}
                     className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-gold"
                   />
                 </div>

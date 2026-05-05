@@ -1,11 +1,53 @@
 'use client'
 
-import { useActionState, useEffect, useState } from 'react'
+import { useActionState, useEffect, useState, useCallback, useTransition } from 'react'
 import Link from 'next/link'
 import { useParams, usePathname } from 'next/navigation'
 import { logoutAction, demoteAction } from '@/app/actions'
 import { useShop } from '@/components/ShopProvider'
 import { translations } from '@/lib/translations'
+import { getClosedDates, addClosedDate, removeClosedDate, verifyOwnerPassword } from '@/app/[shopCode]/closed-dates/actions'
+import { changeOwnerPasswordAction } from '@/app/shop-actions'
+import type { ClosedDate, ClosedMeal } from '@/lib/types'
+
+// ─── Shared icons ────────────────────────────────────────────────────────────
+
+function GearIconSvg() {
+  return (
+    <svg className="w-4 h-4 text-amber-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <circle cx="12" cy="12" r="3" />
+      <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" />
+    </svg>
+  )
+}
+
+function PwInput({ value, onChange, placeholder, autoFocus }: {
+  value: string; onChange: (v: string) => void; placeholder?: string; autoFocus?: boolean
+}) {
+  const [show, setShow] = useState(false)
+  const cls = 'w-full border border-white/30 bg-white/10 rounded-lg px-3 py-2 text-sm text-white placeholder-white/40 focus:outline-none focus:ring-2 focus:ring-amber-400/60 pr-10'
+  return (
+    <div className="relative">
+      <input type={show ? 'text' : 'password'} value={value} onChange={(e) => onChange(e.target.value)}
+        placeholder={placeholder} autoFocus={autoFocus} className={cls} />
+      <button type="button" onClick={() => setShow((s) => !s)} tabIndex={-1}
+        className="absolute right-3 top-1/2 -translate-y-1/2 text-white/40 hover:text-white cursor-pointer">
+        {show ? '👁' : '🙈'}
+      </button>
+    </div>
+  )
+}
+
+function Section({ title, children }: { title: string; children: React.ReactNode }) {
+  return (
+    <div>
+      <p className="font-semibold text-white mb-1">{title}</p>
+      <p className="text-xs text-white/50 leading-relaxed">{children}</p>
+    </div>
+  )
+}
+
+type SettingsView = 'menu' | 'close-shop' | 'change-password' | 'manual'
 
 function useLoginDuration(loginAt: number) {
   const [elapsed, setElapsed] = useState(0)
@@ -59,6 +101,99 @@ export function ShopHeader({ shopName, role, loginAt }: { shopName: string; role
   const logoutLabel = tr.logout
   const isElevated = role === 'owner' || role === 'manager'
 
+  // ── Settings modal state ──────────────────────────────────────────────────────
+  type SettingsView = 'menu' | 'close-shop' | 'change-password' | 'manual'
+  const [showSettings, setShowSettings] = useState(false)
+  const [settingsView, setSettingsView] = useState<SettingsView>('menu')
+  // Close Shop sub-state
+  const [closeStep, setCloseStep] = useState<'password' | 'form'>('password')
+  const [closePwd, setClosePwd] = useState('')
+  const [closePwdErr, setClosePwdErr] = useState('')
+  const [closePwdLoading, setClosePwdLoading] = useState(false)
+  const [closeDate, setCloseDate] = useState(new Date().toISOString().split('T')[0])
+  const [closeMeal, setCloseMeal] = useState<ClosedMeal>('both')
+  const [closeNote, setCloseNote] = useState('')
+  const [closeSaving, setCloseSaving] = useState(false)
+  const [closedList, setClosedList] = useState<ClosedDate[]>([])
+  const [closedLoading, setClosedLoading] = useState(false)
+  // Change password sub-state
+  const [curPw, setCurPw] = useState('')
+  const [newPw, setNewPw] = useState('')
+  const [confirmPw, setConfirmPw] = useState('')
+  const [pwError, setPwError] = useState('')
+  const [pwSuccess, setPwSuccess] = useState(false)
+  const [, startPwTransition] = useTransition()
+
+  const loadClosed = useCallback(async () => {
+    if (!shopCode) return
+    setClosedLoading(true)
+    const list = await getClosedDates(shopCode)
+    setClosedList(list)
+    setClosedLoading(false)
+  }, [shopCode])
+
+  useEffect(() => {
+    if (showSettings && settingsView === 'close-shop' && closeStep === 'form') loadClosed()
+  }, [showSettings, settingsView, closeStep, loadClosed])
+
+  async function handleVerifyPwd() {
+    setClosePwdLoading(true)
+    setClosePwdErr('')
+    const ok = await verifyOwnerPassword(closePwd)
+    setClosePwdLoading(false)
+    if (ok) {
+      setCloseStep('form')
+      setClosePwd('')
+    } else {
+      setClosePwdErr(lang === 'th' ? 'รหัสผ่านไม่ถูกต้อง' : 'Incorrect password')
+    }
+  }
+
+  async function handleCloseShop() {
+    if (!shopCode) return
+    setCloseSaving(true)
+    const result = await addClosedDate(shopCode, { date: closeDate, meal: closeMeal, note: closeNote, closedBy: 'owner' })
+    setCloseSaving(false)
+    if (result.ok) {
+      setCloseNote('')
+      await loadClosed()
+    }
+  }
+
+  async function handleReopen(date: string, meal: ClosedMeal) {
+    if (!shopCode) return
+    await removeClosedDate(shopCode, date, meal)
+    await loadClosed()
+  }
+
+  function handleSubmitPwChange(e: React.FormEvent) {
+    e.preventDefault()
+    setPwError('')
+    if (!curPw.trim()) { setPwError('กรุณากรอกรหัสผ่านเดิม'); return }
+    if (newPw.length < 4) { setPwError('รหัสผ่านใหม่ต้องมีอย่างน้อย 4 ตัว'); return }
+    if (newPw !== confirmPw) { setPwError('รหัสผ่านใหม่ไม่ตรงกัน'); return }
+    startPwTransition(async () => {
+      const res = await changeOwnerPasswordAction(curPw, newPw)
+      if ('error' in res) { setPwError(res.error); return }
+      setPwSuccess(true)
+      setCurPw(''); setNewPw(''); setConfirmPw('')
+    })
+  }
+
+  function goBack() {
+    setSettingsView('menu')
+    setPwError(''); setPwSuccess(false)
+    setCloseStep('password'); setClosePwd(''); setClosePwdErr('')
+  }
+
+  function handleOpenSettings() {
+    setShowSettings(true)
+    setSettingsView('menu')
+    setCloseStep('password')
+    setClosePwd('')
+    setClosePwdErr('')
+  }
+
   // Header background — purple-to-brown gradient in dark mode
   const headerBg = isDark
     ? 'linear-gradient(135deg, #3D2858 0%, #7A5840 100%)'
@@ -70,6 +205,7 @@ export function ShopHeader({ shopName, role, loginAt }: { shopName: string; role
   const hdrFaint   = isDark ? '#D8C8E8' : '#8B7A6A'
 
   return (
+    <>
     <header
       className="sticky top-0 z-40 border-b"
       style={{ background: headerBg, borderColor: isDark ? '#2E1E40' : '#DDD0BC' }}
@@ -103,6 +239,7 @@ export function ShopHeader({ shopName, role, loginAt }: { shopName: string; role
 
           {/* Dark / Light mode toggle */}
           <button
+            type="button"
             onClick={toggleDark}
             title={isDark ? tr.switch_to_light_mode : tr.switch_to_dark_mode}
             aria-label={isDark ? tr.switch_to_light_mode : tr.switch_to_dark_mode}
@@ -185,6 +322,7 @@ export function ShopHeader({ shopName, role, loginAt }: { shopName: string; role
 
           {/* Language */}
           <button
+            type="button"
             onClick={toggleLang}
             className="text-xs px-2.5 py-1 rounded-full font-medium cursor-pointer transition-opacity hover:opacity-70"
             style={{
@@ -199,6 +337,19 @@ export function ShopHeader({ shopName, role, loginAt }: { shopName: string; role
           <span className="text-xs px-3 py-1.5 rounded-full font-medium" style={roleBgStyle}>
             {roleLabel}
           </span>
+
+          {/* Settings gear — owner only */}
+          {role === 'owner' && (
+            <button
+              type="button"
+              onClick={handleOpenSettings}
+              title={lang === 'th' ? 'ตั้งค่า' : 'Settings'}
+              className="text-base cursor-pointer transition-opacity hover:opacity-70 leading-none"
+              style={{ color: hdrFaint }}
+            >
+              ⚙
+            </button>
+          )}
 
           {/* Logout / Demote */}
           {isElevated ? (
@@ -226,5 +377,202 @@ export function ShopHeader({ shopName, role, loginAt }: { shopName: string; role
         </div>
       </div>
     </header>
+
+    {/* ── Settings Modal ──────────────────────────────────────────────────── */}
+    {showSettings && (
+      <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4" onClick={() => setShowSettings(false)}>
+        <div className="bg-stone-900/90 border border-white/10 rounded-2xl w-full max-w-sm p-6 space-y-4" onClick={(e) => e.stopPropagation()}>
+
+          {/* Header */}
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              {settingsView !== 'menu' && (
+                <button type="button" onClick={goBack} className="text-white/40 hover:text-white text-sm cursor-pointer mr-1">←</button>
+              )}
+              <GearIconSvg />
+              <h3 className="font-bold text-white tracking-widest text-sm">Settings</h3>
+            </div>
+            <button type="button" onClick={() => setShowSettings(false)} className="text-white/40 hover:text-white text-lg leading-none cursor-pointer">×</button>
+          </div>
+
+          {/* ── Menu ── */}
+          {settingsView === 'menu' && (
+            <div className="space-y-2 pt-1">
+              <button type="button" onClick={() => setSettingsView('change-password')}
+                className="w-full flex items-center justify-between px-4 py-3 rounded-xl border border-white/10 bg-white/5 hover:bg-white/10 transition-colors cursor-pointer text-left">
+                <span className="text-sm text-white">🔑 {lang === 'th' ? 'เปลี่ยนรหัสผ่าน Owner' : 'Change Owner Password'}</span>
+                <span className="text-white/30 text-sm">›</span>
+              </button>
+              <button type="button" onClick={() => { setSettingsView('close-shop'); setCloseStep('password'); setClosePwd(''); setClosePwdErr('') }}
+                className="w-full flex items-center justify-between px-4 py-3 rounded-xl border border-white/10 bg-white/5 hover:bg-white/10 transition-colors cursor-pointer text-left">
+                <span className="text-sm text-white">🔒 {lang === 'th' ? 'ปิดร้าน' : 'Close Shop'}</span>
+                <span className="text-white/30 text-sm">›</span>
+              </button>
+              <button type="button" onClick={() => setSettingsView('manual')}
+                className="w-full flex items-center justify-between px-4 py-3 rounded-xl border border-white/10 bg-white/5 hover:bg-white/10 transition-colors cursor-pointer text-left">
+                <span className="text-sm text-white">📖 {lang === 'th' ? 'คู่มือการใช้งาน' : 'User Manual'}</span>
+                <span className="text-white/30 text-sm">›</span>
+              </button>
+            </div>
+          )}
+
+          {/* ── Change Password ── */}
+          {settingsView === 'change-password' && (
+            <>
+              <p className="text-xs text-white/50 font-semibold tracking-wider -mt-1">
+                {lang === 'th' ? 'เปลี่ยนรหัสผ่าน Owner' : 'Change Owner Password'}
+              </p>
+              {pwSuccess ? (
+                <div className="text-center space-y-3 py-2">
+                  <p className="text-green-400 text-sm font-semibold">{lang === 'th' ? 'เปลี่ยนรหัสผ่านสำเร็จ ✓' : 'Password changed ✓'}</p>
+                  <button type="button" onClick={() => setShowSettings(false)} className="w-full py-2 bg-amber-700/80 text-white rounded-xl text-sm font-semibold cursor-pointer hover:bg-amber-600/80">
+                    {lang === 'th' ? 'ปิด' : 'Close'}
+                  </button>
+                </div>
+              ) : (
+                <form onSubmit={handleSubmitPwChange} className="space-y-3">
+                  <div>
+                    <label className="text-xs text-white/40 mb-1 block">{lang === 'th' ? 'รหัสผ่านเดิม' : 'Current password'}</label>
+                    <PwInput autoFocus value={curPw} onChange={setCurPw} placeholder="Current password" />
+                  </div>
+                  <div>
+                    <label className="text-xs text-white/40 mb-1 block">{lang === 'th' ? 'รหัสผ่านใหม่' : 'New password'}</label>
+                    <PwInput value={newPw} onChange={setNewPw} placeholder="New password" />
+                  </div>
+                  <div>
+                    <label className="text-xs text-white/40 mb-1 block">{lang === 'th' ? 'ยืนยันรหัสผ่านใหม่' : 'Confirm new password'}</label>
+                    <PwInput value={confirmPw} onChange={setConfirmPw} placeholder="Confirm new password" />
+                  </div>
+                  {pwError && <p className="text-xs text-red-400 bg-red-900/30 px-3 py-2 rounded-lg">{pwError}</p>}
+                  <div className="flex gap-2 pt-1">
+                    <button type="button" onClick={goBack} className="flex-1 py-2.5 border border-white/20 rounded-xl text-sm text-white/70 cursor-pointer hover:bg-white/10">
+                      {lang === 'th' ? 'ยกเลิก' : 'Cancel'}
+                    </button>
+                    <button type="submit" className="flex-1 py-2.5 bg-amber-700/80 text-white rounded-xl text-sm font-semibold cursor-pointer hover:bg-amber-600/80 disabled:opacity-50">
+                      {lang === 'th' ? 'เปลี่ยนรหัสผ่าน' : 'Change Password'}
+                    </button>
+                  </div>
+                </form>
+              )}
+            </>
+          )}
+
+          {/* ── Close Shop ── */}
+          {settingsView === 'close-shop' && (
+            <div className="max-h-[65vh] overflow-y-auto space-y-4">
+              <p className="text-xs text-white/50 font-semibold tracking-wider -mt-1">
+                {lang === 'th' ? 'ปิดร้าน' : 'Close Shop'}
+              </p>
+              {closeStep === 'password' ? (
+                <div className="space-y-3">
+                  <p className="text-sm text-white/60">
+                    {lang === 'th' ? 'ยืนยันรหัสผ่าน Owner เพื่อเข้าสู่การตั้งค่าปิดร้าน' : 'Enter your Owner password to manage closed dates.'}
+                  </p>
+                  <PwInput autoFocus value={closePwd} onChange={setClosePwd} placeholder={lang === 'th' ? 'รหัสผ่าน Owner' : 'Owner password'} />
+                  {closePwdErr && <p className="text-xs text-red-400 bg-red-900/30 px-3 py-2 rounded-lg">{closePwdErr}</p>}
+                  <button type="button" onClick={handleVerifyPwd} disabled={closePwdLoading || !closePwd}
+                    className="w-full py-2.5 bg-amber-700/80 text-white rounded-xl text-sm font-semibold cursor-pointer hover:bg-amber-600/80 disabled:opacity-50">
+                    {closePwdLoading ? '...' : (lang === 'th' ? 'ยืนยัน' : 'Confirm')}
+                  </button>
+                </div>
+              ) : (
+                <div className="space-y-4">
+                  {/* Add form */}
+                  <div className="space-y-3 border border-white/10 bg-white/5 rounded-xl p-3">
+                    <p className="text-xs font-semibold text-white/70">{lang === 'th' ? 'เพิ่มวันปิดร้าน' : 'Add Closed Date'}</p>
+                    <div>
+                      <label className="text-xs text-white/40">{lang === 'th' ? 'วันที่' : 'Date'}</label>
+                      <input type="date" value={closeDate} onChange={(e) => setCloseDate(e.target.value)}
+                        title={lang === 'th' ? 'วันที่ปิดร้าน' : 'Close date'}
+                        className="w-full border border-white/20 bg-white/10 rounded-lg px-2 py-1.5 text-sm mt-0.5 text-white focus:outline-none focus:ring-2 focus:ring-amber-400/60" />
+                    </div>
+                    <div>
+                      <label className="text-xs text-white/40">{lang === 'th' ? 'มื้อ' : 'Meal'}</label>
+                      <div className="flex gap-2 mt-0.5">
+                        {(['lunch', 'dinner', 'both'] as ClosedMeal[]).map((m) => (
+                          <button key={m} type="button" onClick={() => setCloseMeal(m)}
+                            className={`flex-1 py-1.5 rounded-lg text-xs font-semibold cursor-pointer border transition-colors ${closeMeal === m ? 'bg-amber-700/80 text-white border-amber-600' : 'bg-white/5 text-white/60 border-white/20 hover:border-amber-500'}`}>
+                            {m === 'lunch' ? (lang === 'th' ? 'กลางวัน' : 'Lunch') : m === 'dinner' ? (lang === 'th' ? 'เย็น' : 'Dinner') : (lang === 'th' ? 'ทั้งวัน' : 'Both')}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                    <div>
+                      <label className="text-xs text-white/40">{lang === 'th' ? 'หมายเหตุ (ไม่บังคับ)' : 'Note (optional)'}</label>
+                      <input type="text" value={closeNote} onChange={(e) => setCloseNote(e.target.value)} maxLength={50}
+                        placeholder={lang === 'th' ? 'เช่น วันหยุดสาธารณะ' : 'e.g. Public holiday'}
+                        className="w-full border border-white/20 bg-white/10 rounded-lg px-2 py-1.5 text-sm mt-0.5 text-white placeholder-white/30 focus:outline-none focus:ring-2 focus:ring-amber-400/60" />
+                    </div>
+                    <button type="button" onClick={handleCloseShop} disabled={closeSaving || !closeDate}
+                      className="w-full py-2 bg-red-700/80 text-white rounded-xl text-sm font-semibold cursor-pointer hover:bg-red-600/80 disabled:opacity-50">
+                      {closeSaving ? '...' : (lang === 'th' ? '🔒 ปิดร้าน' : '🔒 Close Shop')}
+                    </button>
+                  </div>
+                  {/* Closed date list */}
+                  <div>
+                    <p className="text-xs text-white/40 font-semibold mb-2">{lang === 'th' ? 'วันที่ปิดร้าน' : 'Closed Dates'}</p>
+                    {closedLoading ? (
+                      <p className="text-xs text-white/30 text-center py-3">...</p>
+                    ) : closedList.length === 0 ? (
+                      <p className="text-xs text-white/30 text-center py-3">{lang === 'th' ? 'ไม่มีวันปิดร้าน' : 'No closed dates'}</p>
+                    ) : (
+                      <div className="space-y-1.5">
+                        {[...closedList].sort((a, b) => a.date.localeCompare(b.date)).map((d) => (
+                          <div key={`${d.date}-${d.meal}`} className="flex items-center justify-between border border-white/10 bg-white/5 rounded-lg px-3 py-2">
+                            <div>
+                              <span className="text-sm font-semibold text-red-300">{d.date}</span>
+                              <span className="ml-2 text-xs bg-red-900/60 text-red-300 px-1.5 py-0.5 rounded-full">{d.meal}</span>
+                              {d.note && <span className="ml-1 text-xs text-white/30">— {d.note}</span>}
+                            </div>
+                            <button type="button" onClick={() => handleReopen(d.date, d.meal)}
+                              className="text-xs text-amber-400 hover:text-amber-300 cursor-pointer ml-2 font-semibold">
+                              {lang === 'th' ? 'เปิด' : 'Reopen'}
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* ── Manual ── */}
+          {settingsView === 'manual' && (
+            <div className="max-h-[65vh] overflow-y-auto space-y-4">
+              <p className="text-xs text-white/50 font-semibold tracking-wider -mt-1">
+                {lang === 'th' ? 'คู่มือการใช้งาน' : 'User Manual'}
+              </p>
+              {lang === 'th' ? (
+                <>
+                  <Section title="📅 Schedule (ตาราง)">เพิ่ม/แก้ไขตารางงานรายสัปดาห์ กด ✕ เอาพนักงานออกจากสัปดาห์นี้ (ไม่ได้ลบจากระบบ) บันทึกต้องกรอกชื่อ+หมายเหตุ</Section>
+                  <Section title="👥 Employees (พนักงาน)">ดู/เพิ่ม/แก้ไข/ลบพนักงาน การลบเป็น Soft Delete ชื่อซ้ำไม่ได้ แก้ไข/ลบต้องกรอกชื่อ+หมายเหตุ</Section>
+                  <Section title="⏱ Time Record (บันทึกเวลา)">บันทึกกะเช้า/เย็น บันทึกแล้วล็อก กด Edit เพื่อแก้ไข มี Wage Summary และ Delivery Count</Section>
+                  <Section title="💰 Revenue (รายรับ)">กรอกยอดขาย Lunch/Dinner แยก: Eftpos, LFY, Uber, DoorDash, Cash in Bag คำนวณ Cash Sale อัตโนมัติ</Section>
+                  <Section title="🧾 Expenses (ค่าใช้จ่าย)">บันทึกรายจ่าย วัน/ผู้จ่าย/จำนวน/ช่องทางชำระ มี toggle Paid/Unpaid</Section>
+                  <Section title="📊 Summary (สรุป)">ดูยอดรายวัน/สัปดาห์/เดือน กด (i) เพื่อดูคำอธิบาย กด Sync Sheets เพื่ออัปเดต Google Sheet</Section>
+                  <Section title="⚙ Config (ตั้งค่า)">ตั้งค่าอัตราค่าส่งตามระยะทาง ใช้คำนวณค่าส่งใน Time Record</Section>
+                  <Section title="🔒 Close Shop (ปิดร้าน)">ปิดร้านเฉพาะวัน/มื้อ Revenue/TimeRecord จะแสดงแบนเนอร์เตือน กด Reopen เพื่อเปิดร้านอีกครั้ง</Section>
+                </>
+              ) : (
+                <>
+                  <Section title="📅 Schedule">Add/edit weekly schedules. Tap ✕ to remove from this week only. Saving requires editor name and note.</Section>
+                  <Section title="👥 Employees">View/add/edit employees. Delete is soft — history preserved. No duplicate names. Edits and deletes require name + note.</Section>
+                  <Section title="⏱ Time Record">Record AM/PM shifts per employee. Auto-locks after save. Includes Wage Summary and Delivery Count.</Section>
+                  <Section title="💰 Revenue">Enter Lunch/Dinner revenue: Eftpos, LFY, Uber, DoorDash, Cash in Bag. Cash Sale auto-calculated.</Section>
+                  <Section title="🧾 Expenses">Log expenses with date, supplier, amount, and payment method. Toggle Paid/Unpaid per item.</Section>
+                  <Section title="📊 Summary">View daily/weekly/monthly totals. Tap (i) for explanations. Use Sync Sheets to update Google Sheets.</Section>
+                  <Section title="⚙ Config">Set delivery rates by distance. Used to auto-calculate delivery fees in Time Record.</Section>
+                  <Section title="🔒 Close Shop">Mark dates/meals as closed. Revenue and TimeRecord show a warning banner. Use Reopen to remove.</Section>
+                </>
+              )}
+            </div>
+          )}
+
+        </div>
+      </div>
+    )}
+    </>
   )
 }

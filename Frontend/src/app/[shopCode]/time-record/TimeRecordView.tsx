@@ -11,6 +11,7 @@ import { saveAuditLog } from './actions'
 import { useShop } from '@/components/ShopProvider'
 import { translations } from '@/lib/translations'
 import { useToast } from '@/components/Toast'
+import { ClosedBanner } from '@/components/ClosedBanner'
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -571,6 +572,8 @@ export default function TimeRecordView() {
           )}
         </div>
 
+        <ClosedBanner shopCode={shopCode} date={date} lang={lang} />
+
         {/* ── Delivery Count Summary ─────────────────────────────────────── */}
         {!homeLoading && (() => {
           const allTrips = Object.values(trips).flat().filter((t) => t.distance > 0)
@@ -756,6 +759,7 @@ export default function TimeRecordView() {
                         value={noteByEmp[iid] || ''}
                         onChange={(e) => setNoteByEmp((p) => ({ ...p, [iid]: e.target.value }))}
                         placeholder="optional"
+                        maxLength={30}
                         className="flex-1 border border-gray-200 rounded px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-gray-300 disabled:bg-gray-50 disabled:text-gray-400"
                       />
                     </div>
@@ -786,6 +790,7 @@ export default function TimeRecordView() {
                   value={weekAuditModal.editorName}
                   onChange={(e) => setWeekAuditModal((p) => p && ({ ...p, editorName: e.target.value }))}
                   placeholder={tr.enter_name_placeholder}
+                  maxLength={30}
                   className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-gold"
                 />
               </div>
@@ -796,6 +801,7 @@ export default function TimeRecordView() {
                   value={weekAuditModal.note}
                   onChange={(e) => setWeekAuditModal((p) => p && ({ ...p, note: e.target.value }))}
                   placeholder={tr.reason_optional_placeholder}
+                  maxLength={30}
                   className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-gold"
                 />
               </div>
@@ -838,6 +844,7 @@ export default function TimeRecordView() {
                   value={auditModal.editorName}
                   onChange={(e) => setAuditModal((p) => p && ({ ...p, editorName: e.target.value }))}
                   placeholder={tr.enter_name_placeholder}
+                  maxLength={30}
                   className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-gold"
                 />
               </div>
@@ -848,6 +855,7 @@ export default function TimeRecordView() {
                   value={auditModal.remark}
                   onChange={(e) => setAuditModal((p) => p && ({ ...p, remark: e.target.value }))}
                   placeholder={tr.reason_optional_placeholder}
+                  maxLength={30}
                   className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-gold"
                 />
               </div>

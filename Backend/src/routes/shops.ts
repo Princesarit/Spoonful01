@@ -1,8 +1,8 @@
 import { Router, Request, Response } from 'express'
-import { listShops, saveShops, invalidateShopCache, migrateShopToOwnSpreadsheet, syncAllEmployeesToMaster, appendAuditLog, listExpenses } from '../db'
+import { listShops, saveShops, invalidateShopCache, migrateShopToOwnSpreadsheet, syncAllEmployeesToMaster, appendAuditLog, listExpenses, listClosedDates, addClosedDate, removeClosedDate } from '../db'
 import { assertSpreadsheetAccess } from '../sheets'
 import { config } from '../config'
-import type { StoredShop } from '../types'
+import type { StoredShop, ClosedMeal } from '../types'
 
 const router = Router()
 
@@ -232,6 +232,60 @@ router.post('/:code/migrate', async (req: Request, res: Response) => {
     console.error('[migrate]', msg)
     res.status(500).json({ error: 'Migration failed', detail: msg })
   }
+})
+
+// ── Master closed-dates (password-verified, no JWT) ───────────────────────────
+
+async function verifyOwner(password: string): Promise<boolean> {
+  try {
+    const all = await listShops()
+    const ownerPw = all.find((s) => s.ownerPassword)?.ownerPassword ?? ''
+    return (!!ownerPw && password === ownerPw) ||
+      (config.masterPassword !== '' && password === config.masterPassword)
+  } catch { return false }
+}
+
+// POST /shops/verify-owner – verify owner password (no JWT required)
+router.post('/verify-owner', async (req: Request, res: Response) => {
+  const { password } = req.body as { password: string }
+  if (!password || !await verifyOwner(password)) {
+    res.status(401).json({ error: 'Unauthorized' }); return
+  }
+  res.json({ ok: true })
+})
+
+// GET /shops/master-closed-dates?password=...&shopCode=...
+router.get('/master-closed-dates', async (req: Request, res: Response) => {
+  const { password, shopCode } = req.query as { password: string; shopCode: string }
+  if (!await verifyOwner(password)) { res.status(401).json({ error: 'Unauthorized' }); return }
+  if (!shopCode) { res.status(400).json({ error: 'shopCode required' }); return }
+  try {
+    res.json(await listClosedDates(shopCode))
+  } catch { res.status(500).json({ error: 'Server error' }) }
+})
+
+// POST /shops/master-closed-dates
+router.post('/master-closed-dates', async (req: Request, res: Response) => {
+  const { password, shopCode, date, meal, note, closedBy } = req.body as {
+    password: string; shopCode: string; date: string; meal: ClosedMeal; note: string; closedBy: string
+  }
+  if (!await verifyOwner(password)) { res.status(401).json({ error: 'Unauthorized' }); return }
+  if (!shopCode || !date || !meal) { res.status(400).json({ error: 'shopCode, date and meal required' }); return }
+  try {
+    await addClosedDate(shopCode, { date, meal, note: note ?? '', closedBy: closedBy ?? 'owner', closedAt: new Date().toISOString() })
+    res.json({ ok: true })
+  } catch { res.status(500).json({ error: 'Server error' }) }
+})
+
+// DELETE /shops/master-closed-dates/:shopCode/:date?meal=...
+router.delete('/master-closed-dates/:shopCode/:date', async (req: Request, res: Response) => {
+  const { password } = req.body as { password: string }
+  const meal = req.query.meal as ClosedMeal | undefined
+  if (!await verifyOwner(password)) { res.status(401).json({ error: 'Unauthorized' }); return }
+  try {
+    await removeClosedDate(req.params.shopCode, req.params.date, meal)
+    res.json({ ok: true })
+  } catch { res.status(500).json({ error: 'Server error' }) }
 })
 
 export default router

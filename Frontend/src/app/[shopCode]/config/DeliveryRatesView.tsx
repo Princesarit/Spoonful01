@@ -314,6 +314,7 @@ function SupplierDraftRow({
           placeholder={tr.platform_name_placeholder}
           value={draft.name}
           onChange={(e) => setDraft((d) => ({ ...d, name: e.target.value }))}
+          maxLength={30}
           className="flex-1 border border-brand-accent rounded px-2 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-brand-gold"
         />
       </div>

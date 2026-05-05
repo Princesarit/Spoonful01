@@ -241,6 +241,7 @@ export default function EmployeeView({
         value={search}
         onChange={(e) => setSearch(e.target.value)}
         placeholder={tr.search_placeholder}
+        maxLength={30}
         className="w-full px-3 py-2 border border-brand-accent rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-brand-gold"
       />
 
@@ -374,6 +375,7 @@ export default function EmployeeView({
                   value={deleteAudit.editorName}
                   onChange={(e) => setDeleteAudit((p) => p && ({ ...p, editorName: e.target.value }))}
                   placeholder={tr.enter_name_placeholder}
+                  maxLength={30}
                   className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-red-400"
                 />
               </div>
@@ -384,6 +386,7 @@ export default function EmployeeView({
                   value={deleteAudit.note}
                   onChange={(e) => setDeleteAudit((p) => p && ({ ...p, note: e.target.value }))}
                   placeholder={tr.reason_optional_placeholder}
+                  maxLength={30}
                   className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-red-400"
                 />
               </div>
@@ -417,6 +420,7 @@ export default function EmployeeView({
                   onChange={(e) => { setForm((f) => ({ ...f, name: e.target.value })); setNameError('') }}
                   className={`w-full px-3 py-2 border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-brand-gold ${nameError ? 'border-red-400' : 'border-brand-accent'}`}
                   placeholder={tr.name_placeholder}
+                  maxLength={30}
                   autoFocus
                 />
                 {nameError && <p className="text-xs text-red-500 mt-1">{nameError}</p>}
@@ -546,6 +550,7 @@ export default function EmployeeView({
                     value={editorName}
                     onChange={(e) => setEditorName(e.target.value)}
                     placeholder={tr.enter_name_placeholder}
+                    maxLength={30}
                     className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-brand-gold"
                   />
                 </div>
@@ -556,6 +561,7 @@ export default function EmployeeView({
                     value={editNote}
                     onChange={(e) => setEditNote(e.target.value)}
                     placeholder={tr.reason_optional_placeholder}
+                    maxLength={30}
                     className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-brand-gold"
                   />
                 </div>

@@ -8,6 +8,7 @@ import { getRevenueData, saveRevenueEntry, deleteRevenueEntry, saveAuditLog, get
 import { useShop } from '@/components/ShopProvider'
 import { translations } from '@/lib/translations'
 import { useToast } from '@/components/Toast'
+import { ClosedBanner, useIsClosedDate } from '@/components/ClosedBanner'
 
 type FormMode = 'lunch' | 'dinner'
 
@@ -274,6 +275,8 @@ export default function RevenueView() {
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [filterDate, setFilterDate] = useState(today)
+  const isLunchClosed = useIsClosedDate(shopCode, filterDate, 'lunch')
+  const isDinnerClosed = useIsClosedDate(shopCode, filterDate, 'dinner')
 
   useEffect(() => {
     setLoading(true)
@@ -469,6 +472,8 @@ export default function RevenueView() {
         <h2 className="text-lg font-bold text-gray-800 flex-1">{tr.revenue_title}</h2>
       </div>
 
+      <ClosedBanner shopCode={shopCode} date={filterDate} lang={lang} />
+
       {/* Date filter + Lunch/Dinner buttons */}
       <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-4 space-y-3">
         <div className="flex items-center gap-3">
@@ -486,26 +491,26 @@ export default function RevenueView() {
             <button
               type="button"
               onClick={() => openForm('lunch')}
-              disabled={lunchDone}
+              disabled={lunchDone || isLunchClosed}
               className={`py-2.5 rounded-xl text-sm font-semibold transition-all cursor-pointer ${
-                lunchDone
+                lunchDone || isLunchClosed
                   ? 'bg-gray-100 text-gray-400 cursor-not-allowed'
                   : 'bg-yellow-400 dark:bg-yellow-700 text-white hover:bg-yellow-500 dark:hover:bg-yellow-600 active:scale-95'
               }`}
             >
-              {lunchDone ? '🌞 Lunch ✓' : '🌞 Lunch'}
+              {isLunchClosed ? '🔒 Lunch' : lunchDone ? '🌞 Lunch ✓' : '🌞 Lunch'}
             </button>
             <button
               type="button"
               onClick={() => openForm('dinner')}
-              disabled={dinnerDone}
+              disabled={dinnerDone || isDinnerClosed}
               className={`py-2.5 rounded-xl text-sm font-semibold transition-all cursor-pointer ${
-                dinnerDone
+                dinnerDone || isDinnerClosed
                   ? 'bg-gray-100 text-gray-400 cursor-not-allowed'
                   : 'bg-blue-500 dark:bg-blue-800 text-white hover:bg-blue-600 dark:hover:bg-blue-700 active:scale-95'
               }`}
             >
-              {dinnerDone ? '🌙 Dinner ✓' : '🌙 Dinner'}
+              {isDinnerClosed ? '🔒 Dinner' : dinnerDone ? '🌙 Dinner ✓' : '🌙 Dinner'}
             </button>
           </div>
         )}
@@ -690,6 +695,7 @@ export default function RevenueView() {
                   value={deleteMealEditor}
                   onChange={(e) => setDeleteMealEditor(e.target.value)}
                   placeholder="กรอกชื่อ"
+                  maxLength={30}
                   className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-red-400"
                 />
               </div>
@@ -700,6 +706,7 @@ export default function RevenueView() {
                   value={deleteMealNote}
                   onChange={(e) => setDeleteMealNote(e.target.value)}
                   placeholder="เหตุผล (ถ้ามี)"
+                  maxLength={30}
                   className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-red-400"
                 />
               </div>
@@ -739,6 +746,7 @@ export default function RevenueView() {
                       e.target.value || undefined,
                     )}
                     placeholder="ชื่อพนักงาน *"
+                    maxLength={30}
                     className={`w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-gold ${nameEmpty ? 'border-red-400 bg-red-50' : 'border-gray-300'}`}
                   />
                 </div>
@@ -756,6 +764,7 @@ export default function RevenueView() {
                     value={auditEditorName}
                     onChange={(e) => setAuditEditorName(e.target.value)}
                     placeholder="กรอกชื่อ"
+                    maxLength={30}
                     className="w-full border border-orange-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-orange-400"
                   />
                 </div>
@@ -766,6 +775,7 @@ export default function RevenueView() {
                     value={auditNote}
                     onChange={(e) => setAuditNote(e.target.value)}
                     placeholder="เหตุผลที่แก้ไข (ถ้ามี)"
+                    maxLength={30}
                     className="w-full border border-orange-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-orange-400"
                   />
                 </div>
@@ -863,6 +873,7 @@ export default function RevenueView() {
                       value={currentNote ?? ''}
                       onChange={(e) => setEntryField(mode === 'lunch' ? 'lunchNote' : 'dinnerNote', e.target.value || undefined)}
                       placeholder={noteRequired ? 'กรอก Note ก่อน Save (required)' : '—'}
+                      maxLength={30}
                       className={`w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-gold ${noteRequired ? 'border-orange-300 bg-orange-50' : 'border-gray-300'}`}
                     />
                   </div>
