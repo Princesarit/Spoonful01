@@ -187,6 +187,94 @@ function ManualSection({ title, children }: { title: string; children: React.Rea
   )
 }
 
+// ─── Close Shop Calendar ───────────────────────────────────────────────────
+
+const CAL_DAYS = ['Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa', 'Su']
+
+function CloseShopCalendar({
+  selected,
+  onSelect,
+  closedList,
+}: {
+  selected: string
+  onSelect: (date: string) => void
+  closedList: ClosedDate[]
+}) {
+  const init = new Date(selected + 'T12:00:00')
+  const [year, setYear]   = useState(init.getFullYear())
+  const [month, setMonth] = useState(init.getMonth())
+
+  const daysInMonth = new Date(year, month + 1, 0).getDate()
+  const startOffset = (new Date(year, month, 1).getDay() + 6) % 7
+  const monthLabel  = new Date(year, month, 1).toLocaleDateString('en-US', { month: 'long', year: 'numeric' })
+  const today       = new Date().toISOString().split('T')[0]
+  const closedMap   = new Map(closedList.map((d) => [d.date, d]))
+
+  const cells: (number | null)[] = [
+    ...Array<null>(startOffset).fill(null),
+    ...Array.from({ length: daysInMonth }, (_, i) => i + 1),
+  ]
+  while (cells.length % 7 !== 0) cells.push(null)
+
+  function toStr(day: number) {
+    return `${year}-${String(month + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`
+  }
+  function prevMonth() { if (month === 0) { setYear((y) => y - 1); setMonth(11) } else setMonth((m) => m - 1) }
+  function nextMonth() { if (month === 11) { setYear((y) => y + 1); setMonth(0) } else setMonth((m) => m + 1) }
+
+  return (
+    <div className="rounded-xl overflow-hidden border border-white/10">
+      {/* Month navigation */}
+      <div className="flex items-center justify-between px-3 py-2 bg-white/5">
+        <button type="button" onClick={prevMonth}
+          className="w-7 h-7 flex items-center justify-center rounded-full hover:bg-white/10 text-amber-400 cursor-pointer text-sm transition-colors">◀</button>
+        <span className="text-xs font-bold text-amber-400">{monthLabel}</span>
+        <button type="button" onClick={nextMonth}
+          className="w-7 h-7 flex items-center justify-center rounded-full hover:bg-white/10 text-amber-400 cursor-pointer text-sm transition-colors">▶</button>
+      </div>
+      {/* Day headers */}
+      <div className="grid grid-cols-7 border-b border-white/10 bg-white/5">
+        {CAL_DAYS.map((d) => (
+          <div key={d} className="text-center text-[10px] font-medium text-white/30 py-1">{d}</div>
+        ))}
+      </div>
+      {/* Day cells */}
+      <div className="grid grid-cols-7">
+        {cells.map((day, idx) => {
+          if (!day) return <div key={idx} className="aspect-square border-[0.5px] border-white/5" />
+          const dateStr  = toStr(day)
+          const closed   = closedMap.get(dateStr)
+          const isSelect = selected === dateStr
+          const isToday  = dateStr === today
+          return (
+            <button key={idx} type="button" onClick={() => onSelect(dateStr)}
+              className={`aspect-square flex flex-col items-center justify-center text-[11px] font-medium cursor-pointer transition-colors border-[0.5px] border-white/5 ${
+                isSelect ? 'bg-amber-600/70 ring-1 ring-inset ring-amber-400' :
+                closed   ? 'bg-red-900/50 hover:bg-red-900/70' :
+                           'hover:bg-white/10'
+              }`}
+            >
+              <span className={
+                isSelect ? 'text-white font-bold' :
+                closed   ? 'text-red-300 font-semibold' :
+                isToday  ? 'text-amber-400 font-bold' :
+                           'text-white/70'
+              }>
+                {day}
+              </span>
+              {closed && (
+                <span className="text-[7px] font-bold text-red-400 leading-none mt-0.5">
+                  {closed.meal === 'lunch' ? 'L' : closed.meal === 'dinner' ? 'D' : '✕'}
+                </span>
+              )}
+            </button>
+          )
+        })}
+      </div>
+    </div>
+  )
+}
+
 function SettingsModal({ onClose }: { onClose: () => void }) {
   const [view, setView] = useState<SettingsView>('menu')
   // Change Password
@@ -276,7 +364,7 @@ function SettingsModal({ onClose }: { onClose: () => void }) {
 
   return (
     <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-      <div className="bg-stone-900/90 border border-white/10 rounded-2xl w-full max-w-sm p-6 space-y-4">
+      <div className="bg-stone-900/90 border border-white/10 rounded-2xl w-full max-w-md p-6 space-y-4">
 
         {/* Header */}
         <div className="flex items-center justify-between">
@@ -376,10 +464,12 @@ function SettingsModal({ onClose }: { onClose: () => void }) {
                 <div className="border border-white/10 bg-white/5 rounded-xl p-3 space-y-3">
                   <p className="text-xs font-semibold text-white/70">Add Closed Date</p>
                   <div>
-                    <label className="text-xs text-white/40">Date</label>
-                    <input type="date" value={closeDate} onChange={(e) => setCloseDate(e.target.value)}
-                      title="Close date"
-                      className="w-full border border-white/20 bg-white/10 rounded-lg px-2 py-1.5 text-sm mt-0.5 text-white focus:outline-none focus:ring-2 focus:ring-amber-400/60" />
+                    <label className="text-xs text-white/40 block mb-1.5">Date</label>
+                    <CloseShopCalendar
+                      selected={closeDate}
+                      onSelect={setCloseDate}
+                      closedList={closedList}
+                    />
                   </div>
                   <div>
                     <label className="text-xs text-white/40">Meal</label>
@@ -551,13 +641,13 @@ function BranchManagerModal({
         {step === 'auth' && (
           <>
             <h3 className="font-bold text-white tracking-widest text-sm">จัดการสาขา</h3>
-            <p className="text-xs text-white/40">กรอก Master Manager Password เพื่อเข้าถึง</p>
+            <p className="text-xs text-white/40">กรอก Owner Password เพื่อเข้าถึง</p>
             <form onSubmit={handleAuth} className="space-y-3">
               <PasswordInput
                 autoFocus
                 value={masterPassword}
                 onChange={(e) => setMasterPassword(e.target.value)}
-                placeholder="Master Password"
+                placeholder="Owner Password"
                 className={inputCls}
               />
               {authError && <p className="text-xs text-red-400 bg-red-900/30 px-3 py-2 rounded-lg">{authError}</p>}

@@ -3,10 +3,11 @@
 import React, { useState, useEffect } from 'react'
 import Link from 'next/link'
 import { useParams } from 'next/navigation'
-import type { Employee, TimeRecord, DeliveryTrip, DeliveryRate } from '@/lib/types'
+import type { Employee, TimeRecord, DeliveryTrip, DeliveryRate, ClosedDate } from '@/lib/types'
 import { DEFAULT_DELIVERY_RATES, calcDeliveryFee } from '@/lib/config'
 import { getWeekTimeRecords, getTimeRecordData, saveTimeRecords, getWeekSchedule } from './actions'
 import { getDeliveryRates } from '../config/actions'
+import { getClosedDates } from '@/app/[shopCode]/closed-dates/actions'
 import { saveAuditLog } from './actions'
 import { useShop } from '@/components/ShopProvider'
 import { translations } from '@/lib/translations'
@@ -67,6 +68,19 @@ export default function TimeRecordView() {
 
   const { showToast, toastEl } = useToast()
   const canEdit = session.role !== 'staff'
+
+  const [closedDates, setClosedDates] = useState<ClosedDate[]>([])
+  useEffect(() => { getClosedDates(shopCode).then(setClosedDates).catch(() => {}) }, [shopCode])
+
+  function isDateClosed(dateStr: string, shift?: 'morning' | 'evening'): boolean {
+    return closedDates.some((d) => {
+      if (d.date !== dateStr) return false
+      if (d.meal === 'both') return true
+      if (shift === 'morning') return d.meal === 'lunch'
+      if (shift === 'evening') return d.meal === 'dinner'
+      return true
+    })
+  }
 
   // ── Weekly state (Front / Kitchen) ──
   const [weekStart, setWeekStart] = useState(() => getMonday(new Date()))
@@ -451,16 +465,19 @@ export default function TimeRecordView() {
                       <thead>
                         <tr className="border-b border-gray-50">
                           <th className="text-left px-3 py-2 text-xs text-gray-400 font-medium min-w-20">{tr.name_label}</th>
-                          {weekDates.map((d, i) => (
-                            <th key={d} colSpan={2} className="text-center px-1 py-2 text-xs text-gray-400 font-medium">
-                              <div>{DAYS_SHORT[i]}</div>
-                              <div className="text-gray-300 text-[10px]">{new Date(d + 'T00:00:00').getDate()}</div>
-                              <div className="flex gap-0.5 justify-center mt-0.5">
-                                <span className="text-[9px] text-orange-300 w-8 text-center">{tr.morning}</span>
-                                <span className="text-[9px] text-blue-300 w-8 text-center">{tr.evening}</span>
-                              </div>
-                            </th>
-                          ))}
+                          {weekDates.map((d, i) => {
+                            const dayClosed = isDateClosed(d)
+                            return (
+                              <th key={d} colSpan={2} className={`text-center px-1 py-2 text-xs font-medium ${dayClosed ? 'text-red-400' : 'text-gray-400'}`}>
+                                <div>{DAYS_SHORT[i]}</div>
+                                <div className={`text-[10px] ${dayClosed ? 'text-red-300' : 'text-gray-300'}`}>{new Date(d + 'T00:00:00').getDate()}</div>
+                                <div className="flex gap-0.5 justify-center mt-0.5">
+                                  <span className={`text-[9px] w-8 text-center ${isDateClosed(d, 'morning') ? 'text-red-300' : 'text-orange-300'}`}>{tr.morning}</span>
+                                  <span className={`text-[9px] w-8 text-center ${isDateClosed(d, 'evening') ? 'text-red-300' : 'text-blue-300'}`}>{tr.evening}</span>
+                                </div>
+                              </th>
+                            )
+                          })}
                           <th className="text-center px-2 py-2 text-xs text-gray-400 font-medium">{tr.total_col}</th>
                           {(session.role === 'manager' || session.role === 'owner') && <th className="w-6" />}
                         </tr>
@@ -477,21 +494,24 @@ export default function TimeRecordView() {
                                 <React.Fragment key={d}>
                                   {(['morning', 'evening'] as const).map((shift) => {
                                     const scheduled = isScheduledSlot(emp.id, dayIdx, shift)
+                                    const isClosedShift = isDateClosed(d, shift)
                                     return (
                                     <td key={shift} className="text-center px-0.5 py-1.5">
                                       <input
                                         type="number"
                                         min="0"
                                         step="0.5"
-                                        disabled={isPast || weekLocked || isFuture || !scheduled || !canEdit}
+                                        disabled={isPast || weekLocked || isFuture || !scheduled || !canEdit || isClosedShift}
                                         value={a[shift] || ''}
                                         onKeyDown={(e) => ['e','E','+','-'].includes(e.key) && e.preventDefault()}
                                         onChange={(e) => { const raw = e.target.value; if (raw.includes('.') && (raw.split('.')[1]?.length ?? 0) > 2) return; const v = Number(raw); if (v > 999999) return; setShift(d, emp.id, shift, v) }}
-                                        placeholder="0"
-                                        className={`w-8 text-center border rounded px-0.5 py-1 text-xs focus:outline-none focus:ring-1 disabled:bg-gray-50 disabled:text-gray-300 ${
-                                          shift === 'morning'
-                                            ? 'border-orange-200 focus:ring-orange-300'
-                                            : 'border-blue-200 focus:ring-blue-300'
+                                        placeholder={isClosedShift ? '✕' : '0'}
+                                        className={`w-8 text-center border rounded px-0.5 py-1 text-xs focus:outline-none focus:ring-1 disabled:text-gray-300 ${
+                                          isClosedShift
+                                            ? 'bg-red-50 border-red-200 disabled:bg-red-50 text-red-300'
+                                            : shift === 'morning'
+                                            ? 'border-orange-200 focus:ring-orange-300 disabled:bg-gray-50'
+                                            : 'border-blue-200 focus:ring-blue-300 disabled:bg-gray-50'
                                         }`}
                                       />
                                     </td>

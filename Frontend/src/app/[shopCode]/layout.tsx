@@ -14,7 +14,7 @@ export default async function ShopLayout({
   const { shopCode } = await params
   const session = await getSession()
 
-  if (!session || session.shopCode !== shopCode) {
+  if (!session || session.shopCode.toLowerCase() !== shopCode.toLowerCase()) {
     redirect('/')
   }
 

@@ -1,10 +1,11 @@
 'use client'
 
-import { useState, Fragment } from 'react'
+import { useState, Fragment, useEffect } from 'react'
 import Link from 'next/link'
 import { useParams } from 'next/navigation'
-import type { Employee, WeekSchedule, Position } from '@/lib/types'
+import type { Employee, WeekSchedule, Position, ClosedDate } from '@/lib/types'
 import { saveWeekSchedule, saveAuditLog } from './actions'
+import { getClosedDates } from '@/app/[shopCode]/closed-dates/actions'
 import { useShop } from '@/components/ShopProvider'
 import { translations } from '@/lib/translations'
 import { useToast } from '@/components/Toast'
@@ -49,7 +50,7 @@ const POS_COLORS: Record<string, string> = {
 }
 
 
-function ScheduleDailySummary({ employees, weekDates, getEntry, DAYS_SHORT, title, lunchLabel, dinnerLabel }: {
+function ScheduleDailySummary({ employees, weekDates, getEntry, DAYS_SHORT, title, lunchLabel, dinnerLabel, isDateClosed }: {
   employees: Employee[]
   weekDates: Date[]
   getEntry: (empId: string) => (string | null)[]
@@ -57,6 +58,7 @@ function ScheduleDailySummary({ employees, weekDates, getEntry, DAYS_SHORT, titl
   title: string
   lunchLabel: string
   dinnerLabel: string
+  isDateClosed: (dateStr: string, shift?: 0 | 1) => boolean
 }) {
   const frontEmps = employees.filter((e) => e.positions.includes('Front'))
   const kitchenEmps = employees.filter((e) => e.positions.includes('Kitchen'))
@@ -93,12 +95,16 @@ function ScheduleDailySummary({ employees, weekDates, getEntry, DAYS_SHORT, titl
                   {' '}
                   <span className={row.posColor}>{row.posLabel}</span>
                 </td>
-                {weekDates.map((_, di) => {
-                  const slotIdx = di * 2 + row.slotOffset
-                  const count = row.emps.filter((e) => getEntry(e.id)[slotIdx] !== null).length
+                {weekDates.map((d, di) => {
+                  const slotIdx    = di * 2 + row.slotOffset
+                  const ds         = isoDate(d)
+                  const closed     = isDateClosed(ds, row.slotOffset as 0 | 1)
+                  const count      = closed ? 0 : row.emps.filter((e) => getEntry(e.id)[slotIdx] !== null).length
                   return (
                     <td key={di} className="text-center px-2 py-1.5">
-                      {count > 0
+                      {closed
+                        ? <span className="font-bold text-red-300">0</span>
+                        : count > 0
                         ? <span className={`font-bold ${row.isLunch ? 'text-orange-500' : 'text-blue-500'}`}>{count}</span>
                         : <span className="text-gray-200">—</span>
                       }
@@ -130,6 +136,19 @@ export default function ScheduleView({
   const locale = lang === 'en' ? 'en-US' : 'th-TH'
 
   const { showToast, toastEl } = useToast()
+
+  const [closedDates, setClosedDates] = useState<ClosedDate[]>([])
+  useEffect(() => { getClosedDates(shopCode).then(setClosedDates).catch(() => {}) }, [shopCode])
+
+  function isDateClosed(dateStr: string, shift?: 0 | 1): boolean {
+    return closedDates.some((d) => {
+      if (d.date !== dateStr) return false
+      if (d.meal === 'both') return true
+      if (shift === 0) return d.meal === 'lunch'
+      if (shift === 1) return d.meal === 'dinner'
+      return true
+    })
+  }
 
   const [employees, setEmployees] = useState(initialEmployees)
   const [schedules, setSchedules] = useState(initialSchedules)
@@ -365,16 +384,20 @@ export default function ScheduleView({
                     <th className="text-left px-3 py-2 text-xs text-gray-400 font-medium min-w-22.5">
                       {tr.name_label}
                     </th>
-                    {DAYS_SHORT.map((d, i) => (
-                      <th key={i} colSpan={2} className="text-center px-1 py-2 text-xs text-gray-400 font-medium">
-                        <div>{d}</div>
-                        <div className="text-gray-300 text-[10px]">{weekDates[i].getDate()}</div>
-                        <div className="flex gap-0.5 justify-center mt-0.5">
-                          <span className="text-[9px] text-orange-300 w-5 text-center">{tr.morning}</span>
-                          <span className="text-[9px] text-blue-300 w-5 text-center">{tr.evening}</span>
-                        </div>
-                      </th>
-                    ))}
+                    {DAYS_SHORT.map((d, i) => {
+                      const ds = isoDate(weekDates[i])
+                      const dayClosed = isDateClosed(ds)
+                      return (
+                        <th key={i} colSpan={2} className={`text-center px-1 py-2 text-xs font-medium ${dayClosed ? 'text-red-400' : 'text-gray-400'}`}>
+                          <div>{d}</div>
+                          <div className={`text-[10px] ${dayClosed ? 'text-red-300' : 'text-gray-300'}`}>{weekDates[i].getDate()}</div>
+                          <div className="flex gap-0.5 justify-center mt-0.5">
+                            <span className={`text-[9px] w-5 text-center ${isDateClosed(ds, 0) ? 'text-red-300' : 'text-orange-300'}`}>{tr.morning}</span>
+                            <span className={`text-[9px] w-5 text-center ${isDateClosed(ds, 1) ? 'text-red-300' : 'text-blue-300'}`}>{tr.evening}</span>
+                          </div>
+                        </th>
+                      )
+                    })}
                     {(role === 'manager' || role === 'owner') && !isPast && <th className="w-6" />}
                   </tr>
                 </thead>
@@ -393,7 +416,10 @@ export default function ScheduleView({
                               const slotVal = days[slotIdx] ?? null
                               const checked = slotVal === pos
                               const blockedByOther = slotVal !== null && slotVal !== pos
-                              const color = blockedByOther
+                              const isClosedShift = isDateClosed(isoDate(weekDates[dayIdx]), shift as 0 | 1)
+                              const color = isClosedShift
+                                ? 'bg-red-100 text-red-300 cursor-not-allowed'
+                                : blockedByOther
                                 ? 'bg-gray-100 text-gray-300 cursor-not-allowed'
                                 : shift === 0
                                 ? checked ? 'bg-orange-100 text-orange-500 hover:bg-orange-200' : 'bg-brand-parchment text-gray-300 hover:bg-gray-100'
@@ -402,10 +428,10 @@ export default function ScheduleView({
                                 <td key={slotIdx} className="text-center px-0.5 py-1.5">
                                   <button
                                     onClick={() => toggleShift(emp.id, slotIdx, pos)}
-                                    disabled={isPast || isLocked || !canEdit || blockedByOther}
+                                    disabled={isPast || isLocked || !canEdit || blockedByOther || isClosedShift}
                                     className={`w-5 h-6 rounded text-[10px] font-bold transition-colors cursor-pointer ${color} disabled:cursor-default`}
                                   >
-                                    {checked ? '✓' : blockedByOther ? '—' : '·'}
+                                    {isClosedShift ? '✕' : checked ? '✓' : blockedByOther ? '—' : '·'}
                                   </button>
                                 </td>
                               )
@@ -433,7 +459,7 @@ export default function ScheduleView({
       })}
 
       {employees.length > 0 && (
-        <ScheduleDailySummary employees={employees.filter((e) => !e.fired)} weekDates={weekDates} getEntry={getEntry} DAYS_SHORT={DAYS_SHORT} title={tr.daily_summary} lunchLabel={tr.lunch} dinnerLabel={tr.dinner} />
+        <ScheduleDailySummary employees={employees.filter((e) => !e.fired)} weekDates={weekDates} getEntry={getEntry} DAYS_SHORT={DAYS_SHORT} title={tr.daily_summary} lunchLabel={tr.lunch} dinnerLabel={tr.dinner} isDateClosed={isDateClosed} />
       )}
 
       {employees.filter((e) => !e.fired).length === 0 && (

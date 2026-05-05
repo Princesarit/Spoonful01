@@ -3125,17 +3125,19 @@ export async function addClosedDate(shopCode: string, entry: ClosedDate): Promis
   const filtered = rows.filter((r) => !(r.date === entry.date && r.meal === entry.meal))
   filtered.push({ date: entry.date, meal: entry.meal, note: entry.note, closedBy: entry.closedBy, closedAt: entry.closedAt })
   await setSheetData(tab('closed_dates'), CLOSED_HEADERS, filtered.map((r) => CLOSED_HEADERS.map((h) => r[h] ?? '')), sid)
-  // Apply red background to data rows (row 0 = header, data starts at row 1)
   const sheetId = await getSheetIdByName(sid, tab('closed_dates'))
   if (sheetId !== null) {
     const RED = { red: 1, green: 0.8, blue: 0.8 }
-    await batchUpdateSheet(sid, [{
-      repeatCell: {
-        range: { sheetId, startRowIndex: 1, endRowIndex: filtered.length + 1, startColumnIndex: 0, endColumnIndex: CLOSED_HEADERS.length },
-        cell: { userEnteredFormat: { backgroundColor: RED } },
-        fields: 'userEnteredFormat.backgroundColor',
+    await batchUpdateSheet(sid, [
+      {
+        repeatCell: {
+          range: { sheetId, startRowIndex: 1, endRowIndex: filtered.length + 1, startColumnIndex: 0, endColumnIndex: CLOSED_HEADERS.length },
+          cell: { userEnteredFormat: { backgroundColor: RED } },
+          fields: 'userEnteredFormat.backgroundColor',
+        },
       },
-    }])
+      { updateSheetProperties: { properties: { sheetId, hidden: true }, fields: 'hidden' } },
+    ])
   }
 }
 
@@ -3145,16 +3147,21 @@ export async function removeClosedDate(shopCode: string, date: string, meal?: Cl
   try { rows = await getSheetData(tab('closed_dates'), sid) } catch { return }
   const filtered = rows.filter((r) => !(r.date === date && (!meal || r.meal === meal || meal === 'both')))
   await setSheetData(tab('closed_dates'), CLOSED_HEADERS, filtered.map((r) => CLOSED_HEADERS.map((h) => r[h] ?? '')), sid)
-  if (filtered.length === 0) return
   const sheetId = await getSheetIdByName(sid, tab('closed_dates'))
   if (sheetId !== null) {
-    const RED = { red: 1, green: 0.8, blue: 0.8 }
-    await batchUpdateSheet(sid, [{
-      repeatCell: {
-        range: { sheetId, startRowIndex: 1, endRowIndex: filtered.length + 1, startColumnIndex: 0, endColumnIndex: CLOSED_HEADERS.length },
-        cell: { userEnteredFormat: { backgroundColor: RED } },
-        fields: 'userEnteredFormat.backgroundColor',
-      },
-    }])
+    const requests: object[] = [
+      { updateSheetProperties: { properties: { sheetId, hidden: true }, fields: 'hidden' } },
+    ]
+    if (filtered.length > 0) {
+      const RED = { red: 1, green: 0.8, blue: 0.8 }
+      requests.unshift({
+        repeatCell: {
+          range: { sheetId, startRowIndex: 1, endRowIndex: filtered.length + 1, startColumnIndex: 0, endColumnIndex: CLOSED_HEADERS.length },
+          cell: { userEnteredFormat: { backgroundColor: RED } },
+          fields: 'userEnteredFormat.backgroundColor',
+        },
+      })
+    }
+    await batchUpdateSheet(sid, requests)
   }
 }
