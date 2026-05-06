@@ -12,7 +12,7 @@
  *   พร้อม prefix เช่น SEED_employees (พฤติกรรมเดิม)
  */
 
-import { google } from 'googleapis'
+import { google, sheets_v4 } from 'googleapis'
 import { config } from './config'
 
 const auth = new google.auth.GoogleAuth({
@@ -27,6 +27,43 @@ const sheetsApi = google.sheets({ version: 'v4', auth })
 const driveApi = google.drive({ version: 'v3', auth })
 // Cache ชื่อ sheet แยกตาม spreadsheetId
 const sheetTitleCacheMap = new Map<string, Set<string>>()
+
+// Request-scoped metadata cache — active during sync, cleared after
+// Stores full sheets[] (sheetId, gridProperties, merges) so multiple
+// formatting functions share one spreadsheets.get call per sync.
+type SpreadsheetSheets = sheets_v4.Schema$Sheet[]
+const syncMetaCache = new Map<string, SpreadsheetSheets>()
+const syncMetaPending = new Map<string, Promise<SpreadsheetSheets>>()
+
+async function getCachedSheets(spreadsheetId: string): Promise<SpreadsheetSheets> {
+  const cached = syncMetaCache.get(spreadsheetId)
+  if (cached) return cached
+
+  const pending = syncMetaPending.get(spreadsheetId)
+  if (pending) return pending
+
+  const promise = sheetsApi.spreadsheets.get({ spreadsheetId }).then((res) => {
+    const sheets = res.data.sheets ?? []
+    syncMetaCache.set(spreadsheetId, sheets)
+    syncMetaPending.delete(spreadsheetId)
+    return sheets
+  }).catch((err) => {
+    syncMetaPending.delete(spreadsheetId)
+    throw err
+  })
+  syncMetaPending.set(spreadsheetId, promise)
+  return promise
+}
+
+export function beginSyncMetaCache(): void {
+  syncMetaCache.clear()
+  syncMetaPending.clear()
+}
+
+export function clearSyncMetaCache(): void {
+  syncMetaCache.clear()
+  syncMetaPending.clear()
+}
 
 async function getSheetTitles(spreadsheetId: string): Promise<Set<string>> {
   const cached = sheetTitleCacheMap.get(spreadsheetId)
@@ -46,9 +83,13 @@ async function ensureSheet(sheetName: string, spreadsheetId: string): Promise<vo
       requestBody: { requests: [{ addSheet: { properties: { title: sheetName } } }] },
     })
     titles.add(sheetName)
+    syncMetaCache.delete(spreadsheetId)
+    syncMetaPending.delete(spreadsheetId)
   } catch {
     // Tab may already exist (created externally) — refresh cache and verify
     sheetTitleCacheMap.delete(spreadsheetId)
+    syncMetaCache.delete(spreadsheetId)
+    syncMetaPending.delete(spreadsheetId)
     const refreshed = await getSheetTitles(spreadsheetId)
     if (!refreshed.has(sheetName)) {
       throw new Error(`Failed to create sheet tab: ${sheetName}`)
@@ -190,8 +231,8 @@ export async function applyFormattingRules(
   clearRowsCount?: number,
 ): Promise<void> {
   if (rules.length === 0 && !clearRowsCount) return
-  const meta = await sheetsApi.spreadsheets.get({ spreadsheetId })
-  const sheet = meta.data.sheets?.find((s) => s.properties?.title === sheetName)
+  const sheets = await getCachedSheets(spreadsheetId)
+  const sheet = sheets.find((s) => s.properties?.title === sheetName)
   const sheetId = sheet?.properties?.sheetId
   if (sheetId === undefined) return
 
@@ -255,8 +296,8 @@ export async function applyColorRules(
   rules: ColorRuleBlock[],
 ): Promise<void> {
   if (rules.length === 0) return
-  const meta = await sheetsApi.spreadsheets.get({ spreadsheetId })
-  const sheet = meta.data.sheets?.find((s) => s.properties?.title === sheetName)
+  const sheets = await getCachedSheets(spreadsheetId)
+  const sheet = sheets.find((s) => s.properties?.title === sheetName)
   const sheetId = sheet?.properties?.sheetId
   if (sheetId === undefined) return
 
@@ -311,8 +352,8 @@ export async function applyTimeRecordFormatting(
   empRowRanges: Array<{ start: number; end: number }>,  // 0-based [start, end) of employee data rows
   totalRows: number,
 ): Promise<void> {
-  const meta = await sheetsApi.spreadsheets.get({ spreadsheetId })
-  const sheet = meta.data.sheets?.find((s) => s.properties?.title === sheetName)
+  const sheets = await getCachedSheets(spreadsheetId)
+  const sheet = sheets.find((s) => s.properties?.title === sheetName)
   const sheetId = sheet?.properties?.sheetId
   if (sheetId === undefined) return
 
@@ -386,8 +427,8 @@ export async function applyRowColors(
   }>,
   clearRowsCount?: number,
 ): Promise<void> {
-  const meta = await sheetsApi.spreadsheets.get({ spreadsheetId })
-  const sheet = meta.data.sheets?.find((s) => s.properties?.title === sheetName)
+  const sheets = await getCachedSheets(spreadsheetId)
+  const sheet = sheets.find((s) => s.properties?.title === sheetName)
   const sheetId = sheet?.properties?.sheetId
   if (sheetId === undefined) return
 
@@ -443,8 +484,8 @@ export async function getSheetIdByName(
   spreadsheetId: string,
   sheetName: string,
 ): Promise<number | undefined> {
-  const meta = await sheetsApi.spreadsheets.get({ spreadsheetId })
-  const sheet = meta.data.sheets?.find((s) => s.properties?.title === sheetName)
+  const sheets = await getCachedSheets(spreadsheetId)
+  const sheet = sheets.find((s) => s.properties?.title === sheetName)
   return sheet?.properties?.sheetId ?? undefined
 }
 
@@ -457,8 +498,8 @@ export async function clearSheetMerges(
   spreadsheetId: string,
   sheetId: number,
 ): Promise<void> {
-  const meta = await sheetsApi.spreadsheets.get({ spreadsheetId })
-  const sheet = meta.data.sheets?.find((s) => s.properties?.sheetId === sheetId)
+  const sheets = await getCachedSheets(spreadsheetId)
+  const sheet = sheets.find((s) => s.properties?.sheetId === sheetId)
   const merges = sheet?.merges ?? []
   if (merges.length === 0) return
   // One request covering the entire grid — avoids partial-range errors when
@@ -509,11 +550,8 @@ export async function applyEmployeeSheetFormatting(
   sheetName: string,
   categories: EmpCategory[],
 ): Promise<void> {
-  const meta = await sheetsApi.spreadsheets.get({
-    spreadsheetId,
-    fields: 'sheets(properties(sheetId,title,gridProperties))',
-  })
-  const sheetMeta = meta.data.sheets?.find((s) => s.properties?.title === sheetName)
+  const sheets = await getCachedSheets(spreadsheetId)
+  const sheetMeta = sheets.find((s) => s.properties?.title === sheetName)
   if (!sheetMeta) return
   const sheetId = sheetMeta.properties?.sheetId
   if (sheetId === undefined) return
@@ -671,11 +709,8 @@ export async function applyMasterEmployeeFormatting(
   const spreadsheetId = config.spreadsheetId
   const sheetName = 'Employees'
 
-  const meta = await sheetsApi.spreadsheets.get({
-    spreadsheetId,
-    fields: 'sheets(properties(sheetId,title,gridProperties))',
-  })
-  const sheetMeta = meta.data.sheets?.find((s) => s.properties?.title === sheetName)
+  const sheets = await getCachedSheets(spreadsheetId)
+  const sheetMeta = sheets.find((s) => s.properties?.title === sheetName)
   if (!sheetMeta) return
   const sheetId = sheetMeta.properties?.sheetId
   if (sheetId === undefined) return
@@ -806,8 +841,8 @@ const INTERNAL_SHEETS = new Set([
  * Safe to call repeatedly — only sends requests for sheets that are currently visible.
  */
 export async function hideInternalSheets(spreadsheetId: string): Promise<void> {
-  const res = await sheetsApi.spreadsheets.get({ spreadsheetId })
-  const requests = (res.data.sheets ?? [])
+  const sheets = await getCachedSheets(spreadsheetId)
+  const requests = sheets
     .filter((s) => {
       const title = s.properties?.title ?? ''
       return INTERNAL_SHEETS.has(title) && !s.properties?.hidden

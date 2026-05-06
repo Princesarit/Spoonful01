@@ -2,7 +2,7 @@
  * Database layer — wraps Google Sheets
  */
 
-import { getSheetData, getSheetDataRaw, setSheetData, setSheetDataRaw, applyRowColors, applyTimeRecordFormatting, setSheetDataUserEntered, applyFormattingRules, getSheetIdByName, batchUpdateSheet, clearSheetMerges, hideInternalSheets, applyEmployeeSheetFormatting, applyMasterEmployeeFormatting, type EmpCategory } from './sheets'
+import { getSheetData, getSheetDataRaw, setSheetData, setSheetDataRaw, applyRowColors, applyTimeRecordFormatting, setSheetDataUserEntered, applyFormattingRules, getSheetIdByName, batchUpdateSheet, clearSheetMerges, hideInternalSheets, applyEmployeeSheetFormatting, applyMasterEmployeeFormatting, beginSyncMetaCache, clearSyncMetaCache, type EmpCategory } from './sheets'
 import type { SheetFormatRule } from './sheets'
 import type {
   Employee,
@@ -1921,14 +1921,54 @@ function getSupplierBills(entry: RevenueEntry | undefined, supId: string, mode: 
   return 0
 }
 
-export async function syncIncomeSheet(shopCode: string): Promise<void> {
-  const { sid } = await getShopDb(shopCode)
-  const [revenue, deliveryTrips, deliveryRates, suppliers] = await Promise.all([
+// ── Shared preload context (fetches all data once for use across all sync functions) ──────────
+interface SyncContext {
+  revenue:       RevenueEntry[]
+  deliveryTrips: DeliveryTrip[]
+  deliveryRates: DeliveryRate[]
+  suppliers:     DeliverySupplier[]
+  closedDates:   ClosedDate[]
+  employees:     Employee[]                  // active only — for Wage
+  employeesAll:  Employee[]                  // including fired — for Sum / OverAll
+  timeRecords:   TimeRecord[]
+  wageData:      { payments: Map<string, Map<string, WagePaymentRow>>; notes: Map<string, string> }
+  expenses:      ExpenseEntry[]
+  cashReport:    Map<string, CashReportRow>
+}
+
+async function preloadSyncData(shopCode: string): Promise<SyncContext> {
+  const [
+    revenue, deliveryTrips, deliveryRates, suppliers, closedDates,
+    employees, employeesAll, timeRecords, wageData, expenses, cashReport,
+  ] = await Promise.all([
     listRevenue(shopCode),
     listDeliveryTrips(shopCode),
     listDeliveryRates(shopCode),
     listDeliverySuppliers(shopCode),
+    listClosedDates(shopCode),
+    listEmployees(shopCode),
+    listEmployees(shopCode, true),
+    listTimeRecords(shopCode),
+    getAllWagePayments(shopCode),
+    listExpenses(shopCode),
+    getCashReportAll(shopCode),
   ])
+  return { revenue, deliveryTrips, deliveryRates, suppliers, closedDates, employees, employeesAll, timeRecords, wageData, expenses, cashReport }
+}
+
+export async function syncIncomeSheet(shopCode: string, ctx?: SyncContext): Promise<void> {
+  const { sid } = await getShopDb(shopCode)
+  const [revenue, deliveryTrips, deliveryRates, suppliers, closedDates] = ctx
+    ? [ctx.revenue, ctx.deliveryTrips, ctx.deliveryRates, ctx.suppliers, ctx.closedDates]
+    : await Promise.all([
+        listRevenue(shopCode),
+        listDeliveryTrips(shopCode),
+        listDeliveryRates(shopCode),
+        listDeliverySuppliers(shopCode),
+        listClosedDates(shopCode),
+      ])
+  const closedMap = new Map<string, ClosedMeal>(closedDates.map((c) => [c.date, c.meal]))
+  const CLOSED_RED = { red: 0.8, green: 0, blue: 0 }
   if (revenue.length === 0) return
 
   // Fall back to 3 legacy tiers if none configured
@@ -1957,6 +1997,7 @@ export async function syncIncomeSheet(shopCode: string): Promise<void> {
   // One header block at top; all weeks flow underneath
   const rows: (string | number | null)[][] = [makeIncomeHdr0(lo, rates, suppliers), makeIncomeHdr1(lo, suppliers)]
   const fmtRules: SheetFormatRule[] = []
+  const closedFmtRules: SheetFormatRule[] = []  // applied after applyIncomeFullFormat (which does a white reset)
   const sumRowIndices: number[] = []
 
   for (let wi = 0; wi < yearWeeks.length; wi++) {
@@ -2127,6 +2168,18 @@ export async function syncIncomeSheet(shopCode: string): Promise<void> {
 
       rows.push(row)
 
+      const closedMeal = closedMap.get(date)
+      if (closedMeal) {
+        const rowIdx = rows.length - 1
+        if (closedMeal === 'both') {
+          closedFmtRules.push({ startRow: rowIdx, endRow: rowIdx + 1, startCol: 0, endCol: lo.totalCols, backgroundColor: CLOSED_RED })
+        } else if (closedMeal === 'lunch') {
+          closedFmtRules.push({ startRow: rowIdx, endRow: rowIdx + 1, startCol: lo.lEftpos, endCol: lo.lCash + 1, backgroundColor: CLOSED_RED })
+        } else {
+          closedFmtRules.push({ startRow: rowIdx, endRow: rowIdx + 1, startCol: lo.dEftpos, endCol: lo.dCash + 1, backgroundColor: CLOSED_RED })
+        }
+      }
+
       prevDataRn = rn
     }
 
@@ -2172,6 +2225,9 @@ export async function syncIncomeSheet(shopCode: string): Promise<void> {
   await setSheetDataUserEntered(sheetName, rows, sid)
   await applyFormattingRules(sheetName, sid, fmtRules, totalRows)
   await applyIncomeFullFormat(sid, lo, rows.length, sumRowIndices, suppliers, sheetName, 0)
+  // Apply closed-day red AFTER applyIncomeFullFormat (which resets all backgrounds to white).
+  // Do NOT pass clearRowsCount here — that would trigger another white-reset wipe.
+  if (closedFmtRules.length > 0) await applyFormattingRules(sheetName, sid, closedFmtRules)
   } // end year loop
 }
 
@@ -2311,14 +2367,19 @@ async function applyWageFullFormat(
   await batchUpdateSheet(sid, requests)
 }
 
-export async function syncWageSheet(shopCode: string): Promise<void> {
+export async function syncWageSheet(shopCode: string, ctx?: SyncContext): Promise<void> {
   const { sid } = await getShopDb(shopCode)
-  const [employees, timeRecords, wageData, revenue] = await Promise.all([
-    listEmployees(shopCode),
-    listTimeRecords(shopCode),
-    getAllWagePayments(shopCode),
-    listRevenue(shopCode),
-  ])
+  const [employees, timeRecords, wageData, revenue, closedDates] = ctx
+    ? [ctx.employees, ctx.timeRecords, ctx.wageData, ctx.revenue, ctx.closedDates]
+    : await Promise.all([
+        listEmployees(shopCode),
+        listTimeRecords(shopCode),
+        getAllWagePayments(shopCode),
+        listRevenue(shopCode),
+        listClosedDates(shopCode),
+      ])
+  const closedMap = new Map<string, ClosedMeal>(closedDates.map((c) => [c.date, c.meal]))
+  const CLOSED_RED = { red: 0.8, green: 0, blue: 0 }
   const { payments: allPayments, notes: wageNotes } = wageData
   // Group revenue by date for extra lookup
   const revenueByDate = new Map<string, RevenueEntry[]>()
@@ -2497,6 +2558,15 @@ export async function syncWageSheet(shopCode: string): Promise<void> {
     rows.push(sumRow)
     const sumIdx = rows.length - 1
 
+    // Closed day columns (employee rows + TOTAL row only — skip the 3 header rows)
+    for (let d = 0; d < 7; d++) {
+      const closedMeal = closedMap.get(weekDates[d])
+      if (!closedMeal) continue
+      const sc = closedMeal !== 'dinner' ? 2 + d * 2 : 3 + d * 2
+      const ec = closedMeal !== 'lunch'  ? 4 + d * 2 : 3 + d * 2
+      fmtRules.push({ startRow: hStart + 3, endRow: sumIdx + 1, startCol: sc, endCol: ec, backgroundColor: CLOSED_RED })
+    }
+
     // ── Day totals row: Lunch+Dinner combined in the Dinner column ──────────
     const totRow: (string | number | null)[] = new Array(WAGE_COL_COUNT).fill('')
     for (let d = 0; d < 7; d++) {
@@ -2592,17 +2662,22 @@ export async function syncWageSheet(shopCode: string): Promise<void> {
 const SUM_SHEET = (year: number) => `Sum ${year}`
 const SUM_COL_COUNT = 19
 
-export async function syncSumSheet(shopCode: string): Promise<void> {
+export async function syncSumSheet(shopCode: string, ctx?: SyncContext): Promise<void> {
   const { sid } = await getShopDb(shopCode)
-  const [employees, timeRecords, deliveryTrips, revenue, expenses, wageData, cashReport] = await Promise.all([
-    listEmployees(shopCode, true),
-    listTimeRecords(shopCode),
-    listDeliveryTrips(shopCode),
-    listRevenue(shopCode),
-    listExpenses(shopCode),
-    getAllWagePayments(shopCode),
-    getCashReportAll(shopCode),
-  ])
+  const [employees, timeRecords, deliveryTrips, revenue, expenses, wageData, cashReport, closedDates] = ctx
+    ? [ctx.employeesAll, ctx.timeRecords, ctx.deliveryTrips, ctx.revenue, ctx.expenses, ctx.wageData, ctx.cashReport, ctx.closedDates]
+    : await Promise.all([
+        listEmployees(shopCode, true),
+        listTimeRecords(shopCode),
+        listDeliveryTrips(shopCode),
+        listRevenue(shopCode),
+        listExpenses(shopCode),
+        getAllWagePayments(shopCode),
+        getCashReportAll(shopCode),
+        listClosedDates(shopCode),
+      ])
+  const closedMap = new Map<string, ClosedMeal>(closedDates.map((c) => [c.date, c.meal]))
+  const CLOSED_RED = { red: 0.8, green: 0, blue: 0 }
   const allPayments = wageData.payments
 
   // Sort staff: Front-only → Front+Kitchen → unlabeled → Kitchen-only
@@ -2698,10 +2773,16 @@ export async function syncSumSheet(shopCode: string): Promise<void> {
     for (const t of wTrips) {
       if (t.fee > 0) tripFeeByDate.set(t.date, (tripFeeByDate.get(t.date) ?? 0) + t.fee)
     }
-    const expRows: { date: string; label: string; amount: number; paid: boolean; dueDate: string; paymentMethod: string }[] = [
+    const expRows: { date: string; label: string; amount: number; paid: boolean; dueDate: string; paymentMethod: string; isClosedDay?: boolean }[] = [
       ...wExp.map((e) => ({ date: e.date, label: e.supplier || e.description, amount: e.total, paid: e.paid, dueDate: e.dueDate ?? '', paymentMethod: e.paymentMethod ?? '' })),
       ...[...tripFeeByDate.entries()].map(([date, fee]) => ({ date, label: 'Home', amount: fee, paid: true, dueDate: '', paymentMethod: 'Cash' })),
     ]
+    // Add CLOSED marker for fully closed days so it appears in the expense area
+    for (const date of weekDates) {
+      if (closedMap.get(date) === 'both') {
+        expRows.push({ date, label: 'CLOSED', amount: 0, paid: true, dueDate: '', paymentMethod: '', isClosedDay: true })
+      }
+    }
     expRows.sort((a, b) => a.date.localeCompare(b.date))
 
     // Dynamic block size: accommodate both left side and right side (expense table)
@@ -2834,8 +2915,9 @@ export async function syncSumSheet(shopCode: string): Promise<void> {
     // (tripFeeByDate and expRows pre-computed above for blockSize)
     let expSlot    = 0
     let lastExpDate = ''
-    const paidRels: number[] = []   // relative row indices for Paid
-    const unpaidRels: number[] = [] // relative row indices for Unpaid
+    const paidRels: number[] = []      // relative row indices for Paid
+    const unpaidRels: number[] = []    // relative row indices for Unpaid
+    const closedExpRels: number[] = [] // relative row indices for CLOSED day entries
     for (const row of expRows) {
       const rel = 4 + expSlot
       if (row.date !== lastExpDate) {
@@ -2845,12 +2927,16 @@ export async function syncSumSheet(shopCode: string): Promise<void> {
         lastExpDate  = row.date
       }
       blk[rel][13] = row.label
-      blk[rel][15] = row.amount
-      blk[rel][16] = row.paid ? 'Paid' : 'Unpaid'
-      blk[rel][17] = row.dueDate ? `'${row.dueDate}` : ''
-      blk[rel][18] = row.paymentMethod
-      if (row.paid) paidRels.push(rel)
-      else unpaidRels.push(rel)
+      if (row.isClosedDay) {
+        closedExpRels.push(rel)
+      } else {
+        blk[rel][15] = row.amount
+        blk[rel][16] = row.paid ? 'Paid' : 'Unpaid'
+        blk[rel][17] = row.dueDate ? `'${row.dueDate}` : ''
+        blk[rel][18] = row.paymentMethod
+        if (row.paid) paidRels.push(rel)
+        else unpaidRels.push(rel)
+      }
       expSlot++
     }
 
@@ -2910,6 +2996,26 @@ export async function syncSumSheet(shopCode: string): Promise<void> {
     const C_RED_TEXT = { red: 0.8, green: 0.1, blue: 0.1 }
     if (n > 0) fmtRules.push({ startRow: bs+17, endRow: bs+17+n, startCol: 6, endCol: 10, foregroundColor: C_RED_TEXT })
     if (m > 0) fmtRules.push({ startRow: bs+ES, endRow: bs+ES+m, startCol: 6, endCol: 10, foregroundColor: C_RED_TEXT })
+    // CLOSED entry in expense area: dark red bg + white bold text on description cell (N=13)
+    const C_WHITE_FG = { red: 1, green: 1, blue: 1 }
+    for (const rel of closedExpRels) {
+      fmtRules.push({ startRow: bs+rel, endRow: bs+rel+1, startCol: 13, endCol: 14, backgroundColor: CLOSED_RED, foregroundColor: C_WHITE_FG, bold: true })
+    }
+
+    // Closed day row highlighting (rel 3-9 = Mon-Sun revenue rows)
+    // Skip Day (col B=1) and Date (col C=2) — start from D=3 (Lunch Credit)
+    for (let d = 0; d < 7; d++) {
+      const closedMeal = closedMap.get(weekDates[d])
+      if (!closedMeal) continue
+      const rel = 3 + d
+      if (closedMeal === 'both') {
+        fmtRules.push({ startRow: bs+rel, endRow: bs+rel+1, startCol: 3, endCol: 10, backgroundColor: CLOSED_RED })
+      } else if (closedMeal === 'lunch') {
+        fmtRules.push({ startRow: bs+rel, endRow: bs+rel+1, startCol: 3, endCol: 5, backgroundColor: CLOSED_RED })
+      } else {
+        fmtRules.push({ startRow: bs+rel, endRow: bs+rel+1, startCol: 5, endCol: 7, backgroundColor: CLOSED_RED })
+      }
+    }
   }
 
   // ── Global number formats ─────────────────────────────────────────────────
@@ -2999,15 +3105,17 @@ export async function syncSumSheet(shopCode: string): Promise<void> {
 const OVERALL_SHEET = 'OverAll'
 const OVERALL_HEADERS = ['Weekly', 'Income', 'Expense', 'Wage', 'Delivery Fee', 'Cash Leave']
 
-export async function syncOverAllSheet(shopCode: string): Promise<void> {
+export async function syncOverAllSheet(shopCode: string, ctx?: SyncContext): Promise<void> {
   const { sid } = await getShopDb(shopCode)
-  const [employees, timeRecords, deliveryTrips, revenue, expenses] = await Promise.all([
-    listEmployees(shopCode, true),
-    listTimeRecords(shopCode),
-    listDeliveryTrips(shopCode),
-    listRevenue(shopCode),
-    listExpenses(shopCode),
-  ])
+  const [employees, timeRecords, deliveryTrips, revenue, expenses] = ctx
+    ? [ctx.employeesAll, ctx.timeRecords, ctx.deliveryTrips, ctx.revenue, ctx.expenses]
+    : await Promise.all([
+        listEmployees(shopCode, true),
+        listTimeRecords(shopCode),
+        listDeliveryTrips(shopCode),
+        listRevenue(shopCode),
+        listExpenses(shopCode),
+      ])
 
   const weekSet = new Set<string>()
   for (const e of revenue)  weekSet.add(getMondayStr(e.date))
@@ -3082,14 +3190,32 @@ export async function syncOverAllSheet(shopCode: string): Promise<void> {
 
 export async function syncAllReportSheets(shopCode: string): Promise<void> {
   const { sid } = await getShopDb(shopCode)
+
+  // Fetch all data once — 11 parallel reads instead of 21 sequential reads
+  const ctx = await preloadSyncData(shopCode)
+
   const run = async (name: string, fn: () => Promise<void>) => {
     try { await fn() } catch (err) { console.error(`[syncAllReportSheets] ${name} failed:`, err) }
   }
-  await run('income',  () => syncIncomeSheet(shopCode))
-  await run('wage',    () => syncWageSheet(shopCode))
-  await run('sum',     () => syncSumSheet(shopCode))
-  await run('overall', () => syncOverAllSheet(shopCode))
-  await hideInternalSheets(sid)
+
+  beginSyncMetaCache()
+  try {
+    // Pair 1: lighter sheets (Income + OverAll) — write to different tabs, safe to run together
+    await Promise.all([
+      run('income',  () => syncIncomeSheet(shopCode, ctx)),
+      run('overall', () => syncOverAllSheet(shopCode, ctx)),
+    ])
+
+    // Pair 2: heavier sheets (Wage + Sum) — also write to different tabs
+    await Promise.all([
+      run('wage', () => syncWageSheet(shopCode, ctx)),
+      run('sum',  () => syncSumSheet(shopCode, ctx)),
+    ])
+
+    await hideInternalSheets(sid)
+  } finally {
+    clearSyncMetaCache()
+  }
 }
 
 export async function hideShopInternalSheets(shopCode: string): Promise<void> {
