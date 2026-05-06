@@ -3,6 +3,7 @@ import express from 'express'
 import cors from 'cors'
 import rateLimit from 'express-rate-limit'
 import { config } from './config'
+import { registerSseClient, unregisterSseClient, tryAcquireShopLock, releaseShopLock } from './lockState'
 import authRoutes from './routes/auth'
 import shopRoutes from './routes/shops'
 import employeeRoutes from './routes/employees'
@@ -60,6 +61,34 @@ app.use((req, _res, next) => {
 
 // Health check
 app.get('/health', (_req, res) => res.json({ ok: true }))
+
+// ── Lock status SSE — browser subscribes to get real-time sync/save lock state ──
+app.get('/lock-status', (req, res) => {
+  res.setHeader('Content-Type', 'text/event-stream')
+  res.setHeader('Cache-Control', 'no-cache')
+  res.setHeader('Connection', 'keep-alive')
+  res.flushHeaders()
+  registerSseClient(res)
+  req.on('close', () => unregisterSseClient(res))
+})
+
+// ── Shop-level write lock — prevents concurrent saves within the same shop ───
+// Applies to all POST/PUT/DELETE/PATCH under /:shopCode/* except /:shopCode/sheets/*
+const SYSTEM_PREFIXES = new Set(['auth', 'shops', 'health', 'lock-status'])
+app.use((req, res, next) => {
+  if (!['POST', 'PUT', 'DELETE', 'PATCH'].includes(req.method)) return next()
+  const parts = req.path.split('/')          // ['', 'SEED', 'employees', ...]
+  const shopCode = parts[1]
+  const subpath  = parts[2]
+  if (!shopCode || SYSTEM_PREFIXES.has(shopCode)) return next()
+  if (subpath === 'sheets') return next()    // sync route manages its own lock
+  if (!tryAcquireShopLock(shopCode)) {
+    res.status(409).json({ error: 'busy', message: 'กำลังบันทึกอยู่ กรุณารอสักครู่' })
+    return
+  }
+  res.on('finish', () => releaseShopLock(shopCode))
+  next()
+})
 
 // Routes
 app.post('/auth/login', loginLimiter)

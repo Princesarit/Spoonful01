@@ -56,6 +56,7 @@ export async function syncReportSheets(shopCode: string) {
   })
   if (!res.ok) {
     const body = await res.json().catch(() => ({}))
+    if (res.status === 409) throw new Error(body.message ?? 'Sync กำลังทำงานอยู่ กรุณารอสักครู่')
     throw new Error(body.error ?? 'Sync failed')
   }
   return res.json() as Promise<{ ok: boolean; message: string }>

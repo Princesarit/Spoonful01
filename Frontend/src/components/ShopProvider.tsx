@@ -6,6 +6,11 @@ import type { ShopConfig } from '@/lib/config'
 
 export type Lang = 'th' | 'en'
 
+interface LockStatus {
+  syncLocked: boolean
+  shopSaveLocked: Record<string, boolean>
+}
+
 interface ShopContextValue {
   session: Session
   shop: ShopConfig
@@ -13,6 +18,8 @@ interface ShopContextValue {
   toggleLang: () => void
   isDark: boolean
   toggleDark: () => void
+  syncLocked: boolean
+  shopSaveLocked: Record<string, boolean>
 }
 
 const ShopContext = createContext<ShopContextValue | null>(null)
@@ -28,6 +35,7 @@ export function ShopProvider({
 }) {
   const [lang, setLang] = useState<Lang>('th')
   const [isDark, setIsDark] = useState(false)
+  const [lockStatus, setLockStatus] = useState<LockStatus>({ syncLocked: false, shopSaveLocked: {} })
 
   useEffect(() => {
     const savedLang = localStorage.getItem('spoonful_lang') as Lang | null
@@ -36,6 +44,13 @@ export function ShopProvider({
     const savedDark = localStorage.getItem('spoonful_dark') === 'true'
     setIsDark(savedDark)
     document.documentElement.classList.toggle('dark', savedDark)
+
+    const backendUrl = process.env.NEXT_PUBLIC_BACKEND_URL ?? 'http://localhost:4001'
+    const es = new EventSource(`${backendUrl}/lock-status`)
+    es.onmessage = (e) => {
+      try { setLockStatus(JSON.parse(e.data)) } catch {}
+    }
+    return () => es.close()
   }, [])
 
   function toggleLang() {
@@ -56,7 +71,7 @@ export function ShopProvider({
   }
 
   return (
-    <ShopContext.Provider value={{ session, shop, lang, toggleLang, isDark, toggleDark }}>
+    <ShopContext.Provider value={{ session, shop, lang, toggleLang, isDark, toggleDark, syncLocked: lockStatus.syncLocked, shopSaveLocked: lockStatus.shopSaveLocked }}>
       {children}
     </ShopContext.Provider>
   )

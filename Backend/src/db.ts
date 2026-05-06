@@ -2,7 +2,7 @@
  * Database layer — wraps Google Sheets
  */
 
-import { getSheetData, getSheetDataRaw, setSheetData, setSheetDataRaw, applyRowColors, applyTimeRecordFormatting, setSheetDataUserEntered, applyFormattingRules, getSheetIdByName, batchUpdateSheet, clearSheetMerges, hideInternalSheets, applyEmployeeSheetFormatting, applyMasterEmployeeFormatting, beginSyncMetaCache, clearSyncMetaCache, type EmpCategory } from './sheets'
+import { getSheetData, getSheetDataRaw, setSheetData, setSheetDataRaw, applyRowColors, applyTimeRecordFormatting, setSheetDataUserEntered, applyFormattingRules, buildSheetFormatRequests, getSheetMeta, buildUnmergeRequests, getSheetIdByName, batchUpdateSheet, clearSheetMerges, hideInternalSheets, applyEmployeeSheetFormatting, applyMasterEmployeeFormatting, beginSyncMetaCache, clearSyncMetaCache, type EmpCategory } from './sheets'
 import type { SheetFormatRule } from './sheets'
 import type {
   Employee,
@@ -1696,17 +1696,14 @@ const INT_FORMAT  = { type: 'NUMBER', pattern: '0' }
 
 
 
-async function applyIncomeFullFormat(
-  sid: string,
+function buildIncomeFullFormatRequests(
+  sheetId: number,
   lo: IncomeLayout,
   totalRows: number,
   sumRowIndices: number[],
   suppliers: DeliverySupplier[],
-  sheetName: string,
   rowOffset = 0,
-): Promise<void> {
-  const sheetId = await getSheetIdByName(sid, sheetName)
-  if (sheetId === undefined) return
+): object[] {
 
   const BLACK    = { red: 0, green: 0, blue: 0 }
   const SOLID    = { style: 'SOLID', color: BLACK }
@@ -1905,8 +1902,7 @@ async function applyIncomeFullFormat(
   bdr(2, totalRows, lo.cCashBag,lo.cCashBag+1,{ right: SOLID })
   bdr(2, totalRows, lo.sDay, lo.sDate+1, { top: SOLID, bottom: SOLID, left: SOLID, right: SOLID, innerHorizontal: SOLID, innerVertical: SOLID })
 
-  if (rowOffset === 0) await clearSheetMerges(sid, sheetId)
-  await batchUpdateSheet(sid, requests)
+  return requests
 }
 
 function getSupplierBills(entry: RevenueEntry | undefined, supId: string, mode: 'lunch' | 'dinner'): number {
@@ -2223,11 +2219,23 @@ export async function syncIncomeSheet(shopCode: string, ctx?: SyncContext): Prom
   fmtRules.push({ startRow: 2, endRow: totalRows, startCol: lo.sDate,   endCol: lo.sDate    + 1,  numberFormat: DATE_FORMAT })
 
   await setSheetDataUserEntered(sheetName, rows, sid)
-  await applyFormattingRules(sheetName, sid, fmtRules, totalRows)
-  await applyIncomeFullFormat(sid, lo, rows.length, sumRowIndices, suppliers, sheetName, 0)
-  // Apply closed-day red AFTER applyIncomeFullFormat (which resets all backgrounds to white).
-  // Do NOT pass clearRowsCount here — that would trigger another white-reset wipe.
-  if (closedFmtRules.length > 0) await applyFormattingRules(sheetName, sid, closedFmtRules)
+
+  // Merge all formatting into 2 batchUpdate calls (was 4):
+  //   Batch 1: unmerge + white-reset + number formats + full color/border/merge/width layout
+  //   Batch 2: closed-day red overlay (must come after the white reset in batch 1)
+  const meta = await getSheetMeta(sid, sheetName)
+  if (meta) {
+    const { sheetId, gridRowCount } = meta
+    const [unmergeReqs, incomeReqs] = await Promise.all([
+      buildUnmergeRequests(sid, sheetId),
+      Promise.resolve(buildIncomeFullFormatRequests(sheetId, lo, rows.length, sumRowIndices, suppliers, 0)),
+    ])
+    const fmtReqs = buildSheetFormatRequests(sheetId, fmtRules, totalRows, gridRowCount)
+    await batchUpdateSheet(sid, [...unmergeReqs, ...fmtReqs, ...incomeReqs])
+    if (closedFmtRules.length > 0) {
+      await batchUpdateSheet(sid, buildSheetFormatRequests(sheetId, closedFmtRules))
+    }
+  }
   } // end year loop
 }
 
@@ -2259,14 +2267,11 @@ interface WageBlock {
   noteRowStart: number        // 0-based row index of first NOTE row (spans 2 rows)
 }
 
-async function applyWageFullFormat(
-  sid: string,
+function buildWageFullFormatRequests(
+  sheetId: number,
   totalRows: number,
   wageBlocks: WageBlock[],
-  sheetName: string,
-): Promise<void> {
-  const sheetId = await getSheetIdByName(sid, sheetName)
-  if (sheetId === undefined) return
+): object[] {
 
   const BLACK        = { red: 0, green: 0, blue: 0 }
   const SOLID        = { style: 'SOLID',        color: BLACK }
@@ -2363,8 +2368,7 @@ async function applyWageFullFormat(
   for (let c = 0; c <= 19; c++) cw(c, 100)
   cw(20, 120)                                             // U: Remaining cash
 
-  await clearSheetMerges(sid, sheetId)
-  await batchUpdateSheet(sid, requests)
+  return requests
 }
 
 export async function syncWageSheet(shopCode: string, ctx?: SyncContext): Promise<void> {
@@ -2642,8 +2646,16 @@ export async function syncWageSheet(shopCode: string, ctx?: SyncContext): Promis
   fmtRules.push({ startRow: 0, endRow: totalRows, startCol: 20, endCol: 21, numberFormat: AUD_FORMAT })
 
   await setSheetDataUserEntered(sheetName, rows, sid)
-  await applyFormattingRules(sheetName, sid, fmtRules, 500)
-  await applyWageFullFormat(sid, totalRows, wageBlocks, sheetName)
+
+  // Merge into 1 batchUpdate call (was 3: fmtRules + unmerge + wage full format)
+  const meta = await getSheetMeta(sid, sheetName)
+  if (meta) {
+    const { sheetId, gridRowCount } = meta
+    const unmergeReqs = await buildUnmergeRequests(sid, sheetId)
+    const fmtReqs = buildSheetFormatRequests(sheetId, fmtRules, 500, gridRowCount)
+    const wageReqs = buildWageFullFormatRequests(sheetId, totalRows, wageBlocks)
+    await batchUpdateSheet(sid, [...unmergeReqs, ...fmtReqs, ...wageReqs])
+  }
   } // end year loop
 }
 
@@ -3028,14 +3040,11 @@ export async function syncSumSheet(shopCode: string, ctx?: SyncContext): Promise
   // Write data first — ensureSheet (inside setSheetDataUserEntered) creates the sheet if it
   // doesn't exist yet, so getSheetIdByName will always find it afterward.
   await setSheetDataUserEntered(sheetName, rows, sid)
-  await applyFormattingRules(sheetName, sid, fmtRules, totalRows + 5)
 
   // ── Get sheetId for merges + borders (sheet is guaranteed to exist now) ──
-  const sheetId = await getSheetIdByName(sid, sheetName)
-  if (sheetId === undefined) continue
-
-  // Clear stale merges from a previous sync before reapplying new ones
-  await clearSheetMerges(sid, sheetId)
+  const sumMeta = await getSheetMeta(sid, sheetName)
+  if (sumMeta === undefined) continue
+  const { sheetId, gridRowCount: sumGridRows } = sumMeta
 
   // ── Cell merges per week ──────────────────────────────────────────────────
   const mergeReqs: object[] = []
@@ -3049,8 +3058,6 @@ export async function syncSumSheet(shopCode: string, ctx?: SyncContext): Promise
     merge(1, 2,  11, 19)  // EXPENSES header L-S
     merge(12, 13, 1, 5)   // Wage date header B-E
   }
-  if (mergeReqs.length > 0) await batchUpdateSheet(sid, mergeReqs)
-
   // ── Structural borders — data-driven per week ────────────────────────────
   const SOLID_BLK = { style: 'SOLID', width: 1, color: { red: 0, green: 0, blue: 0, alpha: 1 } }
   const borderReqs: object[] = []
@@ -3095,7 +3102,10 @@ export async function syncSumSheet(shopCode: string, ctx?: SyncContext): Promise
       top: SOLID_BLK, bottom: SOLID_BLK, left: SOLID_BLK, right: SOLID_BLK,
     })
   }
-  if (borderReqs.length > 0) await batchUpdateSheet(sid, borderReqs)
+  // Merge into 1 batchUpdate call (was 4: fmtRules + unmerge + merges + borders)
+  const unmergeReqs = await buildUnmergeRequests(sid, sheetId)
+  const fmtReqs = buildSheetFormatRequests(sheetId, fmtRules, totalRows + 5, sumGridRows)
+  await batchUpdateSheet(sid, [...unmergeReqs, ...fmtReqs, ...mergeReqs, ...borderReqs])
   } // end year loop
 }
 
@@ -3159,29 +3169,18 @@ export async function syncOverAllSheet(shopCode: string, ctx?: SyncContext): Pro
   fmtRules.push({ startRow: 1, endRow: totalRows, startCol: 1, endCol: 6, numberFormat: AUD_FORMAT })
 
   await setSheetDataUserEntered(OVERALL_SHEET, rows, sid)
-  await applyFormattingRules(OVERALL_SHEET, sid, fmtRules, totalRows)
 
-  // Add borders to data range
-  const sheetId = await getSheetIdByName(sid, OVERALL_SHEET)
-  if (sheetId !== undefined) {
+  // Merge into 1 batchUpdate call (was 2: fmtRules + borders)
+  const overallMeta = await getSheetMeta(sid, OVERALL_SHEET)
+  if (overallMeta) {
+    const { sheetId, gridRowCount } = overallMeta
     const solidThin = { style: 'SOLID', color: { red: 0, green: 0, blue: 0 } }
+    const lgray = { style: 'SOLID', color: { red: 0.8, green: 0.8, blue: 0.8 } }
+    const fmtReqs = buildSheetFormatRequests(sheetId, fmtRules, totalRows, gridRowCount)
     await batchUpdateSheet(sid, [
-      // Apply light gray default grid first, then overlay actual borders
-      {
-        repeatCell: {
-          range: { sheetId, startRowIndex: 0, endRowIndex: 1000 },
-          cell: { userEnteredFormat: { borders: { top: { style: 'SOLID', color: { red: 0.8, green: 0.8, blue: 0.8 } }, bottom: { style: 'SOLID', color: { red: 0.8, green: 0.8, blue: 0.8 } }, left: { style: 'SOLID', color: { red: 0.8, green: 0.8, blue: 0.8 } }, right: { style: 'SOLID', color: { red: 0.8, green: 0.8, blue: 0.8 } } } } },
-          fields: 'userEnteredFormat.borders',
-        },
-      },
-      // Apply borders to data range only
-      {
-        updateBorders: {
-          range: { sheetId, startRowIndex: 0, endRowIndex: totalRows, startColumnIndex: 0, endColumnIndex: OVERALL_HEADERS.length },
-          top: solidThin, bottom: solidThin, left: solidThin, right: solidThin,
-          innerHorizontal: solidThin, innerVertical: solidThin,
-        },
-      },
+      ...fmtReqs,
+      { repeatCell: { range: { sheetId, startRowIndex: 0, endRowIndex: 1000 }, cell: { userEnteredFormat: { borders: { top: lgray, bottom: lgray, left: lgray, right: lgray } } }, fields: 'userEnteredFormat.borders' } },
+      { updateBorders: { range: { sheetId, startRowIndex: 0, endRowIndex: totalRows, startColumnIndex: 0, endColumnIndex: OVERALL_HEADERS.length }, top: solidThin, bottom: solidThin, left: solidThin, right: solidThin, innerHorizontal: solidThin, innerVertical: solidThin } },
     ])
   }
 }

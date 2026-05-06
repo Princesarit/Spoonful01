@@ -31,9 +31,11 @@ const sheetTitleCacheMap = new Map<string, Set<string>>()
 // Request-scoped metadata cache — active during sync, cleared after
 // Stores full sheets[] (sheetId, gridProperties, merges) so multiple
 // formatting functions share one spreadsheets.get call per sync.
+// Ref-counted so concurrent syncs share one cache without stepping on each other.
 type SpreadsheetSheets = sheets_v4.Schema$Sheet[]
 const syncMetaCache = new Map<string, SpreadsheetSheets>()
 const syncMetaPending = new Map<string, Promise<SpreadsheetSheets>>()
+let syncMetaRefCount = 0
 
 async function getCachedSheets(spreadsheetId: string): Promise<SpreadsheetSheets> {
   const cached = syncMetaCache.get(spreadsheetId)
@@ -56,13 +58,19 @@ async function getCachedSheets(spreadsheetId: string): Promise<SpreadsheetSheets
 }
 
 export function beginSyncMetaCache(): void {
-  syncMetaCache.clear()
-  syncMetaPending.clear()
+  if (syncMetaRefCount === 0) {
+    syncMetaCache.clear()
+    syncMetaPending.clear()
+  }
+  syncMetaRefCount++
 }
 
 export function clearSyncMetaCache(): void {
-  syncMetaCache.clear()
-  syncMetaPending.clear()
+  syncMetaRefCount = Math.max(0, syncMetaRefCount - 1)
+  if (syncMetaRefCount === 0) {
+    syncMetaCache.clear()
+    syncMetaPending.clear()
+  }
 }
 
 async function getSheetTitles(spreadsheetId: string): Promise<Set<string>> {
@@ -219,6 +227,70 @@ export type SheetFormatRule = {
   foregroundColor?: ColorRGB
   bold?: boolean
   numberFormat?: { type: string; pattern: string }
+}
+
+/**
+ * Build formatting requests synchronously given a known sheetId.
+ * Use with batchUpdateSheet to merge with other requests in a single API call.
+ */
+export function buildSheetFormatRequests(
+  sheetId: number,
+  rules: SheetFormatRule[],
+  clearRowsCount?: number,
+  gridRowCount = 0,
+): object[] {
+  const WHITE = { red: 1, green: 1, blue: 1 }
+  const requests: object[] = []
+  if (clearRowsCount && clearRowsCount > 0) {
+    const clearEnd = Math.max(clearRowsCount + 1, gridRowCount)
+    requests.push({ repeatCell: { range: { sheetId, startRowIndex: 0, endRowIndex: clearEnd }, cell: { userEnteredFormat: { backgroundColor: WHITE } }, fields: 'userEnteredFormat.backgroundColor' } })
+  }
+  for (const { startRow, endRow, startCol, endCol, backgroundColor, foregroundColor, bold, numberFormat } of rules) {
+    const ueFormat: Record<string, unknown> = {}
+    const fields: string[] = []
+    if (backgroundColor) { ueFormat.backgroundColor = backgroundColor; fields.push('userEnteredFormat.backgroundColor') }
+    if (foregroundColor !== undefined || bold !== undefined) {
+      const tf: Record<string, unknown> = {}
+      if (foregroundColor !== undefined) { tf.foregroundColor = foregroundColor; fields.push('userEnteredFormat.textFormat.foregroundColor') }
+      if (bold !== undefined) { tf.bold = bold; fields.push('userEnteredFormat.textFormat.bold') }
+      ueFormat.textFormat = tf
+    }
+    if (numberFormat) { ueFormat.numberFormat = numberFormat; fields.push('userEnteredFormat.numberFormat') }
+    requests.push({ repeatCell: { range: { sheetId, startRowIndex: startRow, endRowIndex: endRow, startColumnIndex: startCol, endColumnIndex: endCol }, cell: { userEnteredFormat: ueFormat }, fields: fields.join(',') } })
+  }
+  return requests
+}
+
+/**
+ * Get sheetId + gridRowCount from cache (no extra API call if cache is warm).
+ */
+export async function getSheetMeta(
+  spreadsheetId: string,
+  sheetName: string,
+): Promise<{ sheetId: number; gridRowCount: number } | undefined> {
+  const sheets = await getCachedSheets(spreadsheetId)
+  const sheet = sheets.find((s) => s.properties?.title === sheetName)
+  if (!sheet || sheet.properties?.sheetId == null) return undefined
+  return {
+    sheetId: sheet.properties.sheetId,
+    gridRowCount: sheet.properties.gridProperties?.rowCount ?? 0,
+  }
+}
+
+/**
+ * Build unmerge requests for an entire sheet grid (single range).
+ * Returns [] if no merges exist.
+ */
+export async function buildUnmergeRequests(
+  spreadsheetId: string,
+  sheetId: number,
+): Promise<object[]> {
+  const sheets = await getCachedSheets(spreadsheetId)
+  const sheet = sheets.find((s) => s.properties?.sheetId === sheetId)
+  if (!sheet?.merges?.length) return []
+  const rowCount = sheet.properties?.gridProperties?.rowCount ?? 2000
+  const colCount = sheet.properties?.gridProperties?.columnCount ?? 50
+  return [{ unmergeCells: { range: { sheetId, startRowIndex: 0, endRowIndex: rowCount, startColumnIndex: 0, endColumnIndex: colCount } } }]
 }
 
 /**

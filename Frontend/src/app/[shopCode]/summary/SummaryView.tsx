@@ -838,7 +838,7 @@ function NoteField({
 
 export default function SummaryView() {
   const { shopCode } = useParams() as { shopCode: string }
-  const { lang, session } = useShop()
+  const { lang, session, syncLocked } = useShop()
   const tr = translations[lang]
   const locale = lang === 'en' ? 'en-US' : 'th-TH'
 
@@ -1106,10 +1106,11 @@ export default function SummaryView() {
                   setSyncing(false)
                 }
               }}
-              disabled={syncing}
+              disabled={syncing || syncLocked}
+              title={syncLocked && !syncing ? 'Sync กำลังทำงานอยู่บนอุปกรณ์อื่น' : undefined}
               className="text-xs bg-green-600 text-white px-3 py-1.5 rounded-lg hover:bg-green-700 disabled:opacity-50 cursor-pointer"
             >
-              {syncing ? 'Syncing...' : 'Sync Sheets'}
+              {syncing ? 'Syncing...' : syncLocked ? 'Syncing...' : 'Sync Sheets'}
             </button>
           </div>
         )}

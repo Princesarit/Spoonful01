@@ -2,16 +2,23 @@ import { Router, Response } from 'express'
 import { syncAllReportSheets, syncIncomeSheet, syncWageSheet, syncSumSheet, syncOverAllSheet, hideShopInternalSheets } from '../db'
 import { requireShopAuth } from '../middleware/auth'
 import type { AuthRequest } from '../middleware/auth'
+import { acquireSyncLock, releaseSyncLock } from '../lockState'
 
 const router = Router({ mergeParams: true })
 
 router.post('/sync', requireShopAuth, async (req: AuthRequest, res: Response) => {
+  if (!acquireSyncLock()) {
+    res.status(409).json({ error: 'busy', message: 'Sync กำลังทำงานอยู่ กรุณารอสักครู่' })
+    return
+  }
   try {
     await syncAllReportSheets(req.params.shopCode)
     res.json({ ok: true, message: 'All report sheets synced' })
   } catch (err) {
     console.error('[sheetSync] error:', err)
     res.status(500).json({ error: String(err) })
+  } finally {
+    releaseSyncLock()
   }
 })
 
