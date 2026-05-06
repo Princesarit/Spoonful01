@@ -183,9 +183,12 @@ export async function setSheetDataUserEntered(
   sheetName: string,
   rows: (string | number | null)[][],
   spreadsheetId = config.spreadsheetId,
+  skipClear = false,
 ): Promise<void> {
   await ensureSheet(sheetName, spreadsheetId)
-  await sheetsApi.spreadsheets.values.clear({ spreadsheetId, range: sheetName })
+  if (!skipClear) {
+    await sheetsApi.spreadsheets.values.clear({ spreadsheetId, range: sheetName })
+  }
   if (rows.length > 0) {
     await sheetsApi.spreadsheets.values.update({
       spreadsheetId,
@@ -351,10 +354,10 @@ export async function applyFormattingRules(
   })
 
   const allRequests = [...clearRequests, ...requests]
-  for (let i = 0; i < allRequests.length; i += 100) {
+  for (let i = 0; i < allRequests.length; i += 500) {
     await sheetsApi.spreadsheets.batchUpdate({
       spreadsheetId,
-      requestBody: { requests: allRequests.slice(i, i + 100) },
+      requestBody: { requests: allRequests.slice(i, i + 500) },
     })
   }
 }
@@ -381,10 +384,10 @@ export async function applyColorRules(
     },
   }))
 
-  for (let i = 0; i < requests.length; i += 100) {
+  for (let i = 0; i < requests.length; i += 500) {
     await sheetsApi.spreadsheets.batchUpdate({
       spreadsheetId,
-      requestBody: { requests: requests.slice(i, i + 100) },
+      requestBody: { requests: requests.slice(i, i + 500) },
     })
   }
 }
@@ -593,10 +596,10 @@ export async function batchUpdateSheet(
   requests: object[],
 ): Promise<void> {
   if (requests.length === 0) return
-  for (let i = 0; i < requests.length; i += 100) {
+  for (let i = 0; i < requests.length; i += 500) {
     await sheetsApi.spreadsheets.batchUpdate({
       spreadsheetId,
-      requestBody: { requests: requests.slice(i, i + 100) },
+      requestBody: { requests: requests.slice(i, i + 500) },
     })
   }
 }

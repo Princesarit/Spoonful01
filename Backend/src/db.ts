@@ -3039,7 +3039,7 @@ export async function syncSumSheet(shopCode: string, ctx?: SyncContext): Promise
 
   // Write data first — ensureSheet (inside setSheetDataUserEntered) creates the sheet if it
   // doesn't exist yet, so getSheetIdByName will always find it afterward.
-  await setSheetDataUserEntered(sheetName, rows, sid)
+  await setSheetDataUserEntered(sheetName, rows, sid, true)
 
   // ── Get sheetId for merges + borders (sheet is guaranteed to exist now) ──
   const sumMeta = await getSheetMeta(sid, sheetName)
@@ -3168,7 +3168,7 @@ export async function syncOverAllSheet(shopCode: string, ctx?: SyncContext): Pro
   const totalRows = rows.length
   fmtRules.push({ startRow: 1, endRow: totalRows, startCol: 1, endCol: 6, numberFormat: AUD_FORMAT })
 
-  await setSheetDataUserEntered(OVERALL_SHEET, rows, sid)
+  await setSheetDataUserEntered(OVERALL_SHEET, rows, sid, true)
 
   // Merge into 1 batchUpdate call (was 2: fmtRules + borders)
   const overallMeta = await getSheetMeta(sid, OVERALL_SHEET)
@@ -3199,19 +3199,14 @@ export async function syncAllReportSheets(shopCode: string): Promise<void> {
 
   beginSyncMetaCache()
   try {
-    // Pair 1: lighter sheets (Income + OverAll) — write to different tabs, safe to run together
+    // All 4 report sheets + hideInternalSheets in one parallel batch — each writes to a different tab
     await Promise.all([
       run('income',  () => syncIncomeSheet(shopCode, ctx)),
       run('overall', () => syncOverAllSheet(shopCode, ctx)),
+      run('wage',    () => syncWageSheet(shopCode, ctx)),
+      run('sum',     () => syncSumSheet(shopCode, ctx)),
+      run('hide',    () => hideInternalSheets(sid)),
     ])
-
-    // Pair 2: heavier sheets (Wage + Sum) — also write to different tabs
-    await Promise.all([
-      run('wage', () => syncWageSheet(shopCode, ctx)),
-      run('sum',  () => syncSumSheet(shopCode, ctx)),
-    ])
-
-    await hideInternalSheets(sid)
   } finally {
     clearSyncMetaCache()
   }

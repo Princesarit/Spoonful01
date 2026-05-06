@@ -748,7 +748,7 @@ function BranchManagerModal({
                   <div className="mb-4 flex items-start justify-between gap-4">
                     <div>
                       <h4 className="text-sm font-bold text-white">วิธีเตรียม Google Sheet ให้สาขาใหม่</h4>
-                      <p className="mt-1 text-xs leading-5 text-white/55">ใช้เมื่อต้องการแยกข้อมูลของแต่ละสาขาออกจาก main sheet</p>
+                      <p className="mt-1 text-xs leading-5 text-white/55">ใช้เมื่อต้องการสร้าง Database ของสาขาใหม่</p>
                     </div>
                     <button
                       type="button"
@@ -773,7 +773,7 @@ function BranchManagerModal({
                           ))}
                         </div>
                       </div>
-                      <p className="mt-2 text-xs leading-5 text-white/60">ไปที่ Google Drive แล้วกด New → Google Sheets ตั้งชื่อเช่น Spoonful - ชื่อสาขา</p>
+                      <p className="mt-2 text-xs leading-5 text-white/60">สร้าง Google Sheet โดยการกด New → ตั้งชื่อเช่น Spoonful - ชื่อสาขา</p>
                     </div>
 
                     <div className="rounded-xl border border-white/10 bg-white/4 p-3">
@@ -797,7 +797,7 @@ function BranchManagerModal({
                       <div className="rounded-lg border border-amber-400/30 bg-amber-950/35 p-3">
                         <p className="break-all rounded bg-stone-950/70 px-2 py-1.5 text-[10px] text-amber-100">docs.google.com/spreadsheets/d/<span className="text-amber-300">SPREADSHEET_ID</span>/edit</p>
                       </div>
-                      <p className="mt-2 text-xs leading-5 text-white/60">เอาเฉพาะตัวอักษรยาว ๆ ระหว่าง /d/ และ /edit ไปใส่ช่อง Spreadsheet ID</p>
+                      <p className="mt-2 text-xs leading-5 text-white/60">ดูตรง URL ของ Google Sheet ปัจจุบัน และเอาเฉพาะตัวอักษรยาวๆ ระหว่าง /d/ และ /edit ไปใส่ในช่อง Spreadsheet ID</p>
                     </div>
                   </div>
 
