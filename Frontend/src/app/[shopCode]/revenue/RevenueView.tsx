@@ -43,10 +43,19 @@ function calcCashSale(m: MealRevenue): number {
   return m.totalSale - m.eftpos - m.lfyOnline - m.uberOnline - m.doorDash - extrasOnline
 }
 
+function calcDeliveryCardsCash(m: MealRevenue, suppliers: DeliverySupplier[]): number {
+  return suppliers.reduce((sum, s) => {
+    const legacyCardsCash = s.id === 'lfy' ? m.lfyCards + m.lfyCash : 0
+    const extras = m.supplierExtras?.[s.id]
+    const extraCardsCash = (s.hasCards ? (extras?.cards ?? 0) : 0) + (s.hasCash ? (extras?.cash ?? 0) : 0)
+    return sum + legacyCardsCash + extraCardsCash
+  }, 0)
+}
+
 // For legacy entries that have totalSale but no cashSale, derive cashSale
 function ensureCashSale(m: MealRevenue): MealRevenue {
   if ((m.cashSale === undefined || m.cashSale === 0) && m.totalSale > 0) {
-    const derived = m.totalSale - m.eftpos - m.lfyOnline - m.uberOnline - m.doorDash
+    const derived = calcCashSale(m)
     return { ...m, cashSale: Math.max(0, derived) }
   }
   return m
@@ -175,8 +184,7 @@ function MealSection({
   const extrasOnline = Object.values(meal.supplierExtras ?? {}).reduce((s, v) => s + (v.online ?? 0), 0)
   const cashSale = meal.totalSale - meal.eftpos - meal.lfyOnline - meal.uberOnline - meal.doorDash - extrasOnline
   const cashSaleError = cashSale < 0
-  const lfySup = suppliers.find((s) => s.id === 'lfy')
-  const lfyCardsError = lfySup ? (meal.lfyCards + meal.lfyCash) > meal.eftpos : false
+  const deliveryCardsCashError = calcDeliveryCardsCash(meal, suppliers) > meal.eftpos
 
   const { lang } = useShop()
   const tr = translations[lang]
@@ -200,8 +208,8 @@ function MealSection({
             ...(s.hasCash   ? ['cash'   as const] : []),
           ]
           return channels.map((ch) => {
-            const isLfyCardsCash = (s.id === 'lfy') && (ch === 'cards' || ch === 'cash')
-            const isError = isLfyCardsCash && lfyCardsError
+            const isDeliveryCardsCash = ch === 'cards' || ch === 'cash'
+            const isError = isDeliveryCardsCash && deliveryCardsCashError
             const lk = legacyKey(s.id, ch)
             return (
               <div key={`${s.id}-${ch}`}>
@@ -346,8 +354,8 @@ export default function RevenueView() {
     const recorderName = formState.mode === 'lunch' ? formState.entry.lunchRecorderName : formState.entry.dinnerRecorderName
     if (!recorderName?.trim()) return
     if (formState.isEditing && !auditEditorName.trim()) return
-    if ((currentMeal.lfyCards + currentMeal.lfyCash) > currentMeal.eftpos) return
-    const cashSaleVal = currentMeal.totalSale - currentMeal.eftpos - currentMeal.lfyOnline - currentMeal.uberOnline - currentMeal.doorDash
+    if (calcDeliveryCardsCash(currentMeal, suppliers) > currentMeal.eftpos) return
+    const cashSaleVal = calcCashSale(currentMeal)
     if (cashSaleVal < 0) return
     setSaving(true)
     try {
@@ -830,7 +838,9 @@ export default function RevenueView() {
                   if (!prev) return prev
                   const meal = prev.entry.lunch
                   const extras = { ...(meal.supplierExtras ?? {}), [supId]: { ...(meal.supplierExtras?.[supId] ?? {}), [ch]: val } }
-                  return { ...prev, entry: { ...prev.entry, lunch: { ...meal, supplierExtras: extras } } }
+                  const updated = { ...meal, supplierExtras: extras }
+                  updated.cashSale = calcCashSale(updated)
+                  return { ...prev, entry: { ...prev.entry, lunch: updated } }
                 })}
               />
             ) : (
@@ -844,7 +854,9 @@ export default function RevenueView() {
                   if (!prev) return prev
                   const meal = prev.entry.dinner
                   const extras = { ...(meal.supplierExtras ?? {}), [supId]: { ...(meal.supplierExtras?.[supId] ?? {}), [ch]: val } }
-                  return { ...prev, entry: { ...prev.entry, dinner: { ...meal, supplierExtras: extras } } }
+                  const updated = { ...meal, supplierExtras: extras }
+                  updated.cashSale = calcCashSale(updated)
+                  return { ...prev, entry: { ...prev.entry, dinner: updated } }
                 })}
               />
             )}
@@ -858,8 +870,8 @@ export default function RevenueView() {
               const currentNote = mode === 'lunch' ? form.lunchNote : form.dinnerNote
               const noteRequired = discrepancy && !currentNote?.trim()
               const recorderName = (mode === 'lunch' ? form.lunchRecorderName : form.dinnerRecorderName) ?? ''
-              const lfyCardsInvalid = (currentMeal.lfyCards + currentMeal.lfyCash) > currentMeal.eftpos
-              const canSave = !saving && !!recorderName.trim() && !lfyCardsInvalid && !cashSaleInvalid && !noteRequired && (!isEditing || !!auditEditorName.trim())
+              const deliveryCardsCashInvalid = calcDeliveryCardsCash(currentMeal, suppliers) > currentMeal.eftpos
+              const canSave = !saving && !!recorderName.trim() && !deliveryCardsCashInvalid && !cashSaleInvalid && !noteRequired && (!isEditing || !!auditEditorName.trim())
               return (
                 <>
                   <div>

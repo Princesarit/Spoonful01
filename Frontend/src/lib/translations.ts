@@ -176,7 +176,7 @@ export const translations = {
     cash_sale_label: 'ยอดเงินสด',
     cash_sale_auto: 'เงินสด (คำนวณ)',
     cash_in_bag_label: 'เงินในกระเป๋า',
-    lfy_cards_error: 'LFY Cards + Cash ต้องไม่เกิน Eftpos',
+    lfy_cards_error: 'Delivery Cards + Cash ต้องไม่เกิน Eftpos',
     total_sale_error: 'Total Sale ต้องไม่น้อยกว่า Eftpos + Online orders',
     // summary
     total_eftpos_label: 'ยอด Eftpos',
@@ -370,7 +370,7 @@ export const translations = {
     cash_sale_label: 'Cash Sale',
     cash_sale_auto: 'Cash Sale (auto)',
     cash_in_bag_label: 'Cash in Bag',
-    lfy_cards_error: 'LFY Cards + Cash must not exceed Eftpos',
+    lfy_cards_error: 'Delivery Cards + Cash must not exceed Eftpos',
     total_sale_error: 'Total Sale must be ≥ Eftpos + Online orders',
     // summary
     total_eftpos_label: 'Total Eftpos',

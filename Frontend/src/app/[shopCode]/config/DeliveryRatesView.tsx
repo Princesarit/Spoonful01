@@ -259,8 +259,18 @@ export default function DeliveryRatesView({
                     </div>
                     {isOwner && (
                       <div className="flex gap-2 shrink-0">
-                        <button onClick={() => startEdit(s)} className="text-xs text-brand-gold hover:text-brand-gold-dark cursor-pointer">{tr.edit}</button>
-                        <button onClick={() => removeSupplier(s.id)} className="text-xs text-red-400 hover:text-red-600 cursor-pointer">{tr.delete}</button>
+                        <button
+                          onClick={() => startEdit(s)}
+                          className="text-xs text-brand-gold border border-brand-gold/40 rounded-md px-2.5 py-1 hover:border-brand-gold hover:bg-brand-gold-light hover:text-brand-gold-dark transition-colors cursor-pointer"
+                        >
+                          {tr.edit}
+                        </button>
+                        <button
+                          onClick={() => removeSupplier(s.id)}
+                          className="text-xs text-red-500 border border-red-200 rounded-md px-2.5 py-1 hover:border-red-300 hover:bg-red-50 hover:text-red-600 transition-colors cursor-pointer"
+                        >
+                          {tr.delete}
+                        </button>
                       </div>
                     )}
                   </div>

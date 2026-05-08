@@ -1564,11 +1564,18 @@ function incomeLayout(nTiers: number, suppliers: DeliverySupplier[]) {
 
   // Combined section (after gap2 separator between Dinner and Total)
   const c = gap2 + 1
-  const cEftpos  = c,    cLfyOnl = c+1,  cUber   = c+2,  cDD     = c+3
-  const cCash    = c+4,  cLunch  = c+5,  cDinner = c+6,  cEftpos2= c+7
-  const cLfy     = c+8,  cUber2  = c+9,  cDin2   = c+10, cCash2  = c+11
-  const cTotal   = c+12, cCashBag= c+13, surcharge=c+14, running = c+15
-  const gap3     = c+16, gap4    = c+17
+  const onlineSuppliers = suppliers.filter(s => s.hasOnline)
+  const totalSuppliers = suppliers.filter(s => s.hasOnline || s.hasCards || s.hasCash)
+  const cDailyCols: Record<string, number> = {}
+  const cSupplierTotals: Record<string, number> = {}
+  const cEftpos = c
+  onlineSuppliers.forEach((s, i) => { cDailyCols[s.id] = cEftpos + 1 + i })
+  const cCash = cEftpos + 1 + onlineSuppliers.length
+  const cLunch = cCash + 1, cDinner = cCash + 2, cEftpos2 = cCash + 3
+  totalSuppliers.forEach((s, i) => { cSupplierTotals[s.id] = cEftpos2 + 1 + i })
+  const cCash2 = cEftpos2 + 1 + totalSuppliers.length
+  const cTotal = cCash2 + 1, cCashBag = cCash2 + 2, surcharge = cCash2 + 3, running = cCash2 + 4
+  const gap3 = cCash2 + 5, gap4 = cCash2 + 6
 
   // Simplified section
   const s2        = gap4 + 1
@@ -1588,9 +1595,9 @@ function incomeLayout(nTiers: number, suppliers: DeliverySupplier[]) {
     // Dinner
     dEftpos: dBase, dCashBag, dTotal, dCash, gap2,
     // Combined
-    cEftpos, cLfyOnl, cUber, cDD,
+    cEftpos, cDailyCols, cSupplierTotals,
     cCash, cLunch, cDinner, cEftpos2,
-    cLfy, cUber2, cDin2, cCash2,
+    cCash2,
     cTotal, cCashBag, surcharge, running,
     gap3, gap4,
     // Simplified
@@ -1608,6 +1615,12 @@ function incomeLayout(nTiers: number, suppliers: DeliverySupplier[]) {
     get dLfyCash() { return dSupCols['lfy']?.cash    !== undefined ? dBase + 1 + dSupCols['lfy'].cash!    - 1 : -1 },
     get dUber()    { return dSupCols['uber']?.online !== undefined ? dBase + 1 + dSupCols['uber'].online! - 1 : -1 },
     get dDD()      { return dSupCols['doordash']?.online !== undefined ? dBase + 1 + dSupCols['doordash'].online! - 1 : -1 },
+    get cLfyOnl()  { return cDailyCols['lfy'] ?? -1 },
+    get cUber()    { return cDailyCols['uber'] ?? -1 },
+    get cDD()      { return cDailyCols['doordash'] ?? -1 },
+    get cLfy()     { return cSupplierTotals['lfy'] ?? -1 },
+    get cUber2()   { return cSupplierTotals['uber'] ?? -1 },
+    get cDin2()    { return cSupplierTotals['doordash'] ?? -1 },
     // Simplified section aliases (backward compat)
     get sDay()     { return sxDay },
     get sDate()    { return sxDate },
@@ -1674,17 +1687,23 @@ function makeIncomeHdr1(lo: IncomeLayout, suppliers: DeliverySupplier[]): (strin
   r[lo.dTotal]   = 'Total Sale'
   r[lo.dCash]    = 'Cash Sale'
   // Combined
-  r[lo.cEftpos]  = 'Total Eftpos';         r[lo.cLfyOnl]  = 'Daily online Local for You'
-  r[lo.cUber]    = 'Daily online Uber Eat'; r[lo.cDD]      = 'Daily Online DoorDash'
-  r[lo.cCash]    = 'Total Cash';            r[lo.cLunch]   = 'Total Lunch'; r[lo.cDinner] = 'Total Dinner'
-  r[lo.cEftpos2] = 'Total Eftpos + Credit'; r[lo.cLfy]     = 'Total Local for You'
-  r[lo.cUber2]   = 'Total Uber Eat';        r[lo.cDin2]    = 'Total DoorDash'
-  r[lo.cCash2]   = 'Total Cash';            r[lo.cTotal]   = 'Total'; r[lo.cCashBag] = 'Total Cash left in bag'
+  r[lo.cEftpos] = 'Total Eftpos'
+  for (const s of suppliers) {
+    const col = lo.cDailyCols[s.id]
+    if (col !== undefined) r[col] = `Daily online ${s.name}`
+  }
+  r[lo.cCash] = 'Total Cash'; r[lo.cLunch] = 'Total Lunch'; r[lo.cDinner] = 'Total Dinner'
+  r[lo.cEftpos2] = 'Total Eftpos + Credit'
+  for (const s of suppliers) {
+    const col = lo.cSupplierTotals[s.id]
+    if (col !== undefined) r[col] = `Total ${s.name}`
+  }
+  r[lo.cCash2] = 'Total Cash'; r[lo.cTotal] = 'Total'; r[lo.cCashBag] = 'Total Cash left in bag'
   // Simplified
   r[lo.sxLEff]    = 'Eftpos';  r[lo.sxLCash]   = 'Cash'
   r[lo.sxDEff]    = 'Eftpos';  r[lo.sxDCash]   = 'Cash'
   r[lo.sxLTot]    = 'Total Lunch';  r[lo.sxDTot]    = 'Total Dinner'
-  r[lo.sxEffTot]  = 'Total Eftpos + Uber + online order'
+  r[lo.sxEffTot]  = 'Total Eftpos + online order'
   r[lo.sxCashTot] = 'Total Cash';   r[lo.sxTotal]   = 'Total'; r[lo.sxCashBag] = 'Total - Expense = Cash in the Bag'
   return r
 }
@@ -1740,8 +1759,13 @@ function buildIncomeFullFormatRequests(
     requests.push({ repeatCell: { range: { sheetId, startRowIndex: sr + rowOffset, endRowIndex: er + rowOffset, startColumnIndex: sc, endColumnIndex: ec }, cell: { userEnteredFormat: { textFormat: { foregroundColor: { red: 1, green: 1, blue: 1 } } } }, fields: 'userEnteredFormat.textFormat.foregroundColor' } })
   const fgb = (sr: number, er: number, sc: number, ec: number) =>
     requests.push({ repeatCell: { range: { sheetId, startRowIndex: sr + rowOffset, endRowIndex: er + rowOffset, startColumnIndex: sc, endColumnIndex: ec }, cell: { userEnteredFormat: { textFormat: { foregroundColor: { red: 0, green: 0, blue: 0 } } } }, fields: 'userEnteredFormat.textFormat.foregroundColor' } })
+  const fgr = (sr: number, er: number, sc: number, ec: number) =>
+    requests.push({ repeatCell: { range: { sheetId, startRowIndex: sr + rowOffset, endRowIndex: er + rowOffset, startColumnIndex: sc, endColumnIndex: ec }, cell: { userEnteredFormat: { textFormat: { foregroundColor: { red: 1, green: 0, blue: 0 } } } }, fields: 'userEnteredFormat.textFormat.foregroundColor' } })
+  const nf = (sr: number, er: number, sc: number, ec: number, numberFormat: object) =>
+    requests.push({ repeatCell: { range: { sheetId, startRowIndex: sr + rowOffset, endRowIndex: er + rowOffset, startColumnIndex: sc, endColumnIndex: ec }, cell: { userEnteredFormat: { numberFormat } }, fields: 'userEnteredFormat.numberFormat' } })
 
   const SUP_HDR_COLORS: object[] = [C_LBLUE, C_LGREEN, C_HDR_WARM, C_LORANGE, C_PORANGE, C_LGRAY]
+  const supColor = (i: number) => SUP_HDR_COLORS[i % SUP_HDR_COLORS.length]
 
   // 1. Global reset — background to white, text to black (clears stale formatting from old layouts)
   bg(0, totalRows, 0, lo.totalCols + 15, C_WHITE)
@@ -1784,15 +1808,17 @@ function buildIncomeFullFormatRequests(
   bg(1, 2, lo.dTotal,   lo.dTotal+1,   C_LCASH)
   bg(1, 2, lo.dCash,    lo.dCash+1,    C_VDGRAY)
   bg(1, 2, lo.cEftpos,  lo.cEftpos+1,  C_DGRAY)
-  bg(1, 2, lo.cLfyOnl,  lo.cLfyOnl+1,  { red: 0.788, green: 0.855, blue: 0.973 })
-  bg(1, 2, lo.cUber,    lo.cUber+1,    C_LLGREEN)
-  bg(1, 2, lo.cDD,      lo.cDD+1,      C_HDR_WARM)
+  suppliers.forEach((s, i) => {
+    const dailyCol = lo.cDailyCols[s.id]
+    if (dailyCol !== undefined) bg(1, 2, dailyCol, dailyCol+1, supColor(i))
+  })
   bg(1, 2, lo.cCash,    lo.cCash+1,    C_LCASH)
   bg(1, 2, lo.cLunch,   lo.cDinner+1,  C_DGRAY)
   bg(1, 2, lo.cEftpos2, lo.cEftpos2+1, C_LCASH)
-  bg(1, 2, lo.cLfy,     lo.cLfy+1,     C_LBLUE)
-  bg(1, 2, lo.cUber2,   lo.cUber2+1,   C_LGREEN)
-  bg(1, 2, lo.cDin2,    lo.cDin2+1,    { red: 1, green: 0.949, blue: 0.8 })
+  suppliers.forEach((s, i) => {
+    const totalCol = lo.cSupplierTotals[s.id]
+    if (totalCol !== undefined) bg(1, 2, totalCol, totalCol+1, supColor(i))
+  })
   bg(1, 2, lo.cCash2,   lo.cCash2+1,   C_DGRAY)
   bg(1, 2, lo.cTotal,   lo.cTotal+1,   C_DGRAY)
   bg(1, 2, lo.cCashBag, lo.cCashBag+1, C_YELLOW)
@@ -1820,9 +1846,10 @@ function buildIncomeFullFormatRequests(
   bg(d, totalRows, lo.cLunch, lo.cDinner+1, C_MGREEN)
   bg(d, totalRows, lo.cEftpos2, lo.cEftpos2+1, C_XDGRAY)
   fgw(d, totalRows, lo.cEftpos2, lo.cEftpos2+1)
-  bg(d, totalRows, lo.cLfy, lo.cLfy+1, C_LBLUE)
-  bg(d, totalRows, lo.cUber2, lo.cUber2+1, C_LGREEN)
-  bg(d, totalRows, lo.cDin2, lo.cDin2+1, C_MGRAY)
+  suppliers.forEach((s, i) => {
+    const totalCol = lo.cSupplierTotals[s.id]
+    if (totalCol !== undefined) bg(d, totalRows, totalCol, totalCol+1, supColor(i))
+  })
   bg(d, totalRows, lo.cCash2, lo.cCash2+1, C_MBLUE)
   bg(d, totalRows, lo.cTotal, lo.cTotal+1, C_LBLUE)
   bg(d, totalRows, lo.cCashBag, lo.cCashBag+1, C_MGRAY)
@@ -1850,6 +1877,21 @@ function buildIncomeFullFormatRequests(
     bg(si, si+1, lo.sDay, lo.totalCols, C_MGRAY)
     bold(si, si+1, 0, lo.totalCols)
     mrg(si, si+1, lo.delFirst, lo.delTotal)
+  }
+
+  // Surcharge / Uber Real Pay column: percent rate on Thu, red Sunday adjustment,
+  // white weekly total, matching the sample Income layout.
+  nf(2, totalRows, lo.surcharge, lo.surcharge+1, { type: 'NUMBER', pattern: '#,##0.00;[Red]-#,##0.00' })
+  for (const si of sumRowIndices) {
+    const weekStart = si - 7
+    const thu = weekStart + 3
+    const fri = weekStart + 4
+    const sun = weekStart + 6
+    nf(thu, thu+1, lo.surcharge, lo.surcharge+1, { type: 'PERCENT', pattern: '0%' })
+    bold(fri, fri+1, lo.surcharge, lo.surcharge+1)
+    fgr(sun, sun+1, lo.surcharge, lo.surcharge+1)
+    nf(si, si+1, lo.surcharge, lo.surcharge+1, { type: 'NUMBER', pattern: '#,##0.00;-#,##0.00' })
+    fgw(si, si+1, lo.surcharge, lo.surcharge+1)
   }
 
   // 6. Global merges (header rows)
@@ -1881,7 +1923,9 @@ function buildIncomeFullFormatRequests(
     if (sc.cash   !== undefined) cw(lo.dEftpos + sc.cash,   119)
   }
   cw(lo.gap2, 18)
-  cw(lo.cEftpos2, 127); cw(lo.cLfy, 116)
+  Object.values(lo.cDailyCols).forEach((col) => cw(col, 118))
+  cw(lo.cEftpos2, 127)
+  Object.values(lo.cSupplierTotals).forEach((col) => cw(col, 116))
   cw(lo.cCash2, 94);    cw(lo.cCashBag, 131); cw(lo.surcharge, 94)
   cw(lo.gap3, 81);      cw(lo.gap4, 84)
   cw(lo.sEffTot, 118);  cw(lo.sCashBag, 128)
@@ -2103,56 +2147,58 @@ export async function syncIncomeSheet(shopCode: string, ctx?: SyncContext): Prom
       row[lo.dTotal]   = effectiveMealTotal(dn)
       row[lo.dCash]    = dn.cashSale ?? 0
 
-      // Combined — build online total from all suppliers that have online
-      const lOnlineParts = suppliers.filter(s => lo.lSupCols[s.id]?.online !== undefined)
-        .map(s => `${colLetter(lo.lEftpos + lo.lSupCols[s.id].online!)}${rn}`)
-      const dOnlineParts = suppliers.filter(s => lo.dSupCols[s.id]?.online !== undefined)
-        .map(s => `${colLetter(lo.dEftpos + 1 + lo.dSupCols[s.id].online! - 1)}${rn}`)
-
-      // LFY total (all lfy columns: online + cards + cash)
-      const lfyLParts = Object.entries(lo.lSupCols['lfy'] ?? {}).map(([, off]) => `${colLetter(lo.lEftpos + off)}${rn}`)
-      const lfyDParts = Object.entries(lo.dSupCols['lfy'] ?? {}).map(([, off]) => `${colLetter(lo.dEftpos + 1 + off - 1)}${rn}`)
-      const lfyFormula = [...lfyLParts, ...lfyDParts].join('+') || '0'
-
-      // Uber total
-      const uberLOff = lo.lSupCols['uber']?.online
-      const uberDOff = lo.dSupCols['uber']?.online
-      const uberLRef = uberLOff !== undefined ? `${colLetter(lo.lEftpos + uberLOff)}${rn}` : '0'
-      const uberDRef = uberDOff !== undefined ? `${colLetter(lo.dEftpos + 1 + uberDOff - 1)}${rn}` : '0'
+      // Combined — build daily online and total columns for every configured supplier.
+      const supplierOnlineRefs = (supId: string) => {
+        const lOff = lo.lSupCols[supId]?.online
+        const dOff = lo.dSupCols[supId]?.online
+        return [
+          lOff !== undefined ? `${colLetter(lo.lEftpos + lOff)}${rn}` : null,
+          dOff !== undefined ? `${colLetter(lo.dEftpos + dOff)}${rn}` : null,
+        ].filter((v): v is string => !!v)
+      }
+      const supplierTotalRefs = (supId: string) => [
+        ...Object.values(lo.lSupCols[supId] ?? {}).map((off) => `${colLetter(lo.lEftpos + off)}${rn}`),
+        ...Object.values(lo.dSupCols[supId] ?? {}).map((off) => `${colLetter(lo.dEftpos + off)}${rn}`),
+      ]
+      const lOnlineParts = suppliers.flatMap(s => supplierOnlineRefs(s.id).slice(0, 1))
+      const dOnlineParts = suppliers.flatMap(s => {
+        const refs = supplierOnlineRefs(s.id)
+        return refs.length > 1 ? [refs[1]] : []
+      })
 
       row[lo.cEftpos]  = `=${colLetter(lo.dEftpos)}${rn}+${colLetter(lo.lEftpos)}${rn}`
-      row[lo.cLfyOnl]  = lOnlineParts.length + dOnlineParts.length > 0
-        ? `=${[...lOnlineParts, ...dOnlineParts].join('+')}`
-        : 0
-      row[lo.cUber]    = `=${uberLRef}+${uberDRef}`
-      row[lo.cDD]      = (() => {
-        const ddLOff = lo.lSupCols['doordash']?.online
-        const ddDOff = lo.dSupCols['doordash']?.online
-        const lRef = ddLOff !== undefined ? `${colLetter(lo.lEftpos + ddLOff)}${rn}` : '0'
-        const dRef = ddDOff !== undefined ? `${colLetter(lo.dEftpos + 1 + ddDOff - 1)}${rn}` : '0'
-        return `=${lRef}+${dRef}`
-      })()
+      for (const s of suppliers) {
+        const dailyCol = lo.cDailyCols[s.id]
+        if (dailyCol !== undefined) {
+          const refs = supplierOnlineRefs(s.id)
+          row[dailyCol] = refs.length ? `=${refs.join('+')}` : 0
+        }
+      }
       row[lo.cCash]    = `=${colLetter(lo.lCash)}${rn}+${colLetter(lo.dCash)}${rn}`
       row[lo.cLunch]   = `=${colLetter(lo.lTotal)}${rn}`
       row[lo.cDinner]  = `=${colLetter(lo.dTotal)}${rn}`
       row[lo.cEftpos2] = `=${colLetter(lo.cEftpos)}${rn}`
-      row[lo.cLfy]     = `=${lfyFormula}`
-      row[lo.cUber2]   = `=${uberLRef}+${uberDRef}`
-      row[lo.cDin2]    = `=${colLetter(lo.cDinner)}${rn}`
+      for (const s of suppliers) {
+        const totalCol = lo.cSupplierTotals[s.id]
+        if (totalCol !== undefined) {
+          const refs = supplierTotalRefs(s.id)
+          row[totalCol] = refs.length ? `=${refs.join('+')}` : 0
+        }
+      }
       row[lo.cCash2]   = `=${colLetter(lo.lCash)}${rn}+${colLetter(lo.dCash)}${rn}`
       row[lo.cTotal]   = `=${colLetter(lo.cLunch)}${rn}+${colLetter(lo.cDinner)}${rn}`
       row[lo.cCashBag] = `=${colLetter(lo.lCashBag)}${rn}+${colLetter(lo.dCashBag)}${rn}`
       row[lo.surcharge] = ar
       row[lo.running]   = as
 
-      // Simplified view — build online ref from first online supplier col per meal
-      const lFirstOnlineRef = lOnlineParts[0] ?? '0'
-      const dFirstOnlineRef = dOnlineParts[0] ?? '0'
+      // Simplified view — Eftpos columns include every online supplier for the meal.
+      const lOnlineFormula = lOnlineParts.length ? lOnlineParts.join('+') : '0'
+      const dOnlineFormula = dOnlineParts.length ? dOnlineParts.join('+') : '0'
       row[lo.sxDay]     = DAY_ABBR[di]
       row[lo.sxDate]    = `=${colLetter(1)}${rn}`
-      row[lo.sxLEff]    = `=${colLetter(lo.lEftpos)}${rn}+${lFirstOnlineRef}+${uberLRef}`
+      row[lo.sxLEff]    = `=${colLetter(lo.lEftpos)}${rn}+${lOnlineFormula}`
       row[lo.sxLCash]   = `=${colLetter(lo.lCash)}${rn}`
-      row[lo.sxDEff]    = `=${colLetter(lo.dEftpos)}${rn}+${dFirstOnlineRef}+${uberDRef}`
+      row[lo.sxDEff]    = `=${colLetter(lo.dEftpos)}${rn}+${dOnlineFormula}`
       row[lo.sxDCash]   = `=${colLetter(lo.dCash)}${rn}`
       row[lo.sxLTot]    = `=${colLetter(lo.sxLEff)}${rn}+${colLetter(lo.sxLCash)}${rn}`
       row[lo.sxDTot]    = `=${colLetter(lo.sxDEff)}${rn}+${colLetter(lo.sxDCash)}${rn}`
@@ -2199,8 +2245,8 @@ export async function syncIncomeSheet(shopCode: string, ctx?: SyncContext): Prom
     for (const c of sumCols) sumRow[c] = sumF(c, s1, s2)
     // Delivery tiers: one merged cell =SUM(F3:K9) spanning all tier columns
     sumRow[lo.delFirst] = `=SUM(${colLetter(lo.delFirst)}${s1}:${colLetter(lo.delLast)}${s2})`
-    // AU SUM row = -SUM(Total Uber Eat)
-    sumRow[lo.surcharge] = `=-SUM(${colLetter(lo.cUber2)}${s1}:${colLetter(lo.cUber2)}${s2})`
+    // Surcharge row tracks Uber real-pay adjustments when Uber exists.
+    sumRow[lo.surcharge] = lo.cUber2 >= 0 ? `=-SUM(${colLetter(lo.cUber2)}${s1}:${colLetter(lo.cUber2)}${s2})` : 0
     // AS in SUM row = AP_sum + AR_sum (yellow)
     sumRow[lo.running] = `=${colLetter(lo.cTotal)}${sr}+${colLetter(lo.surcharge)}${sr}`
 

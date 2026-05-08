@@ -168,11 +168,16 @@ function groupByWeek(rows: DaySummary[]): WeekGroup[] {
 
 function mealTotal(m: MealRevenue): number {
   if (m.totalSale > 0) return m.totalSale
-  return m.eftpos + m.lfyOnline + m.uberOnline + m.doorDash + (m.cashSale ?? 0)
+  return m.eftpos + mealOnline(m) + (m.cashSale ?? 0)
+}
+
+function mealOnline(m: MealRevenue): number {
+  const extrasOnline = Object.values(m.supplierExtras ?? {}).reduce((s, v) => s + (v.online ?? 0), 0)
+  return m.lfyOnline + m.uberOnline + m.doorDash + extrasOnline
 }
 
 function mealCreditForSum(m: MealRevenue): number {
-  return m.eftpos + m.lfyOnline + m.uberOnline + m.doorDash
+  return m.eftpos + mealOnline(m)
 }
 
 function mealCashForSum(m: MealRevenue): number {
@@ -210,14 +215,10 @@ function calcDay(
 
   const totalSale = dayRevenue.reduce((s, e) => s + mealTotal(e.lunch) + mealTotal(e.dinner), 0)
   const totalEftpos = dayRevenue.reduce((s, e) => s + e.lunch.eftpos + e.dinner.eftpos, 0)
-  const onlineOrders = dayRevenue.reduce(
-    (s, e) => s + e.lunch.lfyOnline + e.lunch.uberOnline + e.lunch.doorDash
-              + e.dinner.lfyOnline + e.dinner.uberOnline + e.dinner.doorDash, 0)
+  const onlineOrders = dayRevenue.reduce((s, e) => s + mealOnline(e.lunch) + mealOnline(e.dinner), 0)
   const netSales = totalSale - onlineOrders
   const cashRevenue = dayRevenue.reduce(
-    (s, e) =>
-      s + (mealTotal(e.lunch) - e.lunch.eftpos - e.lunch.lfyOnline - e.lunch.uberOnline - e.lunch.doorDash)
-        + (mealTotal(e.dinner) - e.dinner.eftpos - e.dinner.lfyOnline - e.dinner.uberOnline - e.dinner.doorDash),
+    (s, e) => s + mealCashForSum(e.lunch) + mealCashForSum(e.dinner),
     0,
   )
 
@@ -248,12 +249,12 @@ function calcDay(
   // Per-meal breakdowns
   const lunchSale   = dayRevenue.reduce((s, e) => s + mealTotal(e.lunch), 0)
   const lunchEftpos = dayRevenue.reduce((s, e) => s + e.lunch.eftpos, 0)
-  const lunchOnline = dayRevenue.reduce((s, e) => s + e.lunch.lfyOnline + e.lunch.uberOnline + e.lunch.doorDash, 0)
-  const lunchCash   = dayRevenue.reduce((s, e) => s + (mealTotal(e.lunch) - e.lunch.eftpos - e.lunch.lfyOnline - e.lunch.uberOnline - e.lunch.doorDash), 0)
+  const lunchOnline = dayRevenue.reduce((s, e) => s + mealOnline(e.lunch), 0)
+  const lunchCash   = dayRevenue.reduce((s, e) => s + mealCashForSum(e.lunch), 0)
   const dinnerSale   = dayRevenue.reduce((s, e) => s + mealTotal(e.dinner), 0)
   const dinnerEftpos = dayRevenue.reduce((s, e) => s + e.dinner.eftpos, 0)
-  const dinnerOnline = dayRevenue.reduce((s, e) => s + e.dinner.lfyOnline + e.dinner.uberOnline + e.dinner.doorDash, 0)
-  const dinnerCash   = dayRevenue.reduce((s, e) => s + (mealTotal(e.dinner) - e.dinner.eftpos - e.dinner.lfyOnline - e.dinner.uberOnline - e.dinner.doorDash), 0)
+  const dinnerOnline = dayRevenue.reduce((s, e) => s + mealOnline(e.dinner), 0)
+  const dinnerCash   = dayRevenue.reduce((s, e) => s + mealCashForSum(e.dinner), 0)
 
   return {
     date, netSales, onlineOrders, totalSale, totalEftpos, cashRevenue, cashExpense, cashLeave, labor,
@@ -726,24 +727,24 @@ function TotalsGrid({ totals }: { totals: Totals }) {
           </div>
         </div>
       )}
-      <div className="flex justify-end px-3 pt-2">
+      <div className="absolute top-2.5 right-[7.6rem] z-10">
         <button
           type="button"
           onClick={() => setShowInfo(true)}
-          className="w-5 h-5 rounded-full border border-gray-300 text-gray-400 hover:border-brand-gold hover:text-brand-gold text-[11px] font-bold leading-none flex items-center justify-center cursor-pointer transition-colors"
+          className="w-5 h-5 rounded-full border border-gray-300 bg-white text-gray-400 hover:border-brand-gold hover:text-brand-gold text-[11px] font-bold leading-none flex items-center justify-center cursor-pointer transition-colors"
           title={lang === 'th' ? 'คำอธิบาย' : 'Explain'}
         >
           i
         </button>
       </div>
-      <div className="grid grid-cols-2 gap-0">
+      <div className="grid grid-cols-2 grid-rows-3 gap-0">
         {items.map(({ label, value, color }, i) => {
           const isLeft = i % 2 === 0
           const isLastRow = i >= items.length - 2
           return (
             <div
               key={label}
-              className={`p-3${isLeft ? ' border-r border-gray-100' : ''}${!isLastRow ? ' border-b border-gray-100' : ''}`}
+              className={`min-h-[63px] p-3 flex flex-col justify-center${isLeft ? ' border-r border-gray-100' : ''}${!isLastRow ? ' border-b border-gray-100' : ''}`}
             >
               <div className="text-xs text-gray-400 mb-0.5">{label}</div>
               <div className={`text-sm font-bold ${color}`}>{fmt(value)} $</div>
@@ -1164,7 +1165,7 @@ export default function SummaryView() {
       ) : (
         <>
           {/* Monthly totals summary card */}
-          <div className="bg-white rounded-xl border border-gray-100 shadow-sm overflow-hidden">
+          <div className="relative bg-white rounded-xl border border-gray-100 shadow-sm overflow-hidden">
             <div className="px-4 py-2 border-b border-gray-100 flex items-center justify-between">
               <span className="text-xs font-semibold text-gray-500">
                 {pov === 'monthly'
