@@ -136,6 +136,16 @@
 - **SUM row** per week (orange #FFC000): `=SUM(Cs1:Cs2)` ทุก column
 - Week blocks: 7 data rows + 1 SUM row (no blank between weeks)
 
+##### Smart-update logic (3 modes — Income sheet เป็น source of truth)
+- ทุก section header (cell A) มี marker: `Updated: <timestamp> | Since <YYYY-MM-DD>` — `Since` คือ Monday ของ week แรกใน section นั้น
+- `syncIncomeSheet` scan หา **last "Updated:" marker** ใน Income sheet แล้วเทียบ hdr ของ section ล่าสุดกับ hdr ปัจจุบัน (ข้าม cell 0 ที่เก็บ timestamp)
+- 3 modes:
+  - **`full`** — sheet ใหม่ / legacy section เดียวที่ไม่มี `Since` → rewrite ทั้ง sheet
+  - **`inPlace`** — hdr เหมือน last section + มี appended sections อยู่บน → `rewriteSheetRowsFrom(rowBase+1)` rewrite เฉพาะ section ล่าสุด ไม่แตะของบน
+  - **`append`** — hdr ต่างจาก last section (delivery config เปลี่ยน) → `appendSheetRows` เพิ่ม section ใหม่ใต้ blank separator พร้อม `weeksToWrite = yearWeeks.filter(w => w >= currentWeekStr)`
+- **Header tab ถูกลบทิ้ง** — ใช้ Income sheet เองแทน ไม่มี dependency กับ Header tab อีกต่อไป (`updateHeaderSheet` function ถูกลบ + เลิกเรียกจาก `saveDeliveryRates`)
+- Section เก่าจะ "freeze" — แก้ revenue ของ week ในอดีต section จะไม่อัปเดต (by design — preserve historical snapshot)
+
 #### Wage 2026 (`syncWageSheet`)
 - Columns: Week Start | Employee | Rate (฿) | Mon-Sun (shift count 0/1/2) | Total Shifts | WAGE
 - Total Shifts = `=SUM(D:J)`, WAGE = `=Rate × Total Shifts`
@@ -152,6 +162,13 @@
 #### sheets.ts additions
 - `setSheetDataUserEntered()` — เขียน sheet ด้วย `USER_ENTERED` (รองรับ formula)
 - `applyColorRules(rules[])` — apply background color แบบ batch (100 per request)
+- `appendSheetRows(sheetName, startRow, rows)` — write รัวๆจาก row ที่กำหนด **ไม่ clear** (ใช้สำหรับ append mode)
+- `rewriteSheetRowsFrom(sheetName, startRow, rows)` — clear `A{startRow}:ZZ` แล้วเขียนใหม่จาก row นั้น (ใช้สำหรับ inPlace mode)
+
+### Delivery Suppliers — Blank Rows ระหว่าง Save Snapshots
+- `saveDeliverySuppliers()` ใน `db.ts` เว้น **2 blank rows** ระหว่างชุดข้อมูลแต่ละครั้งที่ save
+- ตัด trailing blank rows ออกก่อนทุกครั้งเพื่อกันสะสมเกิน
+- `listDeliverySuppliers` filter `r.updatedAt === latestTs` — blank rows ถูกข้ามอยู่แล้ว ไม่ต้องแก้ฝั่งอ่าน
 
 ---
 

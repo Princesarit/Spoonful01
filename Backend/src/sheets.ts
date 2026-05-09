@@ -219,6 +219,31 @@ export async function appendSheetRows(
   })
 }
 
+/**
+ * Clear from a 1-based row to end of sheet, then write new rows starting at that row.
+ * Used for rewriting only the last section in-place while preserving sections above.
+ */
+export async function rewriteSheetRowsFrom(
+  sheetName: string,
+  startRow: number,  // 1-based
+  rows: (string | number | null)[][],
+  spreadsheetId = config.spreadsheetId,
+): Promise<void> {
+  await ensureSheet(sheetName, spreadsheetId)
+  await sheetsApi.spreadsheets.values.clear({
+    spreadsheetId,
+    range: `${sheetName}!A${startRow}:ZZ`,
+  })
+  if (rows.length > 0) {
+    await sheetsApi.spreadsheets.values.update({
+      spreadsheetId,
+      range: `${sheetName}!A${startRow}`,
+      valueInputOption: 'USER_ENTERED',
+      requestBody: { values: rows },
+    })
+  }
+}
+
 export type ColorRGB = { red: number; green: number; blue: number }
 export type ColorRuleBlock = {
   startRow: number; endRow: number; startCol: number; endCol: number; color: ColorRGB
@@ -907,7 +932,7 @@ export async function applyMasterEmployeeFormatting(
 
 const INTERNAL_SHEETS = new Set([
   'config', 'edit_log', 'wage_payments', 'cash_report', 'schedules',
-  'delivery_trips', 'front_time_records', 'back_time_records',
+  'delivery_trips', 'delivery_suppliers', 'front_time_records', 'back_time_records',
   'expenses', 'revenue',
 ])
 

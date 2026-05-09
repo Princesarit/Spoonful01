@@ -178,15 +178,6 @@ function PasswordInput({
 
 type SettingsView = 'menu' | 'change-password' | 'close-shop' | 'manual'
 
-function ManualSection({ title, children }: { title: string; children: React.ReactNode }) {
-  return (
-    <div>
-      <p className="font-semibold text-white mb-1">{title}</p>
-      <p className="text-xs text-white/50 leading-relaxed">{children}</p>
-    </div>
-  )
-}
-
 // ─── Close Shop Calendar ───────────────────────────────────────────────────
 
 const CAL_DAYS = ['Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa', 'Su']
@@ -364,7 +355,7 @@ function SettingsModal({ onClose }: { onClose: () => void }) {
 
   return (
     <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-      <div className="bg-stone-900/90 border border-white/10 rounded-2xl w-full max-w-md p-6 space-y-4">
+      <div className={`bg-stone-900/90 border border-white/10 rounded-2xl w-full p-6 space-y-4 ${view === 'manual' ? 'max-w-[95vw] h-[95vh] flex flex-col' : 'max-w-md'}`}>
 
         {/* Header */}
         <div className="flex items-center justify-between">
@@ -525,18 +516,11 @@ function SettingsModal({ onClose }: { onClose: () => void }) {
 
         {/* Manual */}
         {view === 'manual' && (
-          <div className="max-h-[60vh] overflow-y-auto space-y-4">
-            <p className="text-xs text-white/50 font-semibold tracking-wider -mt-1">User Manual</p>
-            <ManualSection title="📅 Schedule">Add/edit weekly schedules. Tap ✕ to remove from this week only. Saving requires editor name and note.</ManualSection>
-            <ManualSection title="👥 Employees">View/add/edit employees. Delete is soft — history preserved. No duplicate names. Edits and deletes require name + note.</ManualSection>
-            <ManualSection title="⏱ Time Record">Record AM/PM shifts per employee. Auto-locks after save. Includes Wage Summary and Delivery Count.</ManualSection>
-            <ManualSection title="💰 Revenue">Enter Lunch/Dinner revenue: Eftpos, LFY, Uber, DoorDash, Cash in Bag. Cash Sale auto-calculated.</ManualSection>
-            <ManualSection title="🧾 Expenses">Log expenses with date, supplier, amount, and payment method. Toggle Paid/Unpaid per item.</ManualSection>
-            <ManualSection title="📊 Summary">View daily/weekly/monthly totals. Tap (i) for explanations. Use Sync Sheets to update Google Sheets.</ManualSection>
-            <ManualSection title="⚙ Config">Set delivery rates by distance. Used to auto-calculate delivery fees in Time Record.</ManualSection>
-            <ManualSection title="🔒 Close Shop">Mark dates/meals as closed. Revenue and TimeRecord show a warning banner. Use Reopen to remove.</ManualSection>
-            <ManualSection title="⚙️ Settings (Main Page)">Change Owner Password, manage closed shop dates across all branches, and access this manual.</ManualSection>
-          </div>
+          <iframe
+            src="/manual.html"
+            title="User Manual"
+            className="w-full flex-1 rounded-xl border border-white/10 bg-white"
+          />
         )}
 
       </div>

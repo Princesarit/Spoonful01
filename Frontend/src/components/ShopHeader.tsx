@@ -38,15 +38,6 @@ function PwInput({ value, onChange, placeholder, autoFocus }: {
   )
 }
 
-function Section({ title, children }: { title: string; children: React.ReactNode }) {
-  return (
-    <div>
-      <p className="font-semibold text-white mb-1">{title}</p>
-      <p className="text-xs text-white/50 leading-relaxed">{children}</p>
-    </div>
-  )
-}
-
 type SettingsView = 'menu' | 'close-shop' | 'change-password' | 'manual'
 
 function useLoginDuration(loginAt: number) {
@@ -381,7 +372,7 @@ export function ShopHeader({ shopName, role, loginAt }: { shopName: string; role
     {/* ── Settings Modal ──────────────────────────────────────────────────── */}
     {showSettings && (
       <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4" onClick={() => setShowSettings(false)}>
-        <div className="bg-stone-900/90 border border-white/10 rounded-2xl w-full max-w-sm p-6 space-y-4" onClick={(e) => e.stopPropagation()}>
+        <div className={`bg-stone-900/90 border border-white/10 rounded-2xl w-full p-6 space-y-4 ${settingsView === 'manual' ? 'max-w-[95vw] h-[95vh] flex flex-col' : 'max-w-sm'}`} onClick={(e) => e.stopPropagation()}>
 
           {/* Header */}
           <div className="flex items-center justify-between">
@@ -540,34 +531,11 @@ export function ShopHeader({ shopName, role, loginAt }: { shopName: string; role
 
           {/* ── Manual ── */}
           {settingsView === 'manual' && (
-            <div className="max-h-[65vh] overflow-y-auto space-y-4">
-              <p className="text-xs text-white/50 font-semibold tracking-wider -mt-1">
-                {lang === 'th' ? 'คู่มือการใช้งาน' : 'User Manual'}
-              </p>
-              {lang === 'th' ? (
-                <>
-                  <Section title="📅 Schedule (ตาราง)">เพิ่ม/แก้ไขตารางงานรายสัปดาห์ กด ✕ เอาพนักงานออกจากสัปดาห์นี้ (ไม่ได้ลบจากระบบ) บันทึกต้องกรอกชื่อ+หมายเหตุ</Section>
-                  <Section title="👥 Employees (พนักงาน)">ดู/เพิ่ม/แก้ไข/ลบพนักงาน การลบเป็น Soft Delete ชื่อซ้ำไม่ได้ แก้ไข/ลบต้องกรอกชื่อ+หมายเหตุ</Section>
-                  <Section title="⏱ Time Record (บันทึกเวลา)">บันทึกกะเช้า/เย็น บันทึกแล้วล็อก กด Edit เพื่อแก้ไข มี Wage Summary และ Delivery Count</Section>
-                  <Section title="💰 Revenue (รายรับ)">กรอกยอดขาย Lunch/Dinner แยก: Eftpos, LFY, Uber, DoorDash, Cash in Bag คำนวณ Cash Sale อัตโนมัติ</Section>
-                  <Section title="🧾 Expenses (ค่าใช้จ่าย)">บันทึกรายจ่าย วัน/ผู้จ่าย/จำนวน/ช่องทางชำระ มี toggle Paid/Unpaid</Section>
-                  <Section title="📊 Summary (สรุป)">ดูยอดรายวัน/สัปดาห์/เดือน กด (i) เพื่อดูคำอธิบาย กด Sync Sheets เพื่ออัปเดต Google Sheet</Section>
-                  <Section title="⚙ Config (ตั้งค่า)">ตั้งค่าอัตราค่าส่งตามระยะทาง ใช้คำนวณค่าส่งใน Time Record</Section>
-                  <Section title="🔒 Close Shop (ปิดร้าน)">ปิดร้านเฉพาะวัน/มื้อ Revenue/TimeRecord จะแสดงแบนเนอร์เตือน กด Reopen เพื่อเปิดร้านอีกครั้ง</Section>
-                </>
-              ) : (
-                <>
-                  <Section title="📅 Schedule">Add/edit weekly schedules. Tap ✕ to remove from this week only. Saving requires editor name and note.</Section>
-                  <Section title="👥 Employees">View/add/edit employees. Delete is soft — history preserved. No duplicate names. Edits and deletes require name + note.</Section>
-                  <Section title="⏱ Time Record">Record AM/PM shifts per employee. Auto-locks after save. Includes Wage Summary and Delivery Count.</Section>
-                  <Section title="💰 Revenue">Enter Lunch/Dinner revenue: Eftpos, LFY, Uber, DoorDash, Cash in Bag. Cash Sale auto-calculated.</Section>
-                  <Section title="🧾 Expenses">Log expenses with date, supplier, amount, and payment method. Toggle Paid/Unpaid per item.</Section>
-                  <Section title="📊 Summary">View daily/weekly/monthly totals. Tap (i) for explanations. Use Sync Sheets to update Google Sheets.</Section>
-                  <Section title="⚙ Config">Set delivery rates by distance. Used to auto-calculate delivery fees in Time Record.</Section>
-                  <Section title="🔒 Close Shop">Mark dates/meals as closed. Revenue and TimeRecord show a warning banner. Use Reopen to remove.</Section>
-                </>
-              )}
-            </div>
+            <iframe
+              src="/manual.html"
+              title={lang === 'th' ? 'คู่มือการใช้งาน' : 'User Manual'}
+              className="w-full flex-1 rounded-xl border border-white/10 bg-white"
+            />
           )}
 
         </div>

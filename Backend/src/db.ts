@@ -2,7 +2,7 @@
  * Database layer — wraps Google Sheets
  */
 
-import { getSheetData, getSheetDataRaw, setSheetData, setSheetDataRaw, applyRowColors, applyTimeRecordFormatting, setSheetDataUserEntered, appendSheetRows, applyFormattingRules, buildSheetFormatRequests, getSheetMeta, buildUnmergeRequests, getSheetIdByName, batchUpdateSheet, clearSheetMerges, hideInternalSheets, applyEmployeeSheetFormatting, applyMasterEmployeeFormatting, beginSyncMetaCache, clearSyncMetaCache, type EmpCategory } from './sheets'
+import { getSheetData, getSheetDataRaw, setSheetData, setSheetDataRaw, applyRowColors, applyTimeRecordFormatting, setSheetDataUserEntered, appendSheetRows, rewriteSheetRowsFrom, applyFormattingRules, buildSheetFormatRequests, getSheetMeta, buildUnmergeRequests, getSheetIdByName, batchUpdateSheet, clearSheetMerges, hideInternalSheets, applyEmployeeSheetFormatting, applyMasterEmployeeFormatting, beginSyncMetaCache, clearSyncMetaCache, type EmpCategory } from './sheets'
 import type { SheetFormatRule } from './sheets'
 import type {
   Employee,
@@ -1128,36 +1128,6 @@ export async function saveDeliveryRates(shopCode: string, rates: DeliveryRate[])
   const rows = existing.map((r) => [r.key, r.value, r.updatedAt ?? ''] as [string, string, string])
   rows.push(['delivery_rates', JSON.stringify(rates), updatedAt])
   await setSheetData(tab('config'), CONFIG_HEADERS, rows, sid)
-  const suppliers = await listDeliverySuppliers(shopCode)
-  await updateHeaderSheet(shopCode, rates, suppliers)
-}
-
-async function updateHeaderSheet(shopCode: string, rates: DeliveryRate[], suppliers: DeliverySupplier[]): Promise<void> {
-  const { sid } = await getShopDb(shopCode)
-  const lo = incomeLayout(rates.length, suppliers)
-  const hdr0 = makeIncomeHdr0(lo, rates, suppliers)
-  const hdr1 = makeIncomeHdr1(lo, suppliers)
-  const ts = makeSyncTimestamp()
-
-  // Preserve sync section (rows 4-6, 0-indexed rows 3-5)
-  let syncTs = ''
-  let syncHdr0: (string | number | null)[] = []
-  let syncHdr1: (string | number | null)[] = []
-  try {
-    const existing = await getSheetDataRaw('Header', sid)
-    if (existing.length >= 4) syncTs   = String(existing[3]?.[0] ?? '')
-    if (existing.length >= 5) syncHdr0 = existing[4] as (string | number | null)[]
-    if (existing.length >= 6) syncHdr1 = existing[5] as (string | number | null)[]
-  } catch { /* not yet created */ }
-
-  await setSheetDataUserEntered('Header', [
-    [ts],       // row 1: rates timestamp
-    hdr0,       // row 2: rates hdr0
-    hdr1,       // row 3: rates hdr1
-    [syncTs],   // row 4: sync timestamp (preserved)
-    syncHdr0,   // row 5: sync hdr0 (preserved)
-    syncHdr1,   // row 6: sync hdr1 (preserved)
-  ], sid)
 }
 
 export async function getDeliveryFee(shopCode: string): Promise<number> {
@@ -1239,8 +1209,15 @@ export async function saveDeliverySuppliers(shopCode: string, suppliers: Deliver
   const updatedAt = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())} ${pad(now.getHours())}:${pad(now.getMinutes())}:${pad(now.getSeconds())}`
   const existing = await getSheetData(tab('delivery_suppliers'), sid)
   const existingRows = existing.map(r => [r.id, r.name, r.hasOnline ?? '', r.hasCards ?? '', r.hasCash ?? '', r.updatedAt ?? ''])
+  while (existingRows.length > 0 && existingRows[existingRows.length - 1].every(c => !c)) {
+    existingRows.pop()
+  }
   const newRows = suppliers.map(s => [s.id, s.name, String(s.hasOnline), String(s.hasCards), String(s.hasCash), updatedAt])
-  await setSheetData(tab('delivery_suppliers'), SUPPLIER_HEADERS, [...existingRows, ...newRows], sid)
+  const blank = ['', '', '', '', '', '']
+  const rowsToWrite = existingRows.length > 0
+    ? [...existingRows, blank, blank, ...newRows]
+    : newRows
+  await setSheetData(tab('delivery_suppliers'), SUPPLIER_HEADERS, rowsToWrite, sid)
 }
 
 // ─── Wage Payments (TAX / CASH PAID per week per employee) ───────────────────
@@ -2085,15 +2062,6 @@ export async function syncIncomeSheet(shopCode: string, ctx?: SyncContext): Prom
   const newHdr1 = makeIncomeHdr1(lo, suppliers)
   const syncTimestamp = makeSyncTimestamp()
 
-  // Check if delivery config changed since last Income sync → append new section if so
-  let needsNewSection = false
-  try {
-    const headerRaw = await getSheetDataRaw('Header', sid)
-    if (headerRaw.length >= 5) {
-      needsNewSection = !hdrSame(newHdr0, headerRaw[4] ?? []) || !hdrSame(newHdr1, headerRaw[5] ?? [])
-    }
-  } catch { /* no Header sheet yet → full rewrite */ }
-
   const currentWeekStr = getMondayStr(new Date().toISOString().split('T')[0])
 
   const weekMap = new Map<string, RevenueEntry[]>()
@@ -2113,23 +2081,57 @@ export async function syncIncomeSheet(shopCode: string, ctx?: SyncContext): Prom
   for (const [year, yearWeeks] of [...incomeYearGroups.entries()].sort(([a], [b]) => a - b)) {
   const sheetName = INCOME_SHEET(year)
 
-  // Determine write mode: full rewrite vs append new section
-  let rowBase = 0  // 0-indexed offset into the sheet for the new section
-  let weeksToWrite = yearWeeks
-  if (needsNewSection) {
-    try {
-      const existing = await getSheetDataRaw(sheetName, sid)
-      if (existing.length > 0) {
-        rowBase = existing.length + 1  // blank separator at existing.length, section starts at existing.length+1
-        weeksToWrite = yearWeeks.filter(w => w >= currentWeekStr)
-      }
-    } catch { /* sheet doesn't exist → rowBase stays 0, full write */ }
+  // Read existing sheet & locate the last "Updated: ..." marker (start of last section)
+  let existingRaw: string[][] = []
+  try { existingRaw = await getSheetDataRaw(sheetName, sid) } catch { /* sheet doesn't exist yet */ }
+  let lastSectionStart = -1
+  for (let i = existingRaw.length - 1; i >= 0; i--) {
+    if (String(existingRaw[i]?.[0] ?? '').startsWith('Updated:')) { lastSectionStart = i; break }
   }
-  if (weeksToWrite.length === 0 && rowBase > 0) continue  // nothing new to append for this year
+  // Compare current header against the last section's header (Income sheet is source of truth).
+  // Skip cell 0 of hdr0 — it holds the "Updated: ..." marker which differs every sync.
+  let needsNewSection = false
+  if (lastSectionStart >= 0) {
+    const lastHdr0 = existingRaw[lastSectionStart] ?? []
+    const lastHdr1 = existingRaw[lastSectionStart + 1] ?? []
+    needsNewSection =
+      !hdrSame(newHdr0.slice(1), lastHdr0.slice(1)) ||
+      !hdrSame(newHdr1, lastHdr1)
+  }
 
-  // hdr0 with sync timestamp stamped in cell A1
+  // Determine write mode: full rewrite | in-place rewrite of last section | append new section
+  // mode === 'full'    → rowBase=0, full sheet rewrite (legacy / fresh sheet)
+  // mode === 'inPlace' → rowBase=lastSectionStart, rewrite last section only (preserve sections above)
+  // mode === 'append'  → rowBase=existing.length+1, append new section after blank separator
+  let mode: 'full' | 'inPlace' | 'append' = 'full'
+  let rowBase = 0
+  let weeksToWrite = yearWeeks
+
+  if (needsNewSection && existingRaw.length > 0) {
+    mode = 'append'
+    rowBase = existingRaw.length + 1
+    weeksToWrite = yearWeeks.filter(w => w >= currentWeekStr)
+  } else if (lastSectionStart > 0) {
+    // Same headers, but appended sections exist above → rewrite last section only
+    mode = 'inPlace'
+    rowBase = lastSectionStart
+    const sinceMatch = String(existingRaw[lastSectionStart]?.[0] ?? '').match(/Since\s+(\d{4}-\d{2}-\d{2})/)
+    if (sinceMatch) {
+      weeksToWrite = yearWeeks.filter(w => w >= sinceMatch[1])
+    } else {
+      // Legacy section without "Since" marker → fall back to full rewrite
+      mode = 'full'
+      rowBase = 0
+    }
+  }
+  if (weeksToWrite.length === 0 && mode === 'append') continue  // nothing new to append for this year
+
+  // hdr0 with sync timestamp + section start week stamped in cell A1
+  const sectionStartWeek = weeksToWrite[0] ?? ''
   const hdr0WithTs = [...newHdr0]
-  hdr0WithTs[0] = `Updated: ${syncTimestamp}`
+  hdr0WithTs[0] = sectionStartWeek
+    ? `Updated: ${syncTimestamp} | Since ${sectionStartWeek}`
+    : `Updated: ${syncTimestamp}`
 
   const rows: (string | number | null)[][] = [hdr0WithTs, newHdr1]
   const fmtRules: SheetFormatRule[] = []
@@ -2363,10 +2365,13 @@ export async function syncIncomeSheet(shopCode: string, ctx?: SyncContext): Prom
   const applyOffset = (rules: SheetFormatRule[]) =>
     rowBase > 0 ? rules.map(r => ({ ...r, startRow: r.startRow + rowBase, endRow: r.endRow + rowBase })) : rules
 
-  if (rowBase > 0) {
+  if (mode === 'append') {
     // Append new section: blank separator + hdr + data rows
     const blankRow = new Array(lo.totalCols).fill('') as (string | number | null)[]
     await appendSheetRows(sheetName, rowBase, [blankRow, ...rows], sid)
+  } else if (mode === 'inPlace') {
+    // Rewrite last section in place: clear from rowBase to end, then write new content
+    await rewriteSheetRowsFrom(sheetName, rowBase + 1, rows, sid)
   } else {
     await setSheetDataUserEntered(sheetName, rows, sid)
   }
@@ -2375,8 +2380,8 @@ export async function syncIncomeSheet(shopCode: string, ctx?: SyncContext): Prom
   if (meta) {
     const { sheetId, gridRowCount } = meta
     const incomeReqs = buildIncomeFullFormatRequests(sheetId, lo, rows.length, sumRowIndices, suppliers, rowBase)
-    if (rowBase > 0) {
-      // Append: skip unmerge (preserve existing section), no row-0 clear, offset all format rules
+    if (mode !== 'full') {
+      // Skip global unmerge (preserve sections above), no row-0 clear, offset all format rules
       const fmtReqs = buildSheetFormatRequests(sheetId, applyOffset(fmtRules))
       await batchUpdateSheet(sid, [...fmtReqs, ...incomeReqs])
     } else {
@@ -2389,22 +2394,6 @@ export async function syncIncomeSheet(shopCode: string, ctx?: SyncContext): Prom
     }
   }
   } // end year loop
-
-  // Update Header sheet sync section (rows 4-6) after sync
-  try {
-    const existing = await getSheetDataRaw('Header', sid)
-    const ratesTs   = String(existing[0]?.[0] ?? '')
-    const ratesHdr0 = (existing[1] ?? []) as (string | number | null)[]
-    const ratesHdr1 = (existing[2] ?? []) as (string | number | null)[]
-    await setSheetDataUserEntered('Header', [
-      [ratesTs],
-      ratesHdr0,
-      ratesHdr1,
-      [syncTimestamp],
-      newHdr0,
-      newHdr1,
-    ], sid)
-  } catch { /* ignore — Header sheet may not exist in some setups */ }
 }
 
 // ── Wage 2026 ─────────────────────────────────────────────────────────────────

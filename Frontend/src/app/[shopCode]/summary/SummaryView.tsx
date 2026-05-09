@@ -342,13 +342,17 @@ function RevenueExpenseChart({
   if (data.length < 2) return null
 
   const W = 360, H = 290
-  const padL = 52, padR = 16, padT = 30, padB = 50
+  const padL = 52, padR = 16, padT = 24, padB = 60
   const chartW = W - padL - padR
   const chartH = H - padT - padB
+  const xInset = 10  // left/right inset so first/last dots don't sit on the y-axis or right edge
 
   const maxVal = Math.max(...data.flatMap((d) => [d.revenue, d.expense]), 1)
   const niceMax = Math.ceil(maxVal / 1000) * 1000 || 1000
-  const xScale = (i: number) => padL + (i / (data.length - 1)) * chartW
+  const xScale = (i: number) =>
+    data.length === 1
+      ? padL + chartW / 2
+      : padL + xInset + (i / (data.length - 1)) * (chartW - xInset * 2)
   const yScale = (v: number) => padT + chartH - (v / niceMax) * chartH
 
   const makePath = (key: 'revenue' | 'expense') =>
@@ -393,7 +397,7 @@ function RevenueExpenseChart({
 
         {/* Axis labels */}
         <text x={10} y={padT + chartH / 2} textAnchor="middle" fontSize="9" fill="#9ca3af" fontFamily="sans-serif" transform={`rotate(-90 10 ${padT + chartH / 2})`}>Amount ($)</text>
-        <text x={padL + chartW / 2} y={H - 1} textAnchor="middle" fontSize="9" fill="#9ca3af" fontFamily="sans-serif">
+        <text x={padL + chartW / 2} y={H - 2} textAnchor="middle" fontSize="9" fill="#9ca3af" fontFamily="sans-serif">
           {pov === 'daily' ? 'Date' : pov === 'weekly' ? 'Week' : 'Month'}
         </text>
 
@@ -404,7 +408,7 @@ function RevenueExpenseChart({
               x1={padL} y1={yScale(v)} x2={padL + chartW} y2={yScale(v)}
               stroke={v === 0 ? '#e5e7eb' : '#f3f4f6'} strokeWidth={v === 0 ? 1.5 : 1}
             />
-            <text x={padL - 7} y={yScale(v) + 4} textAnchor="end" fontSize="10" fill="#9ca3af" fontFamily="sans-serif">
+            <text x={padL - 7} y={v === niceMax ? yScale(v) - 2 : yScale(v) + 4} textAnchor="end" fontSize="10" fill="#9ca3af" fontFamily="sans-serif">
               {fmtY(v)}
             </text>
           </g>
@@ -425,9 +429,9 @@ function RevenueExpenseChart({
           const cyE = yScale(d.expense)
           const labelR = fmtY(d.revenue)
           const labelE = fmtY(d.expense)
-          // Revenue label: above dot (clamped so it doesn't overlap y-axis ticks at top)
+          // Revenue label: above dot — allowed into top margin so it never collides with y-axis max tick
           // Expense label: below dot, but above dot when value is 0 (avoids x-axis overlap)
-          const revLabelY = Math.max(padT + 14, cyR - 10)
+          const revLabelY = Math.max(12, cyR - 12)
           const expLabelY = d.expense <= 0 ? cyE - 8 : Math.min(padT + chartH - 14, cyE + 20)
           return (
             <g key={i}>
@@ -444,11 +448,11 @@ function RevenueExpenseChart({
           if (i % xStep !== 0 && i !== data.length - 1) return null
           return (
             <g key={i}>
-              <text x={xScale(i)} y={H - (d.dayOfWeek ? 20 : 8)} textAnchor="middle" fontSize="10" fill="#9ca3af" fontFamily="sans-serif">
+              <text x={xScale(i)} y={H - (d.dayOfWeek ? 32 : 18)} textAnchor="middle" fontSize="10" fill="#9ca3af" fontFamily="sans-serif">
                 {d.label}
               </text>
               {d.dayOfWeek && (
-                <text x={xScale(i)} y={H - 8} textAnchor="middle" fontSize="9" fill="#9ca3af" fontFamily="sans-serif">
+                <text x={xScale(i)} y={H - 18} textAnchor="middle" fontSize="9" fill="#9ca3af" fontFamily="sans-serif">
                   {d.dayOfWeek}
                 </text>
               )}
@@ -504,12 +508,14 @@ function LunchDinnerBarChart({
   if (data.length === 0) return null
 
   const W = 360, H = 240
-  const padL = 52, padR = 16, padT = 24, padB = 36
+  const padL = 52, padR = 16, padT = 22, padB = 50
   const chartW = W - padL - padR
   const chartH = H - padT - padB
+  const xInset = 10
   const n = data.length
-  const barW = Math.max(4, Math.min(28, (chartW / n) * 0.65))
-  const gap = chartW / n
+  const usableW = chartW - xInset * 2
+  const barW = Math.max(4, Math.min(28, (usableW / n) * 0.65))
+  const gap = usableW / n
 
   const maxVal = Math.max(...data.map((d) =>
     shift === 'am' ? d.lunch : shift === 'pm' ? d.dinner : d.lunch + d.dinner
@@ -538,7 +544,7 @@ function LunchDinnerBarChart({
       <svg viewBox={`0 0 ${W} ${H}`} className="w-full" style={{ height: H }}>
         {/* Axis labels */}
         <text x={10} y={padT + chartH / 2} textAnchor="middle" fontSize="9" fill="#9ca3af" fontFamily="sans-serif" transform={`rotate(-90 10 ${padT + chartH / 2})`}>Amount ($)</text>
-        <text x={padL + chartW / 2} y={H - 1} textAnchor="middle" fontSize="9" fill="#9ca3af" fontFamily="sans-serif">
+        <text x={padL + chartW / 2} y={H - 2} textAnchor="middle" fontSize="9" fill="#9ca3af" fontFamily="sans-serif">
           {pov === 'daily' ? 'Date' : pov === 'weekly' ? 'Week' : 'Month'}
         </text>
 
@@ -546,13 +552,13 @@ function LunchDinnerBarChart({
         {yTicks.map((v) => (
           <g key={v}>
             <line x1={padL} y1={yScale(v)} x2={padL + chartW} y2={yScale(v)} stroke={v === 0 ? '#e5e7eb' : '#f3f4f6'} strokeWidth={v === 0 ? 1.5 : 1} />
-            <text x={padL - 6} y={yScale(v) + 4} textAnchor="end" fontSize="9" fill="#9ca3af" fontFamily="sans-serif">{fmtY(v)}</text>
+            <text x={padL - 6} y={v === niceMax ? yScale(v) - 2 : yScale(v) + 4} textAnchor="end" fontSize="9" fill="#9ca3af" fontFamily="sans-serif">{fmtY(v)}</text>
           </g>
         ))}
 
         {/* Bars */}
         {data.map((d, i) => {
-          const cx = padL + i * gap + gap / 2
+          const cx = padL + xInset + i * gap + gap / 2
           const x = cx - barW / 2
 
           const lunchH = shift !== 'pm' ? yH(d.lunch)  : 0
@@ -583,8 +589,8 @@ function LunchDinnerBarChart({
                   )}
                 </>
               )}
-              {/* Total label above bar */}
-              <text x={cx} y={Math.max(padT + 10, baseY - lunchH - dinnerH - 4)} textAnchor="middle" fontSize="9" fill="#374151" fontWeight="600" fontFamily="sans-serif">
+              {/* Total label above bar — allowed into top margin so it doesn't collide with y-axis max tick */}
+              <text x={cx} y={Math.max(10, baseY - lunchH - dinnerH - 6)} textAnchor="middle" fontSize="9" fill="#374151" fontWeight="600" fontFamily="sans-serif">
                 {fmtY((shift === 'am' ? d.lunch : shift === 'pm' ? d.dinner : d.lunch + d.dinner))}
               </text>
             </g>
@@ -594,14 +600,14 @@ function LunchDinnerBarChart({
         {/* X-axis labels */}
         {data.map((d, i) => {
           if (i % xStep !== 0 && i !== n - 1) return null
-          const bx = padL + i * gap + gap / 2
+          const bx = padL + xInset + i * gap + gap / 2
           return (
             <g key={i}>
-              <text x={bx} y={H - (d.dayOfWeek ? 18 : 6)} textAnchor="middle" fontSize="9" fill="#9ca3af" fontFamily="sans-serif">
+              <text x={bx} y={H - (d.dayOfWeek ? 30 : 16)} textAnchor="middle" fontSize="9" fill="#9ca3af" fontFamily="sans-serif">
                 {d.label}
               </text>
               {d.dayOfWeek && (
-                <text x={bx} y={H - 6} textAnchor="middle" fontSize="8" fill="#9ca3af" fontFamily="sans-serif">
+                <text x={bx} y={H - 16} textAnchor="middle" fontSize="8" fill="#9ca3af" fontFamily="sans-serif">
                   {d.dayOfWeek}
                 </text>
               )}
