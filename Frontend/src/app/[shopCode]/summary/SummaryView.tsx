@@ -425,9 +425,10 @@ function RevenueExpenseChart({
           const cyE = yScale(d.expense)
           const labelR = fmtY(d.revenue)
           const labelE = fmtY(d.expense)
-          // Revenue label: above dot; Expense label: below dot
-          const revLabelY = cyR - 10
-          const expLabelY = cyE + 20
+          // Revenue label: above dot (clamped so it doesn't overlap y-axis ticks at top)
+          // Expense label: below dot, but above dot when value is 0 (avoids x-axis overlap)
+          const revLabelY = Math.max(padT + 14, cyR - 10)
+          const expLabelY = d.expense <= 0 ? cyE - 8 : Math.min(padT + chartH - 14, cyE + 20)
           return (
             <g key={i}>
               <circle cx={cx} cy={cyR} r="4" fill="white" stroke="#22c55e" strokeWidth="2" />
@@ -583,7 +584,7 @@ function LunchDinnerBarChart({
                 </>
               )}
               {/* Total label above bar */}
-              <text x={cx} y={baseY - lunchH - dinnerH - 4} textAnchor="middle" fontSize="9" fill="#374151" fontWeight="600" fontFamily="sans-serif">
+              <text x={cx} y={Math.max(padT + 10, baseY - lunchH - dinnerH - 4)} textAnchor="middle" fontSize="9" fill="#374151" fontWeight="600" fontFamily="sans-serif">
                 {fmtY((shift === 'am' ? d.lunch : shift === 'pm' ? d.dinner : d.lunch + d.dinner))}
               </text>
             </g>
@@ -727,7 +728,7 @@ function TotalsGrid({ totals }: { totals: Totals }) {
           </div>
         </div>
       )}
-      <div className="absolute top-2.5 right-[7.6rem] z-10">
+      <div className="absolute top-2.5 right-[8.5rem] z-10">
         <button
           type="button"
           onClick={() => setShowInfo(true)}

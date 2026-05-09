@@ -2,7 +2,7 @@
  * Database layer — wraps Google Sheets
  */
 
-import { getSheetData, getSheetDataRaw, setSheetData, setSheetDataRaw, applyRowColors, applyTimeRecordFormatting, setSheetDataUserEntered, applyFormattingRules, buildSheetFormatRequests, getSheetMeta, buildUnmergeRequests, getSheetIdByName, batchUpdateSheet, clearSheetMerges, hideInternalSheets, applyEmployeeSheetFormatting, applyMasterEmployeeFormatting, beginSyncMetaCache, clearSyncMetaCache, type EmpCategory } from './sheets'
+import { getSheetData, getSheetDataRaw, setSheetData, setSheetDataRaw, applyRowColors, applyTimeRecordFormatting, setSheetDataUserEntered, appendSheetRows, applyFormattingRules, buildSheetFormatRequests, getSheetMeta, buildUnmergeRequests, getSheetIdByName, batchUpdateSheet, clearSheetMerges, hideInternalSheets, applyEmployeeSheetFormatting, applyMasterEmployeeFormatting, beginSyncMetaCache, clearSyncMetaCache, type EmpCategory } from './sheets'
 import type { SheetFormatRule } from './sheets'
 import type {
   Employee,
@@ -1092,7 +1092,7 @@ const DEFAULT_DELIVERY_RATES: DeliveryRate[] = [
   { maxKm: 9999, fee: 8.00 },
 ]
 
-const CONFIG_HEADERS = ['key', 'value']
+const CONFIG_HEADERS = ['key', 'value', 'updatedAt']
 
 async function getConfigRows(shopCode: string): Promise<Array<Record<string, string>>> {
   const { sid, tab } = await getShopDb(shopCode)
@@ -1103,17 +1103,17 @@ async function getConfigRows(shopCode: string): Promise<Array<Record<string, str
   }
 }
 
-async function saveConfigRows(shopCode: string, rows: Array<[string, string]>): Promise<void> {
+async function saveConfigRows(shopCode: string, rows: Array<[string, string, string?]>): Promise<void> {
   const { sid, tab } = await getShopDb(shopCode)
-  await setSheetData(tab('config'), CONFIG_HEADERS, rows, sid)
+  await setSheetData(tab('config'), CONFIG_HEADERS, rows.map(([k, v, t]) => [k, v, t ?? '']), sid)
 }
 
 export async function listDeliveryRates(shopCode: string): Promise<DeliveryRate[]> {
   try {
     const rows = await getConfigRows(shopCode)
-    const row = rows.find((r) => r.key === 'delivery_rates')
-    if (!row) return DEFAULT_DELIVERY_RATES
-    return JSON.parse(row.value) as DeliveryRate[]
+    const rateRows = rows.filter((r) => r.key === 'delivery_rates')
+    if (rateRows.length === 0) return DEFAULT_DELIVERY_RATES
+    return JSON.parse(rateRows[rateRows.length - 1].value) as DeliveryRate[]
   } catch {
     return DEFAULT_DELIVERY_RATES
   }
@@ -1121,9 +1121,43 @@ export async function listDeliveryRates(shopCode: string): Promise<DeliveryRate[
 
 export async function saveDeliveryRates(shopCode: string, rates: DeliveryRate[]): Promise<void> {
   const existing = await getConfigRows(shopCode)
-  const kept = existing.filter((r) => r.key !== 'delivery_rates').map((r): [string, string] => [r.key, r.value])
-  kept.push(['delivery_rates', JSON.stringify(rates)])
-  await saveConfigRows(shopCode, kept)
+  const { sid, tab } = await getShopDb(shopCode)
+  const now = new Date()
+  const pad = (n: number) => String(n).padStart(2, '0')
+  const updatedAt = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())} ${pad(now.getHours())}:${pad(now.getMinutes())}:${pad(now.getSeconds())}`
+  const rows = existing.map((r) => [r.key, r.value, r.updatedAt ?? ''] as [string, string, string])
+  rows.push(['delivery_rates', JSON.stringify(rates), updatedAt])
+  await setSheetData(tab('config'), CONFIG_HEADERS, rows, sid)
+  const suppliers = await listDeliverySuppliers(shopCode)
+  await updateHeaderSheet(shopCode, rates, suppliers)
+}
+
+async function updateHeaderSheet(shopCode: string, rates: DeliveryRate[], suppliers: DeliverySupplier[]): Promise<void> {
+  const { sid } = await getShopDb(shopCode)
+  const lo = incomeLayout(rates.length, suppliers)
+  const hdr0 = makeIncomeHdr0(lo, rates, suppliers)
+  const hdr1 = makeIncomeHdr1(lo, suppliers)
+  const ts = makeSyncTimestamp()
+
+  // Preserve sync section (rows 4-6, 0-indexed rows 3-5)
+  let syncTs = ''
+  let syncHdr0: (string | number | null)[] = []
+  let syncHdr1: (string | number | null)[] = []
+  try {
+    const existing = await getSheetDataRaw('Header', sid)
+    if (existing.length >= 4) syncTs   = String(existing[3]?.[0] ?? '')
+    if (existing.length >= 5) syncHdr0 = existing[4] as (string | number | null)[]
+    if (existing.length >= 6) syncHdr1 = existing[5] as (string | number | null)[]
+  } catch { /* not yet created */ }
+
+  await setSheetDataUserEntered('Header', [
+    [ts],       // row 1: rates timestamp
+    hdr0,       // row 2: rates hdr0
+    hdr1,       // row 3: rates hdr1
+    [syncTs],   // row 4: sync timestamp (preserved)
+    syncHdr0,   // row 5: sync hdr0 (preserved)
+    syncHdr1,   // row 6: sync hdr1 (preserved)
+  ], sid)
 }
 
 export async function getDeliveryFee(shopCode: string): Promise<number> {
@@ -1139,8 +1173,8 @@ export async function getDeliveryFee(shopCode: string): Promise<number> {
 
 export async function saveDeliveryFee(shopCode: string, fee: number): Promise<void> {
   const existing = await getConfigRows(shopCode)
-  const kept = existing.filter((r) => r.key !== 'delivery_fee').map((r): [string, string] => [r.key, r.value])
-  kept.push(['delivery_fee', String(fee)])
+  const kept = existing.filter((r) => r.key !== 'delivery_fee').map((r): [string, string, string] => [r.key, r.value, r.updatedAt ?? ''])
+  kept.push(['delivery_fee', String(fee), ''])
   await saveConfigRows(shopCode, kept)
 }
 
@@ -1157,14 +1191,14 @@ export async function getExtraRate(shopCode: string): Promise<number> {
 
 export async function saveExtraRate(shopCode: string, rate: number): Promise<void> {
   const existing = await getConfigRows(shopCode)
-  const kept = existing.filter((r) => r.key !== 'extra_rate').map((r): [string, string] => [r.key, r.value])
-  kept.push(['extra_rate', String(rate)])
+  const kept = existing.filter((r) => r.key !== 'extra_rate').map((r): [string, string, string] => [r.key, r.value, r.updatedAt ?? ''])
+  kept.push(['extra_rate', String(rate), ''])
   await saveConfigRows(shopCode, kept)
 }
 
 // ─── Delivery Suppliers ───────────────────────────────────────────────────────
 
-const SUPPLIER_HEADERS = ['id', 'name', 'hasOnline', 'hasCards', 'hasCash']
+const SUPPLIER_HEADERS = ['id', 'name', 'hasOnline', 'hasCards', 'hasCash', 'updatedAt']
 
 export const DEFAULT_SUPPLIERS: DeliverySupplier[] = [
   { id: 'lfy',      name: 'LFY',      hasOnline: true,  hasCards: true,  hasCash: true  },
@@ -1172,18 +1206,27 @@ export const DEFAULT_SUPPLIERS: DeliverySupplier[] = [
   { id: 'doordash', name: 'DoorDash', hasOnline: true,  hasCards: false, hasCash: false },
 ]
 
+function parseSupplierRows(rows: Record<string, string>[]): DeliverySupplier[] {
+  return rows.map(r => ({
+    id: r.id,
+    name: r.name,
+    hasOnline: r.hasOnline === 'true',
+    hasCards:  r.hasCards  === 'true',
+    hasCash:   r.hasCash   === 'true',
+  }))
+}
+
 export async function listDeliverySuppliers(shopCode: string): Promise<DeliverySupplier[]> {
   try {
     const { sid, tab } = await getShopDb(shopCode)
     const rows = await getSheetData(tab('delivery_suppliers'), sid)
     if (rows.length === 0) return DEFAULT_SUPPLIERS
-    return rows.map(r => ({
-      id: r.id,
-      name: r.name,
-      hasOnline: r.hasOnline === 'true',
-      hasCards:  r.hasCards  === 'true',
-      hasCash:   r.hasCash   === 'true',
-    }))
+    const tsRows = rows.filter(r => r.updatedAt)
+    if (tsRows.length > 0) {
+      const latestTs = tsRows.reduce((max, r) => r.updatedAt > max ? r.updatedAt : max, '')
+      return parseSupplierRows(rows.filter(r => r.updatedAt === latestTs))
+    }
+    return parseSupplierRows(rows)
   } catch {
     return DEFAULT_SUPPLIERS
   }
@@ -1191,8 +1234,13 @@ export async function listDeliverySuppliers(shopCode: string): Promise<DeliveryS
 
 export async function saveDeliverySuppliers(shopCode: string, suppliers: DeliverySupplier[]): Promise<void> {
   const { sid, tab } = await getShopDb(shopCode)
-  const rows = suppliers.map(s => [s.id, s.name, String(s.hasOnline), String(s.hasCards), String(s.hasCash)])
-  await setSheetData(tab('delivery_suppliers'), SUPPLIER_HEADERS, rows, sid)
+  const now = new Date()
+  const pad = (n: number) => String(n).padStart(2, '0')
+  const updatedAt = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())} ${pad(now.getHours())}:${pad(now.getMinutes())}:${pad(now.getSeconds())}`
+  const existing = await getSheetData(tab('delivery_suppliers'), sid)
+  const existingRows = existing.map(r => [r.id, r.name, r.hasOnline ?? '', r.hasCards ?? '', r.hasCash ?? '', r.updatedAt ?? ''])
+  const newRows = suppliers.map(s => [s.id, s.name, String(s.hasOnline), String(s.hasCards), String(s.hasCash), updatedAt])
+  await setSheetData(tab('delivery_suppliers'), SUPPLIER_HEADERS, [...existingRows, ...newRows], sid)
 }
 
 // ─── Wage Payments (TAX / CASH PAID per week per employee) ───────────────────
@@ -1518,6 +1566,22 @@ function colLetter(n: number): string {
     c = Math.floor(c / 26) - 1
   }
   return s
+}
+
+function makeSyncTimestamp(): string {
+  const now = new Date()
+  const pad = (n: number) => String(n).padStart(2, '0')
+  return `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())} ${pad(now.getHours())}:${pad(now.getMinutes())}:${pad(now.getSeconds())}`
+}
+
+function hdrSame(gen: (string | number | null)[], stored: unknown[]): boolean {
+  const norm = (v: unknown) =>
+    v === null || v === undefined || v === '' ? '' : String(v).replace(/[–—]/g, '-').trim()
+  const len = Math.max(gen.length, stored.length)
+  for (let i = 0; i < len; i++) {
+    if (norm(gen[i]) !== norm((stored as unknown[])[i])) return false
+  }
+  return true
 }
 
 /** Build dynamic column layout for the Income sheet based on delivery tiers and suppliers. */
@@ -2017,6 +2081,21 @@ export async function syncIncomeSheet(shopCode: string, ctx?: SyncContext): Prom
   ]
   const lo = incomeLayout(rates.length, suppliers)
 
+  const newHdr0 = makeIncomeHdr0(lo, rates, suppliers)
+  const newHdr1 = makeIncomeHdr1(lo, suppliers)
+  const syncTimestamp = makeSyncTimestamp()
+
+  // Check if delivery config changed since last Income sync → append new section if so
+  let needsNewSection = false
+  try {
+    const headerRaw = await getSheetDataRaw('Header', sid)
+    if (headerRaw.length >= 5) {
+      needsNewSection = !hdrSame(newHdr0, headerRaw[4] ?? []) || !hdrSame(newHdr1, headerRaw[5] ?? [])
+    }
+  } catch { /* no Header sheet yet → full rewrite */ }
+
+  const currentWeekStr = getMondayStr(new Date().toISOString().split('T')[0])
+
   const weekMap = new Map<string, RevenueEntry[]>()
   for (const e of revenue) {
     const mon = getMondayStr(e.date)
@@ -2034,25 +2113,42 @@ export async function syncIncomeSheet(shopCode: string, ctx?: SyncContext): Prom
   for (const [year, yearWeeks] of [...incomeYearGroups.entries()].sort(([a], [b]) => a - b)) {
   const sheetName = INCOME_SHEET(year)
 
-  // One header block at top; all weeks flow underneath
-  const rows: (string | number | null)[][] = [makeIncomeHdr0(lo, rates, suppliers), makeIncomeHdr1(lo, suppliers)]
+  // Determine write mode: full rewrite vs append new section
+  let rowBase = 0  // 0-indexed offset into the sheet for the new section
+  let weeksToWrite = yearWeeks
+  if (needsNewSection) {
+    try {
+      const existing = await getSheetDataRaw(sheetName, sid)
+      if (existing.length > 0) {
+        rowBase = existing.length + 1  // blank separator at existing.length, section starts at existing.length+1
+        weeksToWrite = yearWeeks.filter(w => w >= currentWeekStr)
+      }
+    } catch { /* sheet doesn't exist → rowBase stays 0, full write */ }
+  }
+  if (weeksToWrite.length === 0 && rowBase > 0) continue  // nothing new to append for this year
+
+  // hdr0 with sync timestamp stamped in cell A1
+  const hdr0WithTs = [...newHdr0]
+  hdr0WithTs[0] = `Updated: ${syncTimestamp}`
+
+  const rows: (string | number | null)[][] = [hdr0WithTs, newHdr1]
   const fmtRules: SheetFormatRule[] = []
-  const closedFmtRules: SheetFormatRule[] = []  // applied after applyIncomeFullFormat (which does a white reset)
+  const closedFmtRules: SheetFormatRule[] = []
   const sumRowIndices: number[] = []
 
-  for (let wi = 0; wi < yearWeeks.length; wi++) {
-    const monday = yearWeeks[wi]
+  for (let wi = 0; wi < weeksToWrite.length; wi++) {
+    const monday = weeksToWrite[wi]
     const weekDates = getWeekDates(monday)
     const weekEntries = weekMap.get(monday)!
-    const s1 = rows.length + 1   // 1-based first data row of this week
+    const s1 = rows.length + 1 + rowBase   // 1-based first data row of this week
 
     // Per-week tracking (running totals reset each week)
     let prevDataRn: number | null = null  // row number of the previous day (1-based)
 
     for (let di = 0; di < 7; di++) {
       const date = weekDates[di]
-      const rn = rows.length + 1   // 1-based sheet row number
-      const entry = weekEntries.find((e) => e.date === date)
+      const rn = rows.length + 1 + rowBase   // 1-based sheet row number
+      const entry = weekEntries?.find((e) => e.date === date)
 
       const l    = entry?.lunch    ?? emptyMeal()
       const dn   = entry?.dinner   ?? emptyMeal()
@@ -2226,8 +2322,8 @@ export async function syncIncomeSheet(shopCode: string, ctx?: SyncContext): Prom
     }
 
     // ── SUM row ──────────────────────────────────────────────────────────────
-    const sr    = rows.length + 1   // 1-based row number of SUM row
-    const s2    = s1 + 6            // 1-based last data row (Sunday)
+    const sr    = rows.length + 1 + rowBase   // 1-based row number of SUM row
+    const s2    = s1 + 6                      // 1-based last data row (Sunday)
 
     const sumRow: (string | number | null)[] = new Array(lo.totalCols).fill('')
     sumRow[0]       = 'Sum'
@@ -2254,7 +2350,7 @@ export async function syncIncomeSheet(shopCode: string, ctx?: SyncContext): Prom
     sumRowIndices.push(rows.length - 1)
   }
 
-  // ── Global number formats ─────────────────────────────────────────────────
+  // ── Global number formats (relative to section start; offset applied below) ─
   const totalRows = rows.length
   fmtRules.push({ startRow: 2, endRow: totalRows, startCol: 2,          endCol: lo.delTotal + 1,  numberFormat: INT_FORMAT })
   fmtRules.push({ startRow: 2, endRow: totalRows, startCol: lo.lEftpos, endCol: lo.lCash    + 1,  numberFormat: AUD_FORMAT })
@@ -2264,25 +2360,51 @@ export async function syncIncomeSheet(shopCode: string, ctx?: SyncContext): Prom
   fmtRules.push({ startRow: 2, endRow: totalRows, startCol: 1,          endCol: 2,                numberFormat: DATE_FORMAT })
   fmtRules.push({ startRow: 2, endRow: totalRows, startCol: lo.sDate,   endCol: lo.sDate    + 1,  numberFormat: DATE_FORMAT })
 
-  await setSheetDataUserEntered(sheetName, rows, sid)
+  const applyOffset = (rules: SheetFormatRule[]) =>
+    rowBase > 0 ? rules.map(r => ({ ...r, startRow: r.startRow + rowBase, endRow: r.endRow + rowBase })) : rules
 
-  // Merge all formatting into 2 batchUpdate calls (was 4):
-  //   Batch 1: unmerge + white-reset + number formats + full color/border/merge/width layout
-  //   Batch 2: closed-day red overlay (must come after the white reset in batch 1)
+  if (rowBase > 0) {
+    // Append new section: blank separator + hdr + data rows
+    const blankRow = new Array(lo.totalCols).fill('') as (string | number | null)[]
+    await appendSheetRows(sheetName, rowBase, [blankRow, ...rows], sid)
+  } else {
+    await setSheetDataUserEntered(sheetName, rows, sid)
+  }
+
   const meta = await getSheetMeta(sid, sheetName)
   if (meta) {
     const { sheetId, gridRowCount } = meta
-    const [unmergeReqs, incomeReqs] = await Promise.all([
-      buildUnmergeRequests(sid, sheetId),
-      Promise.resolve(buildIncomeFullFormatRequests(sheetId, lo, rows.length, sumRowIndices, suppliers, 0)),
-    ])
-    const fmtReqs = buildSheetFormatRequests(sheetId, fmtRules, totalRows, gridRowCount)
-    await batchUpdateSheet(sid, [...unmergeReqs, ...fmtReqs, ...incomeReqs])
+    const incomeReqs = buildIncomeFullFormatRequests(sheetId, lo, rows.length, sumRowIndices, suppliers, rowBase)
+    if (rowBase > 0) {
+      // Append: skip unmerge (preserve existing section), no row-0 clear, offset all format rules
+      const fmtReqs = buildSheetFormatRequests(sheetId, applyOffset(fmtRules))
+      await batchUpdateSheet(sid, [...fmtReqs, ...incomeReqs])
+    } else {
+      const [unmergeReqs] = await Promise.all([buildUnmergeRequests(sid, sheetId)])
+      const fmtReqs = buildSheetFormatRequests(sheetId, fmtRules, totalRows, gridRowCount)
+      await batchUpdateSheet(sid, [...unmergeReqs, ...fmtReqs, ...incomeReqs])
+    }
     if (closedFmtRules.length > 0) {
-      await batchUpdateSheet(sid, buildSheetFormatRequests(sheetId, closedFmtRules))
+      await batchUpdateSheet(sid, buildSheetFormatRequests(sheetId, applyOffset(closedFmtRules)))
     }
   }
   } // end year loop
+
+  // Update Header sheet sync section (rows 4-6) after sync
+  try {
+    const existing = await getSheetDataRaw('Header', sid)
+    const ratesTs   = String(existing[0]?.[0] ?? '')
+    const ratesHdr0 = (existing[1] ?? []) as (string | number | null)[]
+    const ratesHdr1 = (existing[2] ?? []) as (string | number | null)[]
+    await setSheetDataUserEntered('Header', [
+      [ratesTs],
+      ratesHdr0,
+      ratesHdr1,
+      [syncTimestamp],
+      newHdr0,
+      newHdr1,
+    ], sid)
+  } catch { /* ignore — Header sheet may not exist in some setups */ }
 }
 
 // ── Wage 2026 ─────────────────────────────────────────────────────────────────
